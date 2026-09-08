@@ -1,57 +1,66 @@
-# Gym + Fútbol — PWA
+# Gym + Fútbol — Supabase Sync
 
-Aplicación web simple para registrar gimnasio, fatiga y sensaciones de partido, con foco en llegar bien al fútbol del sábado.
+PWA simple para registrar gimnasio, estado diario y sensaciones de partido. Esta versión agrega login y sincronización entre celular y PC con Supabase.
 
-## Incluye
-- Plan semanal fijo.
-- Rutinas de martes, jueves y viernes.
-- Registro de kilos, repeticiones y RIR.
-- Sueño, energía, fatiga y dolor.
-- Recomendación simple de ajuste de carga.
-- Evaluación del partido del sábado.
-- Historial guardado con `localStorage`.
-- PWA instalable y soporte offline básico.
+## Arquitectura
+- Vercel: frontend estático + `/api/config` para exponer únicamente las credenciales públicas de Supabase.
+- Supabase Auth: login por email/contraseña.
+- Supabase Postgres: `readiness`, `workouts`, `match_reviews`.
+- RLS: cada usuario solo puede leer/escribir sus propias filas.
+- `localStorage`: caché y respaldo local. Si estás offline, los cambios quedan locales y se sincronizan al recuperar conexión.
 
-## Probarla localmente
-Por el service worker, conviene servirla por HTTP en lugar de abrir `index.html` directamente.
+## 1. Crear las tablas y políticas en Supabase
+1. Abrí Supabase Dashboard.
+2. Entrá a tu proyecto.
+3. Abrí **SQL Editor** > **New query**.
+4. Copiá todo el contenido de `supabase/schema.sql`.
+5. Ejecutá con **Run**.
 
-Con Python instalado:
+## 2. Verificar variables en Vercel
+En **Project > Environment Variables** ya deberían existir por la integración:
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
+
+`api/config.js` usa únicamente esas variables públicas. Nunca expone `SUPABASE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ni `SUPABASE_JWT_SECRET`.
+
+## 3. Configurar Auth en Supabase
+En **Authentication > URL Configuration**:
+- **Site URL**: tu URL de producción, por ejemplo `https://nico-fit-nine.vercel.app`
+- En **Redirect URLs**, agregá también esa URL (podés agregar `https://nico-fit-nine.vercel.app/**`).
+
+Por defecto Supabase puede requerir confirmación por email al crear una cuenta. Si es así, confirmá el correo antes de iniciar sesión.
+
+## 4. Publicar
+Reemplazá los archivos del repo por esta versión y ejecutá:
 
 ```bash
-python -m http.server 8000
-```
-
-Luego abrí `http://localhost:8000`.
-
-## Subir a GitHub
-1. Creá un repositorio vacío en GitHub, por ejemplo `gym-futbol-app`.
-2. No agregues README, licencia ni `.gitignore` desde GitHub porque este proyecto ya los incluye.
-3. Desde una terminal dentro de esta carpeta:
-
-```bash
-git init
 git add .
-git commit -m "Primera version Gym Futbol PWA"
-git branch -M main
-git remote add origin https://github.com/TU-USUARIO/gym-futbol-app.git
-git push -u origin main
+git commit -m "Agrego login y sincronizacion con Supabase"
+git push
 ```
 
-## Publicar en Vercel
-1. Entrá a Vercel e iniciá sesión con GitHub.
-2. Elegí **Add New > Project**.
-3. Importá `gym-futbol-app`.
-4. Dejá el proyecto como sitio estático, sin build command.
-5. Hacé clic en **Deploy**.
+Vercel debería desplegar automáticamente la nueva versión.
 
-Cada nuevo `git push` a la rama de producción generará un nuevo deployment en Vercel.
+## 5. Primera prueba recomendada
+1. Abrí la app publicada en la PC.
+2. Creá una cuenta o iniciá sesión.
+3. Guardá el estado del día o un ejercicio.
+4. Abrí la misma URL en el celular.
+5. Iniciá sesión con la misma cuenta.
+6. Tocá **Sincronizar ahora** si fuera necesario.
+7. El registro debería aparecer en ambos dispositivos.
 
-## Instalar en el celular
-### Android / Chrome
-Abrí la URL publicada y usá **Instalar app** o **Agregar a pantalla principal** desde el menú del navegador.
+## Datos existentes de V1
+Al iniciar sesión por primera vez, los datos que ya estaban en `localStorage` se mezclan con los datos remotos y se suben a Supabase. Si existe el mismo registro en ambos lados, se conserva el más reciente cuando hay marca de actualización disponible.
 
-### iPhone / Safari
-Abrí la URL en Safari, tocá **Compartir** y luego **Agregar a inicio**.
+## Desarrollo local
+La forma más fiel de probar las variables de Vercel es usar Vercel CLI:
 
-## Importante sobre los datos
-Los registros se guardan con `localStorage`, por lo que quedan vinculados a ese navegador/dispositivo. Una futura versión puede usar Supabase para sincronización y login.
+```bash
+npm i -g vercel
+vercel login
+vercel link
+vercel dev
+```
+
+Abrí la URL local que indique Vercel CLI.

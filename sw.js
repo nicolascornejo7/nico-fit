@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gym-futbol-v2';
+const CACHE_NAME = 'gym-futbol-v3';
 const APP_ASSETS = [
   './',
   './index.html',
@@ -23,6 +23,11 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+
+  // Nunca cachear API/config ni llamadas externas (por ejemplo Supabase/Auth).
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+
   event.respondWith(
     fetch(event.request)
       .then(response => {

@@ -19,10 +19,40 @@
         <p class="eyebrow">PLAN SEMANAL</p>
         <h1>Gym + Fútbol</h1>
       </div>
-      <button id="resetBtn" class="ghost">Reiniciar</button>
+      <div class="top-actions">
+        <span id="syncBadge" class="sync-badge local">Solo local</span>
+        <button id="logoutBtn" class="ghost hidden">Salir</button>
+      </div>
     </header>
 
     <main>
+      <section id="authSection" class="card auth-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">SINCRONIZACIÓN</p>
+            <h2>Tu cuenta</h2>
+          </div>
+          <span id="authStatus" class="muted">Conectando…</span>
+        </div>
+        <div id="signedOutBox">
+          <p class="muted auth-copy">Iniciá sesión con la misma cuenta en el celular y la PC para mantener tus registros sincronizados.</p>
+          <div class="auth-grid">
+            <label>Email<input id="email" type="email" autocomplete="email" placeholder="tu@email.com"></label>
+            <label>Contraseña<input id="password" type="password" autocomplete="current-password" minlength="6" placeholder="Mínimo 6 caracteres"></label>
+          </div>
+          <div class="auth-actions">
+            <button id="loginBtn" class="primary">Iniciar sesión</button>
+            <button id="signupBtn" class="ghost">Crear cuenta</button>
+          </div>
+          <p id="authMessage" class="advice"></p>
+        </div>
+        <div id="signedInBox" class="hidden">
+          <p class="account-line">Sesión iniciada como <strong id="userEmail"></strong>.</p>
+          <p class="muted">Los cambios se guardan localmente y se sincronizan con Supabase cuando hay conexión.</p>
+          <button id="syncNowBtn" class="ghost">Sincronizar ahora</button>
+        </div>
+      </section>
+
       <section id="todayCard" class="card hero"></section>
 
       <section class="card">
@@ -76,9 +106,16 @@
         </div>
         <div id="history" class="history"></div>
       </section>
+
+      <section class="card danger-card">
+        <div class="section-head"><h2>Datos</h2><span class="muted">Acción irreversible</span></div>
+        <p class="muted">Si tenés sesión iniciada, este botón borra también tus registros sincronizados de Supabase.</p>
+        <button id="resetBtn" class="danger-btn">Borrar todos mis registros</button>
+      </section>
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
