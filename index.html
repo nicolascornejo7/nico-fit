@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GymFutbol" />
+  <title>Gym + Fútbol</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PLAN SEMANAL</p>
+        <h1>Gym + Fútbol</h1>
+      </div>
+      <button id="resetBtn" class="ghost">Reiniciar</button>
+    </header>
+
+    <main>
+      <section id="todayCard" class="card hero"></section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Estado de hoy</h2>
+          <span class="muted">1 = bajo · 5 = excelente</span>
+        </div>
+        <div class="readiness-grid">
+          <label>Sueño <input id="sleep" type="range" min="1" max="5" value="3"><span id="sleepVal">3</span></label>
+          <label>Energía <input id="energy" type="range" min="1" max="5" value="3"><span id="energyVal">3</span></label>
+          <label>Fatiga muscular <input id="fatigue" type="range" min="1" max="5" value="3"><span id="fatigueVal">3</span></label>
+          <label>Dolor/molestias <input id="pain" type="range" min="0" max="10" value="0"><span id="painVal">0</span></label>
+        </div>
+        <button id="saveReadiness" class="primary">Guardar estado</button>
+        <p id="readinessAdvice" class="advice"></p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Semana</h2>
+          <span class="muted">Objetivo: rendir bien el sábado</span>
+        </div>
+        <div id="weekGrid" class="week-grid"></div>
+      </section>
+
+      <section id="workoutSection" class="card">
+        <div class="section-head">
+          <h2 id="workoutTitle">Entrenamiento</h2>
+          <span id="workoutTag" class="tag"></span>
+        </div>
+        <div id="exerciseList"></div>
+      </section>
+
+      <section id="matchSection" class="card hidden">
+        <div class="section-head"><h2>Evaluación del partido</h2><span class="tag">Sábado</span></div>
+        <div class="readiness-grid">
+          <label>Cómo llegaste físicamente <input id="matchEnergy" type="range" min="1" max="5" value="3"><span id="matchEnergyVal">3</span></label>
+          <label>Frescura de piernas <input id="legs" type="range" min="1" max="5" value="3"><span id="legsVal">3</span></label>
+          <label>Rendimiento general <input id="performance" type="range" min="1" max="5" value="3"><span id="performanceVal">3</span></label>
+        </div>
+        <textarea id="matchNotes" rows="3" placeholder="Notas: minutos jugados, molestias, sensaciones..."></textarea>
+        <button id="saveMatch" class="primary">Guardar partido</button>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><h2>Progreso</h2><span class="muted">Últimos registros</span></div>
+        <div class="stats">
+          <div><span class="stat-label">Entrenamientos</span><strong id="workoutCount">0</strong></div>
+          <div><span class="stat-label">Partidos evaluados</span><strong id="matchCount">0</strong></div>
+          <div><span class="stat-label">Estado promedio</span><strong id="avgReadiness">—</strong></div>
+        </div>
+        <div id="history" class="history"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
