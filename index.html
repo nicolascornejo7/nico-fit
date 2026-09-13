@@ -2,12 +2,12 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#07111f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="GymFutbol" />
-  <title>Gym + Fútbol</title>
+  <meta name="apple-mobile-web-app-title" content="Nico Fit" />
+  <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
@@ -16,26 +16,23 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">PLAN SEMANAL</p>
-        <h1>Gym + Fútbol</h1>
+        <p class="eyebrow">GYM + FÚTBOL</p>
+        <h1>Nico Fit</h1>
       </div>
       <div class="top-actions">
         <span id="syncBadge" class="sync-badge local">Solo local</span>
-        <button id="logoutBtn" class="ghost hidden">Salir</button>
+        <button id="profileBtn" class="icon-btn" aria-label="Cuenta">👤</button>
       </div>
     </header>
 
     <main>
-      <section id="authSection" class="card auth-card">
+      <section id="authSection" class="card auth-card hidden">
         <div class="section-head">
-          <div>
-            <p class="eyebrow">SINCRONIZACIÓN</p>
-            <h2>Tu cuenta</h2>
-          </div>
-          <span id="authStatus" class="muted">Conectando…</span>
+          <div><p class="eyebrow">CUENTA</p><h2>Sincronización</h2></div>
+          <button id="closeAuthBtn" class="icon-btn" aria-label="Cerrar">✕</button>
         </div>
         <div id="signedOutBox">
-          <p class="muted auth-copy">Iniciá sesión con la misma cuenta en el celular y la PC para mantener tus registros sincronizados.</p>
+          <p class="muted auth-copy">Usá la misma cuenta en el celular y la PC para mantener tus registros sincronizados.</p>
           <div class="auth-grid">
             <label>Email<input id="email" type="email" autocomplete="email" placeholder="tu@email.com"></label>
             <label>Contraseña<input id="password" type="password" autocomplete="current-password" minlength="6" placeholder="Mínimo 6 caracteres"></label>
@@ -48,74 +45,137 @@
         </div>
         <div id="signedInBox" class="hidden">
           <p class="account-line">Sesión iniciada como <strong id="userEmail"></strong>.</p>
-          <p class="muted">Los cambios se guardan localmente y se sincronizan con Supabase cuando hay conexión.</p>
-          <button id="syncNowBtn" class="ghost">Sincronizar ahora</button>
+          <p id="authStatus" class="muted">Sincronización activa</p>
+          <div class="auth-actions">
+            <button id="syncNowBtn" class="ghost">Sincronizar ahora</button>
+            <button id="logoutBtn" class="ghost">Cerrar sesión</button>
+          </div>
         </div>
       </section>
 
-      <section id="todayCard" class="card hero"></section>
+      <section id="homeView" class="view active-view">
+        <section id="dashboardCard" class="card dashboard-card"></section>
 
-      <section class="card">
-        <div class="section-head">
-          <h2>Estado de hoy</h2>
-          <span class="muted">1 = bajo · 5 = excelente</span>
-        </div>
-        <div class="readiness-grid">
-          <label>Sueño <input id="sleep" type="range" min="1" max="5" value="3"><span id="sleepVal">3</span></label>
-          <label>Energía <input id="energy" type="range" min="1" max="5" value="3"><span id="energyVal">3</span></label>
-          <label>Fatiga muscular <input id="fatigue" type="range" min="1" max="5" value="3"><span id="fatigueVal">3</span></label>
-          <label>Dolor/molestias <input id="pain" type="range" min="0" max="10" value="0"><span id="painVal">0</span></label>
-        </div>
-        <button id="saveReadiness" class="primary">Guardar estado</button>
-        <p id="readinessAdvice" class="advice"></p>
+        <section class="card">
+          <div class="section-head">
+            <div><p class="eyebrow">CHECK-IN</p><h2>¿Cómo estás hoy?</h2></div>
+            <span id="readinessMini" class="score-pill neutral">Sin registrar</span>
+          </div>
+          <div class="readiness-grid">
+            <label>Sueño <span id="sleepVal">3</span><input id="sleep" type="range" min="1" max="5" value="3"></label>
+            <label>Energía <span id="energyVal">3</span><input id="energy" type="range" min="1" max="5" value="3"></label>
+            <label>Frescura <span id="freshnessVal">3</span><input id="freshness" type="range" min="1" max="5" value="3"></label>
+            <label>Dolor/molestias <span id="painVal">0</span><input id="pain" type="range" min="0" max="10" value="0"></label>
+          </div>
+          <label class="field-label">Zona de molestia
+            <select id="painArea">
+              <option value="">Sin molestias / no aplica</option>
+              <option>Isquios</option><option>Aductor</option><option>Rodilla</option><option>Gemelo</option><option>Tobillo</option><option>Cuádriceps</option><option>Espalda</option><option>Otra</option>
+            </select>
+          </label>
+          <button id="saveReadiness" class="primary wide">Guardar estado</button>
+          <p id="readinessAdvice" class="advice"></p>
+        </section>
+
+        <section class="card">
+          <div class="section-head"><h2>Semana</h2><span class="muted">Objetivo: llegar fresco al sábado</span></div>
+          <div id="weekGrid" class="week-grid"></div>
+        </section>
+
+        <section id="footballQuickCard" class="card hidden">
+          <div class="section-head"><div><p class="eyebrow">CARGA DE FÚTBOL</p><h2 id="footballTitle">Sesión</h2></div><span class="tag">sRPE</span></div>
+          <div class="three-grid">
+            <label class="field-label">Duración (min)<input id="footballDuration" type="number" min="0" step="5" placeholder="90"></label>
+            <label class="field-label">Intensidad RPE (1–10)<input id="footballRpe" type="number" min="1" max="10" placeholder="7"></label>
+            <label class="field-label">Minutos jugados<input id="footballMinutes" type="number" min="0" step="5" placeholder="70"></label>
+          </div>
+          <p id="footballLoadPreview" class="metric-callout">Carga estimada: —</p>
+          <button id="saveFootball" class="primary wide">Guardar carga de fútbol</button>
+        </section>
+
+        <section id="matchSection" class="card hidden">
+          <div class="section-head"><div><p class="eyebrow">POST PARTIDO</p><h2>Evaluación del sábado</h2></div><span class="tag">Partido</span></div>
+          <div class="readiness-grid">
+            <label>Cómo llegaste <span id="matchEnergyVal">3</span><input id="matchEnergy" type="range" min="1" max="5" value="3"></label>
+            <label>Frescura de piernas <span id="legsVal">3</span><input id="legs" type="range" min="1" max="5" value="3"></label>
+            <label>Rendimiento <span id="performanceVal">3</span><input id="performance" type="range" min="1" max="5" value="3"></label>
+          </div>
+          <textarea id="matchNotes" rows="3" placeholder="Minutos, molestias, sensaciones, posición jugada..."></textarea>
+          <button id="saveMatch" class="primary wide">Guardar partido</button>
+        </section>
       </section>
 
-      <section class="card">
-        <div class="section-head">
-          <h2>Semana</h2>
-          <span class="muted">Objetivo: rendir bien el sábado</span>
-        </div>
-        <div id="weekGrid" class="week-grid"></div>
-      </section>
-
-      <section id="workoutSection" class="card">
-        <div class="section-head">
-          <h2 id="workoutTitle">Entrenamiento</h2>
-          <span id="workoutTag" class="tag"></span>
-        </div>
+      <section id="workoutView" class="view">
+        <section class="card workout-head-card">
+          <div class="section-head">
+            <div><p class="eyebrow">ENTRENAMIENTO</p><h2 id="workoutTitle">Rutina</h2></div>
+            <span id="workoutTag" class="tag"></span>
+          </div>
+          <div class="session-toolbar">
+            <div><span class="muted">Tiempo</span><strong id="sessionTimer">00:00</strong></div>
+            <button id="startSessionBtn" class="primary">Iniciar sesión</button>
+            <button id="finishSessionBtn" class="ghost hidden">Finalizar</button>
+          </div>
+          <p id="workoutGuidance" class="advice"></p>
+        </section>
         <div id="exerciseList"></div>
       </section>
 
-      <section id="matchSection" class="card hidden">
-        <div class="section-head"><h2>Evaluación del partido</h2><span class="tag">Sábado</span></div>
-        <div class="readiness-grid">
-          <label>Cómo llegaste físicamente <input id="matchEnergy" type="range" min="1" max="5" value="3"><span id="matchEnergyVal">3</span></label>
-          <label>Frescura de piernas <input id="legs" type="range" min="1" max="5" value="3"><span id="legsVal">3</span></label>
-          <label>Rendimiento general <input id="performance" type="range" min="1" max="5" value="3"><span id="performanceVal">3</span></label>
-        </div>
-        <textarea id="matchNotes" rows="3" placeholder="Notas: minutos jugados, molestias, sensaciones..."></textarea>
-        <button id="saveMatch" class="primary">Guardar partido</button>
+      <section id="progressView" class="view">
+        <section class="card">
+          <div class="section-head"><div><p class="eyebrow">PROGRESO</p><h2>Tu evolución</h2></div><span class="muted">Últimas semanas</span></div>
+          <div class="stats">
+            <div><span class="stat-label">Sesiones gym</span><strong id="workoutCount">0</strong></div>
+            <div><span class="stat-label">Carga fútbol 7d</span><strong id="footballLoad7">0</strong></div>
+            <div><span class="stat-label">Readiness</span><strong id="avgReadiness">—</strong></div>
+          </div>
+        </section>
+        <section class="card"><div class="section-head"><h2>Readiness</h2><span class="muted">0–100</span></div><canvas id="readinessChart" class="chart" height="190"></canvas></section>
+        <section class="card"><div class="section-head"><h2>Frescura al partido</h2><span class="muted">Últimos partidos</span></div><canvas id="matchChart" class="chart" height="190"></canvas></section>
+        <section class="card"><div class="section-head"><h2>Progresión de fuerza</h2><select id="exerciseSelect"></select></div><canvas id="strengthChart" class="chart" height="210"></canvas></section>
+        <section class="card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Sesiones y partidos</span></div><div id="history" class="history"></div></section>
       </section>
 
-      <section class="card">
-        <div class="section-head"><h2>Progreso</h2><span class="muted">Últimos registros</span></div>
-        <div class="stats">
-          <div><span class="stat-label">Entrenamientos</span><strong id="workoutCount">0</strong></div>
-          <div><span class="stat-label">Partidos evaluados</span><strong id="matchCount">0</strong></div>
-          <div><span class="stat-label">Estado promedio</span><strong id="avgReadiness">—</strong></div>
-        </div>
-        <div id="history" class="history"></div>
-      </section>
-
-      <section class="card danger-card">
-        <div class="section-head"><h2>Datos</h2><span class="muted">Acción irreversible</span></div>
-        <p class="muted">Si tenés sesión iniciada, este botón borra también tus registros sincronizados de Supabase.</p>
-        <button id="resetBtn" class="danger-btn">Borrar todos mis registros</button>
+      <section id="settingsView" class="view">
+        <section class="card">
+          <div class="section-head"><div><p class="eyebrow">AJUSTES</p><h2>Cuenta y datos</h2></div></div>
+          <p class="muted">La app guarda localmente y sincroniza con Supabase cuando iniciás sesión y hay conexión.</p>
+          <button id="openAuthSettings" class="ghost wide">Cuenta / sincronización</button>
+        </section>
+        <section class="card danger-card">
+          <div class="section-head"><h2>Borrar datos</h2><span class="muted">Irreversible</span></div>
+          <p class="muted">Con sesión iniciada, también se borran tus registros sincronizados de Supabase.</p>
+          <button id="resetBtn" class="danger-btn wide">Borrar todos mis registros</button>
+        </section>
       </section>
     </main>
   </div>
 
+  <div id="restOverlay" class="rest-overlay hidden" aria-live="polite">
+    <div class="rest-card">
+      <p class="eyebrow">DESCANSO</p><div id="restTime" class="rest-time">02:00</div>
+      <div class="rest-actions"><button id="addRestBtn" class="ghost">+30 s</button><button id="skipRestBtn" class="primary">Omitir</button></div>
+    </div>
+  </div>
+
+  <div id="sessionSummary" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <p class="eyebrow">SESIÓN COMPLETADA</p><h2>Buen trabajo</h2>
+      <div id="summaryMetrics" class="summary-metrics"></div>
+      <label class="field-label">Esfuerzo global (RPE 1–10)<input id="sessionRpe" type="number" min="1" max="10" value="7"></label>
+      <label class="field-label">Notas<textarea id="sessionNotes" rows="3" placeholder="Sensaciones, molestias, algo para recordar..."></textarea></label>
+      <button id="saveSessionSummary" class="primary wide">Guardar sesión</button>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" aria-label="Navegación principal">
+    <button data-view="homeView" class="nav-btn active"><span>⌂</span>Inicio</button>
+    <button data-view="workoutView" class="nav-btn"><span>🏋</span>Entrenar</button>
+    <button data-view="progressView" class="nav-btn"><span>↗</span>Progreso</button>
+    <button data-view="settingsView" class="nav-btn"><span>⚙</span>Ajustes</button>
+  </nav>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

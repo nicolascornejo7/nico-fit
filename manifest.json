@@ -1,13 +1,13 @@
 {
-  "name": "Gym + Fútbol",
-  "short_name": "GymFutbol",
+  "name": "Nico Fit · Gym + Fútbol",
+  "short_name": "Nico Fit",
   "description": "Registro simple de gimnasio, recuperación y sensaciones para rendir mejor en fútbol.",
   "lang": "es-AR",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#07111f",
-  "theme_color": "#0f172a",
+  "background_color": "#06101d",
+  "theme_color": "#07111f",
   "icons": [
     {
       "src": "icons/icon-192.png",
