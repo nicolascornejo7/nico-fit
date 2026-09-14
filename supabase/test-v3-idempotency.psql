@@ -1,0 +1,8 @@
+\set ON_ERROR_STOP on
+
+begin;
+\ir migration-v3-schema.sql
+\ir migration-v3-schema.sql
+rollback;
+
+\echo 'V3 migration is idempotent'
