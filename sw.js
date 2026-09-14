@@ -1,5 +1,5 @@
-const CACHE_NAME='nico-fit-v7';
-const APP_ASSETS=['./','./index.html','./styles.css','./manifest.json','./js/app.js','./js/plan.js','./js/store.js','./js/sync.js','./js/charts.js','./js/active-session.js','./js/exercise-identity.js','./js/metrics.js','./js/progression.js','./js/safe-dom.js','./js/validation.js','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE_NAME='nico-fit-v8';
+const APP_ASSETS=['./','./index.html','./styles.css','./manifest.json','./js/app.js','./js/plan.js','./js/store.js','./js/sync.js','./js/charts.js','./js/active-session.js','./js/exercise-identity.js','./js/metrics.js','./js/progression.js','./js/safe-dom.js','./js/validation.js','./js/v3/client-storage.js','./js/v3/feature-flags.js','./js/v3/indexed-db.js','./js/v3/repository.js','./js/v3/import-v2.js','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_ASSETS)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const url=new URL(e.request.url);if(url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE_NAME).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request).then(c=>c||caches.match('./index.html'))));});
