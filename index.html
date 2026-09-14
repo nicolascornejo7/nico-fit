@@ -41,7 +41,7 @@
             <button id="loginBtn" class="primary">Iniciar sesión</button>
             <button id="signupBtn" class="ghost">Crear cuenta</button>
           </div>
-          <p id="authMessage" class="advice"></p>
+          <p id="authMessage" class="advice" role="status" aria-live="polite"></p>
         </div>
         <div id="signedInBox" class="hidden">
           <p class="account-line">Sesión iniciada como <strong id="userEmail"></strong>.</p>
@@ -100,6 +100,7 @@
             <label>Frescura de piernas <span id="legsVal">3</span><input id="legs" type="range" min="1" max="5" value="3"></label>
             <label>Rendimiento <span id="performanceVal">3</span><input id="performance" type="range" min="1" max="5" value="3"></label>
           </div>
+          <label class="field-label" for="matchNotes">Notas del partido</label>
           <textarea id="matchNotes" rows="3" placeholder="Minutos, molestias, sensaciones, posición jugada..."></textarea>
           <button id="saveMatch" class="primary wide">Guardar partido</button>
         </section>
@@ -133,7 +134,7 @@
         </section>
         <section class="card"><div class="section-head"><h2>Readiness</h2><span class="muted">0–100</span></div><canvas id="readinessChart" class="chart" height="190"></canvas></section>
         <section class="card"><div class="section-head"><h2>Frescura al partido</h2><span class="muted">Últimos partidos</span></div><canvas id="matchChart" class="chart" height="190"></canvas></section>
-        <section class="card"><div class="section-head"><h2>Progresión de fuerza</h2><select id="exerciseSelect"></select></div><canvas id="strengthChart" class="chart" height="210"></canvas></section>
+        <section class="card"><div class="section-head"><h2>Progresión de fuerza</h2><select id="exerciseSelect" aria-label="Ejercicio para el gráfico de fuerza"></select></div><canvas id="strengthChart" class="chart" height="210" aria-label="Gráfico de progresión de fuerza" role="img"></canvas></section>
         <section class="card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Sesiones y partidos</span></div><div id="history" class="history"></div></section>
       </section>
 
@@ -159,9 +160,9 @@
     </div>
   </div>
 
-  <div id="sessionSummary" class="modal-backdrop hidden">
+  <div id="sessionSummary" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="sessionSummaryTitle">
     <div class="modal-card">
-      <p class="eyebrow">SESIÓN COMPLETADA</p><h2>Buen trabajo</h2>
+      <p class="eyebrow">SESIÓN COMPLETADA</p><h2 id="sessionSummaryTitle">Buen trabajo</h2>
       <div id="summaryMetrics" class="summary-metrics"></div>
       <label class="field-label">Esfuerzo global (RPE 1–10)<input id="sessionRpe" type="number" min="1" max="10" value="7"></label>
       <label class="field-label">Notas<textarea id="sessionNotes" rows="3" placeholder="Sensaciones, molestias, algo para recordar..."></textarea></label>

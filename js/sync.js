@@ -1,4 +1,5 @@
 import {applyTombstones,dedupeBy,recordKeys,tombstoneKey,nowIso} from './store.js';
+import {exerciseId} from './exercise-identity.js';
 
 const TABLES={readiness:'readiness',workouts:'workouts',matches:'match_reviews',football:'football_sessions',sessions:'workout_sessions'};
 
@@ -34,7 +35,7 @@ export class SyncService{
   }
   remoteToLocal(r){return {
     readiness:r.readiness.map(x=>({date:x.date,sleep:x.sleep,energy:x.energy,fatigue:x.fatigue,pain:x.pain,painArea:x.pain_area||'',updatedAt:x.updated_at})),
-    workouts:r.workouts.map(x=>({date:x.date,day:x.day,exercise:x.exercise,sets:x.sets||[],updatedAt:x.updated_at})),
+    workouts:r.workouts.map(x=>({date:x.date,day:x.day,exerciseId:exerciseId(x.exercise),exercise:x.exercise,sets:x.sets||[],updatedAt:x.updated_at})),
     matches:r.matches.map(x=>({date:x.date,energy:x.energy,legs:x.legs,performance:x.performance,notes:x.notes||'',updatedAt:x.updated_at})),
     football:r.football.map(x=>({date:x.date,type:x.session_type,duration:+x.duration_minutes,rpe:+x.rpe,minutes:+(x.minutes_played||0),notes:x.notes||'',updatedAt:x.updated_at})),
     sessions:r.sessions.map(x=>({date:x.date,day:x.day,label:x.label,startedAt:x.started_at,endedAt:x.ended_at,duration:+(x.duration_minutes||0),rpe:+(x.rpe||0),notes:x.notes||'',updatedAt:x.updated_at})),

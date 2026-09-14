@@ -2,6 +2,8 @@
 
 PWA personal para combinar gimnasio y fútbol, con sincronización Supabase.
 
+La aplicación activa se inicia desde `index.html` y usa los módulos de `js/`. La implementación monolítica V1 se conserva únicamente como referencia en `legacy/app-v1.js` y no forma parte del runtime ni del caché de la PWA.
+
 ## V2
 - Dashboard con readiness y cuenta regresiva al partido.
 - Readiness con Sueño / Energía / Frescura / Dolor + zona.

@@ -10,7 +10,7 @@ export function remainingRestSeconds(rest,now=Date.now()){return rest?Math.max(0
 function normalizeSet(value={}){return {kg:String(value.kg??''),reps:String(value.reps??''),rir:String(value.rir??''),done:!!value.done};}
 function normalizeState(value){
   if(!value||value.version!==1||!['active','summary'].includes(value.phase)||!value.sessionDate||!Number.isInteger(+value.dayIndex)||+value.dayIndex<0||+value.dayIndex>6||!Number.isFinite(toMs(value.startedAt)))return null;
-  const exercises=Array.isArray(value.exercises)?value.exercises.map(ex=>({name:String(ex.name||''),sets:Array.isArray(ex.sets)?ex.sets.map(normalizeSet):[]})):[];
+  const exercises=Array.isArray(value.exercises)?value.exercises.map(ex=>({exerciseId:String(ex.exerciseId||''),name:String(ex.name||''),sets:Array.isArray(ex.sets)?ex.sets.map(normalizeSet):[]})):[];
   return {
     version:1,phase:value.phase,sessionDate:value.sessionDate,dayIndex:+value.dayIndex,day:String(value.day||''),
     label:String(value.label||''),intensity:String(value.intensity||''),startedAt:new Date(toMs(value.startedAt)).toISOString(),
@@ -34,11 +34,11 @@ export class ActiveSessionStore{
   }
   start({sessionDate,dayIndex,day,label,intensity,exercises,startedAt=this.now()}){
     this.state=normalizeState({version:1,phase:'active',sessionDate,dayIndex,day,label,intensity,startedAt,currentExercise:0,
-      exercises:exercises.map(ex=>({name:ex.name,sets:(ex.sets||[]).map(normalizeSet)})),rest:null,summary:null,saveStatus:'draft'});
+      exercises:exercises.map(ex=>({exerciseId:ex.exerciseId||ex.id||'',name:ex.name,sets:(ex.sets||[]).map(normalizeSet)})),rest:null,summary:null,saveStatus:'draft'});
     return this.persist();
   }
   replaceDrafts(exercises,currentExercise=this.state?.currentExercise||0){
-    if(!this.state)return null;this.state.exercises=exercises.map(ex=>({name:ex.name,sets:(ex.sets||[]).map(normalizeSet)}));
+    if(!this.state)return null;this.state.exercises=exercises.map(ex=>({exerciseId:ex.exerciseId||ex.id||'',name:ex.name,sets:(ex.sets||[]).map(normalizeSet)}));
     this.state.currentExercise=Math.max(0,Math.min(+currentExercise||0,Math.max(0,this.state.exercises.length-1)));return this.persist();
   }
   setCurrentExercise(index){if(!this.state)return;this.state.currentExercise=Math.max(0,+index||0);this.persist();}
