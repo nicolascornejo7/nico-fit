@@ -137,9 +137,12 @@ select
   case when s.measurement_kind = 'reps' and s.parsed_value > 0 then s.parsed_value else null end,
   case when s.measurement_kind = 'seconds' and s.parsed_value > 0 then s.parsed_value else null end,
   case when s.parsed_rir between 0 and 5 then s.parsed_rir else null end,
-  coalesce((s.raw_set->>'done') = 'true', false)
-    and s.parsed_value > 0
-    and s.measurement_kind in ('reps', 'seconds'),
+  coalesce(
+    coalesce((s.raw_set->>'done') = 'true', false)
+      and s.parsed_value > 0
+      and s.measurement_kind in ('reps', 'seconds'),
+    false
+  ),
   null,
   1,
   now()
