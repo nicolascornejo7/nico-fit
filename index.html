@@ -116,6 +116,7 @@
             <button id="startSessionBtn" class="primary">Iniciar sesión</button>
             <button id="finishSessionBtn" class="ghost hidden">Finalizar</button>
           </div>
+          <p id="restStatus" class="advice" aria-live="polite"></p>
           <p id="workoutGuidance" class="advice"></p>
         </section>
         <div id="exerciseList"></div>
@@ -164,6 +165,7 @@
       <div id="summaryMetrics" class="summary-metrics"></div>
       <label class="field-label">Esfuerzo global (RPE 1–10)<input id="sessionRpe" type="number" min="1" max="10" value="7"></label>
       <label class="field-label">Notas<textarea id="sessionNotes" rows="3" placeholder="Sensaciones, molestias, algo para recordar..."></textarea></label>
+      <p id="summarySaveStatus" class="advice" aria-live="polite"></p>
       <button id="saveSessionSummary" class="primary wide">Guardar sesión</button>
     </div>
   </div>
