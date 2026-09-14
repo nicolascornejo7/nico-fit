@@ -51,5 +51,3 @@ values
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Press banca', 'c0000000-0000-4000-8000-000000000004', 'reps', 'approved', now(), 'migrated', '', '{"fixture":true}', now());
 
 commit;
-
-
