@@ -80,6 +80,7 @@ Las clasificaciones también coinciden: sesiones `8 migrated / 1 pending_review`
 - Acceso cruzado: lectura filtrada por RLS e inserción para otro usuario rechazada.
 - Versiones: saltos y versiones obsoletas rechazados por el servidor con `PT409`/HTTP 409.
 - Soft delete: tombstone visible para sincronización y resurrección rechazada.
+- Limpieza de credenciales: la secret key temporal fue revocada; la suite volvió a pasar usando únicamente la publishable key.
 
 ## Diferencias frente a PGlite
 
