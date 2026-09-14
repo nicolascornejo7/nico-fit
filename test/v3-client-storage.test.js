@@ -21,6 +21,17 @@ test('V3 flag is disabled by default and requires explicit activation',async()=>
   assert.equal(isV3LocalStorageEnabled(storage),true);repository.close();
 });
 
+test('existing V3 storage upgrades add sync stores without losing records',async()=>{
+  const indexedDB=new IDBFactory(),userId='upgrade-user',name=databaseNameForUser(userId),request=indexedDB.open(name,1);
+  request.onupgradeneeded=()=>{
+    for(const store of ['workout_sessions','session_exercises','exercise_sets','exercise_catalog'])request.result.createObjectStore(store,{keyPath:'id'});
+    request.result.createObjectStore('pending_operations',{keyPath:'operation_id'});request.result.createObjectStore('migration_map',{keyPath:'source_key'});
+  };
+  const oldDatabase=await new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});oldDatabase.close();
+  const repository=await open(indexedDB,userId);assert.equal(await repository.getSyncCheckpoint('workout_sessions'),null);
+  assert.equal(await repository.acquireLease('upgrade-test','owner'),true);repository.close();
+});
+
 test('V2 app remains the default path and every V3 PWA asset exists',async()=>{
   const [app,worker]=await Promise.all([
     readFile(new URL('../js/app.js',import.meta.url),'utf8'),

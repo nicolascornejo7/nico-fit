@@ -12,7 +12,7 @@ flowchart LR
   Repository --> UserDB[(IndexedDB por usuario)]
   Repository --> Queue[(pending_operations)]
   Import[Importador V2 controlado] --> Repository
-  Queue -. rama futura .-> Sync[feature/v3-sync-engine]
+  Queue -. flag independiente .-> Sync[feature/v3-sync-engine]
   Sync -. sin implementar .-> Supabase[(Supabase V3)]
 ```
 
@@ -98,7 +98,7 @@ git diff --check
 
 Las pruebas usan `fake-indexeddb`, una implementación aislada en memoria del API IndexedDB. Cada caso crea su propio `IDBFactory`; no depende del navegador ni de Supabase.
 
-## Conexión futura con `feature/v3-sync-engine`
+## Contrato usado por `feature/v3-sync-engine`
 
 1. Abrir el repositorio únicamente después de resolver el usuario autenticado y comprobar el flag.
 2. Reclamar un lote pequeño con `claimPendingOperations()`.
