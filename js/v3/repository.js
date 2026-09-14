@@ -3,6 +3,7 @@ import {isV3LocalStorageEnabled} from './feature-flags.js';
 
 export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed']);
 export const MUTATION_TYPES=Object.freeze(['insert','update','soft_delete']);
+const UNRESOLVED_OPERATION_STATES=new Set(['pending','syncing','conflict','failed']);
 
 const nowIso=()=>new Date().toISOString();
 const uuid=cryptoImpl=>cryptoImpl.randomUUID();
@@ -194,10 +195,12 @@ export class V3LocalRepository{
     return rows.filter(row=>row.owner_id===this.userId).sort((a,b)=>a.sequence-b.sequence).slice(0,limit).map(clone);
   }
 
-  async claimPendingOperations(limit=25){
+  async claimPendingOperations(limit=25,{now=Date.now()}={}){
     return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.operations);
-      const pending=(await requestResult(store.index('status').getAll('pending'))).filter(row=>row.owner_id===this.userId)
+      const pending=(await requestResult(store.index('status').getAll('pending'))).filter(row=>
+        row.owner_id===this.userId&&(!row.next_attempt_at||Date.parse(row.next_attempt_at)<=now)
+      )
         .sort((a,b)=>a.sequence-b.sequence).slice(0,limit);
       const timestamp=nowIso();
       for(const operation of pending){
@@ -209,13 +212,14 @@ export class V3LocalRepository{
     });
   }
 
-  async setOperationStatus(operationId,status,{error=null,remoteVersion}={}){
+  async setOperationStatus(operationId,status,{error=null,remoteVersion,nextAttemptAt=null}={}){
     if(!OPERATION_STATES.includes(status))throw new Error(`Unsupported operation status: ${status}`);
     return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
       const operationStore=transaction.objectStore(INTERNAL_STORES.operations);
       const operation=assertOwned(await requestResult(operationStore.get(operationId)),this.userId);
       if(!operation)throw new Error('Operation not found.');
       operation.status=status;operation.last_error=error?String(error):null;operation.updated_at=nowIso();
+      operation.next_attempt_at=nextAttemptAt;
       await requestResult(operationStore.put(operation));
       const entityStore=transaction.objectStore(operation.entity),record=await requestResult(entityStore.get(operation.record_id));
       if(record){
@@ -234,6 +238,155 @@ export class V3LocalRepository{
     if(!operation)throw new Error('Operation not found.');
     if(!['failed','conflict'].includes(operation.status))return operation;
     return this.setOperationStatus(operationId,'pending');
+  }
+
+  async requeueDueFailed({now=Date.now(),maxAttempts=5}={}){
+    return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.operations);
+      const failed=(await requestResult(store.index('status').getAll('failed'))).filter(operation=>
+        operation.owner_id===this.userId&&operation.attempts<maxAttempts&&operation.next_attempt_at&&Date.parse(operation.next_attempt_at)<=now
+      );
+      const timestamp=nowIso();
+      for(const operation of failed){
+        operation.status='pending';operation.updated_at=timestamp;operation.next_attempt_at=null;
+        await requestResult(store.put(operation));
+        const entityStore=transaction.objectStore(operation.entity),record=await requestResult(entityStore.get(operation.record_id));
+        if(record){record.sync_status='pending';record.updated_at=timestamp;await requestResult(entityStore.put(record));}
+      }
+      return failed.length;
+    });
+  }
+
+  async unresolvedOperations(entity,recordId){
+    assertEntity(entity);
+    const store=this.database.transaction(INTERNAL_STORES.operations).objectStore(INTERNAL_STORES.operations);
+    const rows=await requestResult(store.index('entity_record').getAll([entity,recordId]));
+    return rows.filter(row=>row.owner_id===this.userId&&UNRESOLVED_OPERATION_STATES.has(row.status))
+      .sort((a,b)=>a.sequence-b.sequence).map(clone);
+  }
+
+  async acknowledgeOperations(operationIds,{remoteRecord}={}){
+    if(!operationIds.length)throw new Error('At least one operation is required.');
+    return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
+      const operationStore=transaction.objectStore(INTERNAL_STORES.operations),timestamp=nowIso(),operations=[];
+      for(const operationId of operationIds){
+        const operation=assertOwned(await requestResult(operationStore.get(operationId)),this.userId);
+        if(!operation)throw new Error(`Operation not found: ${operationId}`);
+        operations.push(operation);
+      }
+      const {entity,record_id:recordId}=operations[0];
+      if(operations.some(item=>item.entity!==entity||item.record_id!==recordId))throw new Error('Acknowledged operations must target one record.');
+      for(const operation of operations){
+        operation.status='synced';operation.last_error=null;operation.next_attempt_at=null;operation.updated_at=timestamp;
+        await requestResult(operationStore.put(operation));
+      }
+      const related=await requestResult(operationStore.index('entity_record').getAll([entity,recordId]));
+      const acknowledged=new Set(operationIds),remaining=related.filter(item=>!acknowledged.has(item.operation_id)&&UNRESOLVED_OPERATION_STATES.has(item.status))
+        .sort((a,b)=>a.sequence-b.sequence);
+      const entityStore=transaction.objectStore(entity),current=await requestResult(entityStore.get(recordId));
+      const remoteVersion=remoteRecord?.version??current?.remote_version??null;
+      if(remaining.length){
+        for(const operation of remaining){
+          if(operation.type!=='insert')operation.base_remote_version=remoteVersion;
+          await requestResult(operationStore.put(operation));
+        }
+        if(current){current.remote_version=remoteVersion;current.sync_status=remaining.at(-1).status;current.updated_at=timestamp;await requestResult(entityStore.put(current));}
+        return current?clone(current):null;
+      }
+      if(remoteRecord){
+        const record={...clone(remoteRecord),owner_id:this.userId,remote_version:remoteRecord.version,local_revision:current?.local_revision||1,sync_status:'synced'};
+        delete record.version;
+        await requestResult(entityStore.put(record));
+        return clone(record);
+      }
+      if(current){current.remote_version=remoteVersion;current.sync_status='synced';current.updated_at=timestamp;await requestResult(entityStore.put(current));}
+      return current?clone(current):null;
+    });
+  }
+
+  async applyRemoteRecord(entity,remoteRecord){
+    assertEntity(entity);
+    if(!remoteRecord?.id||remoteRecord.version==null)throw new Error('Remote V3 record requires id and version.');
+    return runTransaction(this.database,[entity,INTERNAL_STORES.operations],'readwrite',async transaction=>{
+      const operationStore=transaction.objectStore(INTERNAL_STORES.operations);
+      const unresolved=(await requestResult(operationStore.index('entity_record').getAll([entity,remoteRecord.id])))
+        .filter(item=>item.owner_id===this.userId&&UNRESOLVED_OPERATION_STATES.has(item.status));
+      if(unresolved.length)return {applied:false,unresolved:unresolved.sort((a,b)=>a.sequence-b.sequence).map(clone)};
+      const entityStore=transaction.objectStore(entity),current=await requestResult(entityStore.get(remoteRecord.id));
+      if(current?.remote_version!=null&&current.remote_version>remoteRecord.version)return {applied:false,stale:true,unresolved:[]};
+      const record={...clone(remoteRecord),owner_id:this.userId,remote_version:remoteRecord.version,local_revision:current?.local_revision||1,sync_status:'synced'};
+      delete record.version;
+      await requestResult(entityStore.put(record));
+      return {applied:true,record:clone(record),unresolved:[]};
+    });
+  }
+
+  async recordConflict({entity,recordId,operationIds=[],reason,localPayload=null,remotePayload=null,error=null}){
+    assertEntity(entity);
+    const conflictId=`${entity}:${recordId}`;
+    return runTransaction(this.database,[entity,INTERNAL_STORES.operations,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
+      const conflictStore=transaction.objectStore(INTERNAL_STORES.conflicts),operationStore=transaction.objectStore(INTERNAL_STORES.operations);
+      const existing=await requestResult(conflictStore.get(conflictId)),timestamp=nowIso();
+      const conflict={
+        conflict_id:conflictId,owner_id:this.userId,entity,record_id:recordId,status:'open',reason,
+        operation_ids:[...new Set([...(existing?.operation_ids||[]),...operationIds])],
+        local_payload:clone(localPayload),remote_payload:clone(remotePayload),error:error?clone(error):null,
+        created_at:existing?.created_at||timestamp,updated_at:timestamp
+      };
+      await requestResult(conflictStore.put(conflict));
+      for(const operationId of operationIds){
+        const operation=await requestResult(operationStore.get(operationId));
+        if(operation&&operation.owner_id===this.userId){operation.status='conflict';operation.last_error=reason;operation.next_attempt_at=null;operation.updated_at=timestamp;await requestResult(operationStore.put(operation));}
+      }
+      const entityStore=transaction.objectStore(entity),record=await requestResult(entityStore.get(recordId));
+      if(record){record.sync_status='conflict';record.updated_at=timestamp;await requestResult(entityStore.put(record));}
+      return clone(conflict);
+    });
+  }
+
+  async listConflicts({status='open'}={}){
+    const store=this.database.transaction(INTERNAL_STORES.conflicts).objectStore(INTERNAL_STORES.conflicts);
+    const rows=status?await requestResult(store.index('status').getAll(status)):await requestResult(store.getAll());
+    return rows.filter(row=>row.owner_id===this.userId).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(clone);
+  }
+
+  async getSyncCheckpoint(entity){
+    assertEntity(entity);
+    const value=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get(`checkpoint:${entity}`));
+    return value?.value?clone(value.value):null;
+  }
+
+  async setSyncCheckpoint(entity,value){
+    assertEntity(entity);
+    return runTransaction(this.database,[INTERNAL_STORES.metadata],'readwrite',async transaction=>{
+      const entry={key:`checkpoint:${entity}`,owner_id:this.userId,value:clone(value),updated_at:nowIso()};
+      await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put(entry));return clone(entry.value);
+    });
+  }
+
+  async acquireLease(name,ownerToken,{ttlMs=30000,now=Date.now()}={}){
+    return runTransaction(this.database,[INTERNAL_STORES.leases],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.leases),current=await requestResult(store.get(name));
+      if(current&&current.owner_token!==ownerToken&&current.expires_at>now)return false;
+      await requestResult(store.put({name,owner_id:this.userId,owner_token:ownerToken,acquired_at:current?.owner_token===ownerToken?current.acquired_at:now,expires_at:now+ttlMs}));
+      return true;
+    });
+  }
+
+  async renewLease(name,ownerToken,{ttlMs=30000,now=Date.now()}={}){
+    return runTransaction(this.database,[INTERNAL_STORES.leases],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.leases),current=await requestResult(store.get(name));
+      if(!current||current.owner_token!==ownerToken||current.expires_at<=now)return false;
+      current.expires_at=now+ttlMs;await requestResult(store.put(current));return true;
+    });
+  }
+
+  async releaseLease(name,ownerToken){
+    return runTransaction(this.database,[INTERNAL_STORES.leases],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.leases),current=await requestResult(store.get(name));
+      if(!current||current.owner_token!==ownerToken)return false;
+      await requestResult(store.delete(name));return true;
+    });
   }
 
   async recoverInterruptedOperations(){
