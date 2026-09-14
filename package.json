@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:v3:storage": "node --test test/v3-client-storage.test.js",
     "test:v3:dry-run": "node scripts/v3-dry-run.mjs",
     "build:v3:staging": "node --env-file-if-exists=.env.v3-staging.local scripts/build-v3-staging-bundle.mjs",
     "serve:v3:staging": "node scripts/serve-v3-staging-bundle.mjs",
@@ -11,6 +12,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@supabase/supabase-js": "^2.116.0"
+    "@supabase/supabase-js": "^2.116.0",
+    "fake-indexeddb": "^6.2.5"
   }
 }
