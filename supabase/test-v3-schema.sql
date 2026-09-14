@@ -113,12 +113,12 @@ select pg_temp.assert_raises($sql$
   update nico_fit_v3.workout_sessions
   set label = 'Salto', version = 4
   where id = 'a1000000-0000-4000-8000-000000000001'
-$sql$, '40001');
+$sql$, 'PT409');
 select pg_temp.assert_raises($sql$
   update nico_fit_v3.workout_sessions
   set label = 'Obsoleta', version = 2
   where id = 'a1000000-0000-4000-8000-000000000001'
-$sql$, '40001');
+$sql$, 'PT409');
 
 -- Soft-deleted rows remain readable for sync, are excluded by active queries,
 -- cannot be resurrected, and cannot be physically deleted by authenticated.

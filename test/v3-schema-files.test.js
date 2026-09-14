@@ -14,7 +14,7 @@ test('V3 schema is additive and isolated from V2 names',async()=>{
 test('server trigger rejects stale versions and version jumps',async()=>{
   const sql=await read('supabase/migration-v3-schema.sql');
   assert.match(sql,/new\.version <> old\.version \+ 1/i);
-  assert.match(sql,/errcode = '40001'/i);
+  assert.match(sql,/errcode = 'PT409'/i);
   assert.match(sql,/deleted records are immutable/i);
 });
 

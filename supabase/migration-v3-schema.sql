@@ -171,7 +171,7 @@ begin
     raise exception using errcode = '55000', message = 'deleted records are immutable';
   end if;
   if new.version <> old.version + 1 then
-    raise exception using errcode = '40001', message = 'stale record version';
+    raise exception using errcode = 'PT409', message = 'stale record version';
   end if;
   new.created_at := old.created_at;
   new.updated_at := clock_timestamp();

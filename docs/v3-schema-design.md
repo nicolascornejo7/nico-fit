@@ -26,7 +26,7 @@ Los cuatro IDs principales no tienen un default de base de datos. Los clientes V
 
 ## Conflictos y borrados
 
-Cada entidad sincronizable comienza con `version = 1`. Toda actualización debe enviar exactamente la versión anterior más uno. El trigger del servidor rechaza tanto versiones obsoletas como saltos con SQLSTATE `40001`, fija `updated_at` en el servidor y conserva `created_at`.
+Cada entidad sincronizable comienza con `version = 1`. Toda actualización debe enviar exactamente la versión anterior más uno. El trigger del servidor rechaza tanto versiones obsoletas como saltos con SQLSTATE `PT409`, que PostgREST expone como HTTP 409, fija `updated_at` en el servidor y conserva `created_at`.
 
 Un borrado cambia `deleted_at` e incrementa la versión. `deleted_at` se conserva como tombstone durante toda la migración. Una vez eliminado, el registro queda inmutable para impedir que un dispositivo desactualizado lo restaure. RLS permite que el propietario descargue filas eliminadas; las consultas de producto deben pedir `deleted_at IS NULL`.
 
