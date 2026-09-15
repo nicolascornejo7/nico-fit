@@ -23,7 +23,9 @@ function persistAndRender(capture=true){if(capture)captureActiveDrafts();persist
 function switchStorageOwner(user){
   captureActiveDrafts();storageOwner=user?.id||'guest';data=loadLocalData(storageOwner);activeSession.setOwner(storageOwner);restoreExercisePosition=true;persistAndRender(false);
   setSyncBadge(user?'pending':'local',user?(navigator.onLine?'Pendiente de sincronizar':'Sin conexión'):'Solo local');
+  document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:user?.id||null}}));
 }
+document.addEventListener('nico-fit:auth-request',()=>document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:sync.user?.id||null}})));
 function setSyncBadge(state,text){$('syncBadge').className=`sync-badge ${state}`;$('syncBadge').textContent=text;}
 function readinessScore(r){if(!r)return null;const freshness=6-(+r.fatigue||3);return Math.round(((+r.sleep + +r.energy + freshness)/15)*100-Math.max(0,(+r.pain||0)-2)*3);}
 function readinessLevel(score){if(score==null)return ['neutral','Sin registrar'];if(score>=78)return ['good',`${score}% · Bueno`];if(score>=60)return ['mid',`${score}% · Intermedio`];return ['low',`${score}% · Bajo`];}
