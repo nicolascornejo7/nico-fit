@@ -12,3 +12,10 @@
 .v3-training-screen :focus-visible { outline: 3px solid #7edca5; outline-offset: 3px; }
 .v3-conflict:not(:empty) { border: 1px solid #f0bd61; padding: 12px; border-radius: 8px; }
 .v3-training-screen pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.v3-conflict-sides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.v3-training-screen pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem}
+.v3-training-screen details{padding:1rem;border:1px solid #697080;border-radius:12px;margin:1rem 0}
+.v3-training-screen summary{cursor:pointer;min-height:44px}
+.v3-training-screen button{min-height:44px;min-width:44px}
+.v3-training-screen label{display:block;margin:.8rem 0}
+@media(max-width:650px){.v3-conflict-sides{grid-template-columns:1fr}}

@@ -1,7 +1,8 @@
 import {ENTITY_STORES,INTERNAL_STORES,openUserDatabase,requestResult,transactionDone} from './indexed-db.js';
 import {isV3LocalStorageEnabled} from './feature-flags.js';
+import {withV3SyncLock} from './sync-lock.js';
 
-export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed']);
+export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed','superseded']);
 export const MUTATION_TYPES=Object.freeze(['insert','update','soft_delete']);
 const UNRESOLVED_OPERATION_STATES=new Set(['pending','syncing','conflict','failed']);
 
@@ -78,7 +79,7 @@ export class V3LocalRepository{
     const owner=String(userId||'').trim();
     const database=await openUserDatabase({userId:owner,indexedDB});
     const repository=new V3LocalRepository({userId:owner,database,cryptoImpl:globalThis.crypto});
-    await repository.recoverInterruptedOperations();
+    await withV3SyncLock({repository,userId:owner,task:()=>repository.recoverInterruptedOperations()});
     return repository;
   }
 
@@ -299,7 +300,7 @@ export class V3LocalRepository{
       if(record){
         if(remoteVersion!=null)record.remote_version=remoteVersion;
         const related=await requestResult(operationStore.index('entity_record').getAll([operation.entity,operation.record_id]));
-        const unresolved=related.filter(item=>item.operation_id!==operationId&&item.status!=='synced').sort((a,b)=>a.sequence-b.sequence);
+        const unresolved=related.filter(item=>item.operation_id!==operationId&&UNRESOLVED_OPERATION_STATES.has(item.status)).sort((a,b)=>a.sequence-b.sequence);
         record.sync_status=unresolved.length?unresolved.at(-1).status:status;
         record.updated_at=nowIso();await requestResult(entityStore.put(record));
       }
@@ -310,7 +311,8 @@ export class V3LocalRepository{
   async retryOperation(operationId){
     const operation=(await this.listOperations()).find(item=>item.operation_id===operationId);
     if(!operation)throw new Error('Operation not found.');
-    if(!['failed','conflict'].includes(operation.status))return operation;
+    if(operation.status==='conflict')throw new Error('Conflict requires an explicit resolution decision.');
+    if(operation.status!=='failed')return operation;
     return this.setOperationStatus(operationId,'pending');
   }
 
@@ -341,7 +343,7 @@ export class V3LocalRepository{
 
   async acknowledgeOperations(operationIds,{remoteRecord}={}){
     if(!operationIds.length)throw new Error('At least one operation is required.');
-    return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
+    return runTransaction(this.database,[INTERNAL_STORES.operations,INTERNAL_STORES.metadata,INTERNAL_STORES.conflicts,...ENTITY_STORES],'readwrite',async transaction=>{
       const operationStore=transaction.objectStore(INTERNAL_STORES.operations),timestamp=nowIso(),operations=[];
       for(const operationId of operationIds){
         const operation=assertOwned(await requestResult(operationStore.get(operationId)),this.userId);
@@ -355,6 +357,15 @@ export class V3LocalRepository{
         await requestResult(operationStore.put(operation));
       }
       const related=await requestResult(operationStore.index('entity_record').getAll([entity,recordId]));
+      for(const resolutionId of new Set(operations.map(row=>row.resolution_id).filter(Boolean))){
+        const audits=transaction.objectStore(INTERNAL_STORES.metadata),entry=await requestResult(audits.get(`resolution:${resolutionId}`));
+        if(!entry)continue;
+        const statuses=await Promise.all(entry.value.operation_ids.map(id=>requestResult(operationStore.get(id))));
+        if(!statuses.every(row=>row?.status==='synced'))continue;
+        entry.value.confirmation='server_confirmed';entry.value.confirmed_at=timestamp;await requestResult(audits.put(entry));
+        const conflicts=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=await requestResult(conflicts.get(entry.value.conflict_id));
+        if(conflict?.status==='resolution_pending'&&conflict.resolution_metadata?.decision_id===resolutionId){conflict.status='resolved';conflict.confirmed_at=timestamp;await requestResult(conflicts.put(conflict));}
+      }
       const acknowledged=new Set(operationIds),remaining=related.filter(item=>!acknowledged.has(item.operation_id)&&UNRESOLVED_OPERATION_STATES.has(item.status))
         .sort((a,b)=>a.sequence-b.sequence);
       const entityStore=transaction.objectStore(entity),current=await requestResult(entityStore.get(recordId));
@@ -407,7 +418,7 @@ export class V3LocalRepository{
         conflict_id:conflictId,owner_id:this.userId,entity,record_id:recordId,status:'open',reason,
         operation_ids:[...new Set([...(existing?.operation_ids||[]),...operationIds])],
         local_payload:clone(localPayload),remote_payload:clone(remotePayload),error:error?clone(error):null,
-        created_at:existing?.created_at||timestamp,updated_at:timestamp
+        created_at:existing?.created_at||timestamp,updated_at:timestamp,resolution_history:existing?.resolution_history||[]
       };
       await requestResult(conflictStore.put(conflict));
       for(const operationId of operationIds){
@@ -425,6 +436,75 @@ export class V3LocalRepository{
     const rows=status?await requestResult(store.index('status').getAll(status)):await requestResult(store.getAll());
     return rows.filter(row=>row.owner_id===this.userId).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(clone);
   }
+
+  async resolveConflict({conflictId,strategy,expectedUpdatedAt,expectedRemoteVersion,expectedLocalRevision,metadata={}}){
+    if(!['keep_local','accept_remote','keep_both','defer'].includes(strategy))throw new Error('Invalid conflict strategy.');
+    return runTransaction(this.database,[...ENTITY_STORES,...Object.values(INTERNAL_STORES)],'readwrite',async transaction=>{
+      const conflicts=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=assertOwned(await requestResult(conflicts.get(conflictId)),this.userId);
+      if(!conflict||conflict.status!=='open'||conflict.updated_at!==expectedUpdatedAt||(conflict.remote_payload?.version??null)!==expectedRemoteVersion)throw new Error('Conflict changed. Refresh before deciding.');
+      const entity=conflict.entity;assertEntity(entity);const store=transaction.objectStore(entity),local=assertOwned(await requestResult(store.get(conflict.record_id)),this.userId),remote=clone(conflict.remote_payload);
+      if(!local||local.local_revision!==expectedLocalRevision)throw new Error('Local revision changed. Refresh before deciding.');
+      const timestamp=nowIso(),decisionId=uuid(this.crypto),operations=transaction.objectStore(INTERNAL_STORES.operations),auditStore=transaction.objectStore(INTERNAL_STORES.metadata);
+      const audit={id:decisionId,owner_id:this.userId,entity,record_id:local.id,local_revision:local.local_revision,local_remote_version:local.remote_version,remote_version:remote?.version??null,conflict_id:conflictId,strategy,resolved_at:timestamp,metadata:clone(metadata),local_payload:clone(local),remote_payload:remote,operation_ids:[],confirmation:strategy==='defer'?'deferred':'local'};
+      const persistAudit=async()=>{conflict.resolution_history=[...(conflict.resolution_history||[]),decisionId];conflict.updated_at=timestamp;await requestResult(auditStore.put({key:`resolution:${decisionId}`,owner_id:this.userId,value:audit,updated_at:timestamp}));await requestResult(conflicts.put(conflict));return clone(audit);};
+      if(strategy==='defer'){conflict.deferred_at=timestamp;return persistAudit();}
+      if(conflict.reason==='v2_source_changed'||local.migration_status==='pending_review')throw new Error('Review the changed import source separately before sync resolution.');
+      if(!remote||remote.id!==local.id||!Number.isSafeInteger(remote.version)||remote.version<1)throw new Error('Remote snapshot required. Sync and refresh first.');
+      if(['workout_sessions','daily_readiness','football_sessions','match_reviews'].includes(entity)&&remote.user_id!==this.userId)throw new Error('Remote ownership mismatch.');
+      if(entity==='exercise_catalog'&&remote.owner_user_id!==this.userId)throw new Error('Catalog ownership mismatch.');
+      const related=await requestResult(operations.index('entity_record').getAll([entity,local.id]));if(related.some(row=>row.status==='syncing'))throw new Error('Operation in flight. Retry after sync.');
+      const stateEntry=await requestResult(auditStore.get('training:state')),state=stateEntry?.value;
+      let active=entity==='workout_sessions'?local.id:entity==='session_exercises'?local.session_id:null;
+      if(entity==='exercise_sets')active=(await requestResult(transaction.objectStore('session_exercises').get(local.session_exercise_id)))?.session_id;
+      if(entity==='exercise_catalog'&&state?.activeSessionId){const rows=await requestResult(transaction.objectStore('session_exercises').index('session_id').getAll(state.activeSessionId));if(rows.some(row=>row.exercise_catalog_id===local.id&&!row.deleted_at))active=state.activeSessionId;}
+      if(state?.activeSessionId===active&&strategy!=='keep_local')throw new Error('Affected active session: finish locally or postpone before replacing its data.');
+      if(remote.deleted_at&&strategy==='keep_local')throw new Error('Remote tombstone cannot be revived. Accept it or create a permitted separate occurrence.');
+      if(strategy==='keep_both'&&(entity!=='football_sessions'||local.deleted_at||remote.deleted_at))throw new Error('Keeping both is not supported for this entity.');
+      let candidate;
+      if(strategy==='keep_local'||strategy==='keep_both'){
+        candidate=clone(local);await this.#assertParent(transaction,entity,candidate);
+        const parentEntity=entity==='exercise_sets'?'session_exercises':entity==='session_exercises'?'workout_sessions':entity==='match_reviews'&&candidate.football_session_id?'football_sessions':null;
+        const parentId=candidate.session_exercise_id||candidate.session_id||candidate.football_session_id;
+        if(parentEntity){const parent=assertOwned(await requestResult(transaction.objectStore(parentEntity).get(parentId)),this.userId);if(parent?.deleted_at||parent?.sync_status==='conflict')throw new Error('Resolve the parent conflict/deletion first.');}
+        if(entity==='exercise_sets'){const exercise=await requestResult(transaction.objectStore('session_exercises').get(candidate.session_exercise_id)),session=assertOwned(await requestResult(transaction.objectStore('workout_sessions').get(exercise.session_id)),this.userId);if(!session||session.deleted_at||session.sync_status==='conflict')throw new Error('Resolve the session conflict/deletion first.');}
+        if(entity==='session_exercises'&&candidate.exercise_catalog_id){const catalog=await requestResult(transaction.objectStore('exercise_catalog').get(candidate.exercise_catalog_id));if(!catalog||catalog.deleted_at||catalog.sync_status==='conflict')throw new Error('Resolve catalog conflict first.');}
+      }
+      if(strategy==='keep_both'){
+        candidate.id=uuid(this.crypto);candidate.created_at=timestamp;candidate.remote_version=null;candidate.local_revision=1;candidate.deleted_at=null;
+      }
+      for(const operation of related.filter(row=>UNRESOLVED_OPERATION_STATES.has(row.status))){
+        if(operation.resolution_id){
+          const previous=await requestResult(auditStore.get(`resolution:${operation.resolution_id}`));
+          if(previous){previous.value.confirmation='superseded';previous.value.superseded_by=decisionId;await requestResult(auditStore.put(previous));
+            if(previous.value.conflict_id!==conflictId){const priorConflict=await requestResult(conflicts.get(previous.value.conflict_id));if(priorConflict?.status==='resolution_pending'){priorConflict.status='resolved';priorConflict.resolution_metadata={...priorConflict.resolution_metadata,superseded_by:decisionId,followup_conflict_id:conflictId};await requestResult(conflicts.put(priorConflict));}}
+          }
+        }
+        operation.status='superseded';operation.archived_at=timestamp;operation.superseded_by=decisionId;operation.next_attempt_at=null;await requestResult(operations.put(operation));
+      }
+      if(strategy==='accept_remote'||strategy==='keep_both'){
+        await this.#assertParent(transaction,entity,remote);
+        if(remote.deleted_at&&['workout_sessions','session_exercises','football_sessions'].includes(entity)){
+          const children=entity==='workout_sessions'?'session_exercises':entity==='session_exercises'?'exercise_sets':'match_reviews',foreignKey=entity==='workout_sessions'?'session_id':entity==='session_exercises'?'session_exercise_id':'football_session_id';
+          const rows=await requestResult(transaction.objectStore(children).getAll());
+          const childIds=new Set(rows.filter(row=>row[foreignKey]===local.id).map(row=>row.id));
+          if(entity==='workout_sessions'){const sets=await requestResult(transaction.objectStore('exercise_sets').getAll());for(const row of sets)if(childIds.has(row.session_exercise_id))childIds.add(row.id);}
+          const queued=await requestResult(operations.getAll());if(queued.some(row=>childIds.has(row.record_id)&&UNRESOLVED_OPERATION_STATES.has(row.status)))throw new Error('Review pending child changes before accepting parent deletion.');
+        }
+        if(entity==='session_exercises'||entity==='exercise_sets'){const index=entity==='exercise_sets'?'session_exercise_id':'session_id',parentId=remote[index];const rows=await requestResult(store.index(index).getAll(parentId));if(!remote.deleted_at&&rows.some(row=>row.id!==remote.id&&!row.deleted_at&&row.position===remote.position))throw new Error('Remote order collides locally. Resolve order first.');}
+        const accepted={...remote,owner_id:this.userId,remote_version:remote.version,local_revision:local.local_revision+1,sync_status:'synced'};delete accepted.version;await requestResult(store.put(accepted));
+      }
+      if(candidate){
+        if(strategy==='keep_local'){candidate.remote_version=remote.version;candidate.created_at=remote.created_at;candidate.local_revision=local.local_revision+1;}
+        candidate.sync_status='pending';candidate.updated_at=timestamp;candidate.resolution_id=decisionId;delete candidate.version;
+        const operation=operationRecord({operationId:uuid(this.crypto),userId:this.userId,entity,record:candidate,type:strategy==='keep_both'?'insert':candidate.deleted_at?'soft_delete':'update',baseRemoteVersion:strategy==='keep_both'?null:remote.version,sequence:await nextOperationSequence(operations),timestamp});operation.resolution_id=decisionId;operation.preserve_transition=true;
+        await requestResult(store.put(candidate));await requestResult(operations.add(operation));audit.operation_ids.push(operation.operation_id);audit.target_id=candidate.id;audit.confirmation='pending_sync';
+      }
+      conflict.status=candidate?'resolution_pending':'resolved';conflict.resolved_at=timestamp;conflict.strategy=strategy;conflict.resolution_metadata={decision_id:decisionId,operation_ids:audit.operation_ids,target_id:audit.target_id??local.id};
+      return persistAudit();
+    });
+  }
+
+  async resolutionHistory(){const rows=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).getAll());return rows.filter(row=>row.owner_id===this.userId&&row.key.startsWith('resolution:')).map(row=>clone(row.value));}
 
   async getSyncCheckpoint(entity){
     assertEntity(entity);

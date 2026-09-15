@@ -103,7 +103,7 @@ test('soft delete is idempotent and tombstones cannot be updated',async()=>{
   await assert.rejects(()=>repository.update('workout_sessions',session.id,{label:'resurrect'}),/immutable/i);repository.close();
 });
 
-test('failed and conflicting operations can be retried',async()=>{
+test('failed operations retry but conflicts require explicit resolution',async()=>{
   const indexedDB=new IDBFactory(),repository=await open(indexedDB,'retry-user'),operationId='70000000-0000-4000-8000-000000000001';
   await repository.create('workout_sessions',sessionPayload(),{operationId});
   const [claimed]=await repository.claimPendingOperations(1);assert.equal(claimed.status,'syncing');assert.equal(claimed.attempts,1);
@@ -111,7 +111,7 @@ test('failed and conflicting operations can be retried',async()=>{
   await repository.setOperationStatus(operationId,'failed',{error:'offline'});
   assert.equal((await repository.retryOperation(operationId)).status,'pending');
   await repository.setOperationStatus(operationId,'conflict',{error:'409'});
-  assert.equal((await repository.retryOperation(operationId)).status,'pending');repository.close();
+  await assert.rejects(repository.retryOperation(operationId),/explicit resolution/);repository.close();
 });
 
 test('server acknowledgements preserve the confirmed remote version locally',async()=>{

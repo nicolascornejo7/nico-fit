@@ -4,7 +4,8 @@ export async function withV3SyncLock({repository,userId,locks=globalThis.navigat
   if(typeof task!=='function')throw new Error('Sync lock requires a task.');
   const name=`nico-fit-v3-sync:${userId}`;
   if(locks?.request){
-    return locks.request(name,{mode:'exclusive',ifAvailable:true},lock=>lock?task():{skipped:'locked'});
+    // The lease is shared with instances that cannot use Web Locks.
+    return locks.request(name,{mode:'exclusive',ifAvailable:true},lock=>lock?withV3SyncLock({repository,userId,locks:null,cryptoImpl,ttlMs,task}):{skipped:'locked'});
   }
   const ownerToken=uuid(cryptoImpl),acquired=await repository.acquireLease(name,ownerToken,{ttlMs});
   if(!acquired)return {skipped:'locked'};
