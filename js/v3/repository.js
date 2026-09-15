@@ -88,6 +88,80 @@ export class V3LocalRepository{
 
   close(){this.database.close();}
 
+  async listRecords(entity,{includeDeleted=false}={}){
+    assertEntity(entity);
+    const rows=await requestResult(this.database.transaction(entity).objectStore(entity).getAll());
+    return rows.filter(row=>row.owner_id===this.userId&&(includeDeleted||!row.deleted_at)).map(clone);
+  }
+
+  async getTrainingState(){
+    const entry=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get('training:state'));
+    return entry?.value?clone(entry.value):null;
+  }
+
+  // Entity graph, outbox and local UI checkpoint commit atomically.
+  async commitLocalChanges(changes=[],{trainingState,guards=[]}={}){
+    const prepared=changes.map(change=>({...change,id:change.id||change.payload?.id||uuid(this.crypto),operationId:change.operationId||uuid(this.crypto)}));
+    return runTransaction(this.database,[...ENTITY_STORES,INTERNAL_STORES.operations,INTERNAL_STORES.metadata,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
+      const operations=transaction.objectStore(INTERNAL_STORES.operations),conflicts=transaction.objectStore(INTERNAL_STORES.conflicts),results=[];
+      for(const guard of guards){
+        assertEntity(guard.entity);
+        const current=assertOwned(await requestResult(transaction.objectStore(guard.entity).get(guard.id)),this.userId);
+        if(!current||current.deleted_at||current.local_revision!==guard.expectedLocalRevision||(guard.status&&current.status!==guard.status))throw new Error('Local revision conflict. Reload the session before editing.');
+      }
+      let sequence=await nextOperationSequence(operations);
+      for(const change of prepared){
+        const {entity,id,type}=change;assertEntity(entity);
+        if(!MUTATION_TYPES.includes(type))throw new Error('Unsupported local mutation.');
+        const store=transaction.objectStore(entity),current=assertOwned(await requestResult(store.get(id)),this.userId);
+        if(await requestResult(operations.get(change.operationId))){results.push(current?clone(current):null);continue;}
+        if(type==='insert'&&current){results.push(clone(current));continue;}
+        if(type!=='insert'&&!current)throw new Error('Local record not found.');
+        if(current?.deleted_at){if(type==='soft_delete'){results.push(clone(current));continue;}throw new Error('Soft-deleted V3 records are immutable.');}
+        if(change.expectedLocalRevision!=null&&current?.local_revision!==change.expectedLocalRevision)throw new Error('Local revision conflict.');
+        const timestamp=nowIso(),patch=clone(change.payload||{});
+        for(const key of ['id','owner_id','created_at','version','remote_version','local_revision','sync_status','deleted_at'])delete patch[key];
+        let record=type==='insert'?normalizeRecord(entity,change.payload||{},{userId:this.userId,id,timestamp}):{
+          ...current,...patch,local_revision:current.local_revision+1,updated_at:timestamp,sync_status:'pending',
+          deleted_at:type==='soft_delete'?timestamp:current.deleted_at
+        };
+        await this.#assertParent(transaction,entity,record);
+        const parentEntity=entity==='session_exercises'?'workout_sessions':entity==='exercise_sets'?'session_exercises':null;
+        const parentId=record.session_id||record.session_exercise_id;
+        const parent=parentEntity?await requestResult(transaction.objectStore(parentEntity).get(parentId)):null;
+        if(parent?.deleted_at)throw new Error('Parent entity was deleted.');
+        const existingConflict=await requestResult(conflicts.get(`${entity}:${id}`));
+        const catalog=entity==='session_exercises'&&record.exercise_catalog_id?await requestResult(transaction.objectStore('exercise_catalog').get(record.exercise_catalog_id)):null;
+        if(catalog?.deleted_at&&type!=='soft_delete')throw new Error('Catalog exercise was deleted.');
+        const blocked=current?.sync_status==='conflict'||parent?.sync_status==='conflict'||catalog?.sync_status==='conflict'||existingConflict?.status==='open';
+        if(blocked)record.sync_status='conflict';
+        await requestResult(store.put(record));
+        const mutation=type==='insert'?'insert':await mutationType(operations,entity,id,current.remote_version,type);
+        const operation=operationRecord({operationId:change.operationId,userId:this.userId,entity,record,type:mutation,baseRemoteVersion:current?.remote_version,sequence:sequence++,timestamp});
+        if(change.preserveTransition)operation.preserve_transition=true;
+        if(blocked)operation.status='conflict';
+        await requestResult(operations.add(operation));
+        if(existingConflict){existingConflict.local_payload=clone(record);existingConflict.operation_ids.push(operation.operation_id);existingConflict.updated_at=timestamp;await requestResult(conflicts.put(existingConflict));}
+        results.push(clone(record));
+      }
+      const affected=new Map();
+      for(const record of results.filter(Boolean)){
+        const entity=prepared.find(change=>change.id===record.id)?.entity;
+        if(entity==='session_exercises')affected.set(`${entity}:${record.session_id}`,{entity,parentId:record.session_id,index:'session_id'});
+        if(entity==='exercise_sets')affected.set(`${entity}:${record.session_exercise_id}`,{entity,parentId:record.session_exercise_id,index:'session_exercise_id'});
+      }
+      for(const {entity,parentId,index} of affected.values()){
+        const rows=(await requestResult(transaction.objectStore(entity).index(index).getAll(parentId))).filter(row=>!row.deleted_at),positions=new Set();
+        for(const row of rows){
+          if(!Number.isInteger(row.position)||row.position<0||row.position>2147483647||positions.has(row.position))throw new Error('Local position conflict. Reload before adding or reordering.');
+          positions.add(row.position);
+        }
+      }
+      if(trainingState!==undefined)await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put({key:'training:state',owner_id:this.userId,value:clone(trainingState),updated_at:nowIso()}));
+      return results;
+    });
+  }
+
   async get(entity,id){
     assertEntity(entity);
     const record=await requestResult(this.database.transaction(entity).objectStore(entity).get(id));

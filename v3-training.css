@@ -1,0 +1,13 @@
+.v3-training-screen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: #07111f; color: #e8eef8; padding: 20px 16px 60px; }
+.v3-training-screen.hidden { display: none; }
+.v3-training-shell { max-width: 850px; margin: auto; }
+.v3-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.v3-exercises { padding-left: 24px; }
+.v3-exercises li { margin: 16px 0; }
+.v3-set { border-bottom: 1px solid #31425b; padding: 10px 0; }
+.v3-training-screen form { display: grid; gap: 12px; }
+.v3-training-screen .field-label { display: grid; gap: 6px; margin: 10px 0; }
+.v3-training-screen input[type=checkbox] { width: 28px; height: 28px; }
+.v3-training-screen button[aria-current=page] { outline: 2px solid #7edca5; }
+.v3-training-screen :focus-visible { outline: 3px solid #7edca5; outline-offset: 3px; }
+.v3-conflict:not(:empty) { border: 1px solid #f0bd61; padding: 12px; border-radius: 8px; }

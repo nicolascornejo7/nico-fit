@@ -33,6 +33,7 @@ export function remoteConfirmsOperation(operation,remoteRecord,userId){
 }
 
 function canCompact(group,operation){
+  if(operation.preserve_transition||group.operations.some(item=>item.preserve_transition))return false;
   if(group.entity!==operation.entity||group.recordId!==operation.record_id)return false;
   if(group.type==='insert')return operation.base_remote_version==null;
   return operation.type!=='insert'&&operation.base_remote_version===group.baseRemoteVersion;

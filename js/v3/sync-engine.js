@@ -85,7 +85,17 @@ export class V3SyncEngine{
 
   async #push(result){
     const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now()});
-    for(const group of compactOperations(claimed)){
+    for(const originalGroup of compactOperations(claimed)){
+      // A preceding insert/update may have advanced the base of later queued edits.
+      // Use the persisted base, not the stale claim snapshot (important for reorders).
+      const related=await this.repository.unresolvedOperations(originalGroup.entity,originalGroup.recordId);
+      const operations=originalGroup.operationIds.map(id=>related.find(item=>item.operation_id===id)).filter(Boolean);
+      if(!operations.length)continue;
+      if(related.some(item=>item.sequence<operations[0].sequence&&['failed','conflict','pending'].includes(item.status))){
+        for(const operation of operations)await this.repository.setOperationStatus(operation.operation_id,'pending');
+        continue;
+      }
+      const group={...originalGroup,operations,payload:operations.at(-1).payload,baseRemoteVersion:operations[0].base_remote_version};
       const operation=effectiveOperation(group);
       try{
         const remoteRecord=await this.remote.mutate(operation,this.repository.userId);
