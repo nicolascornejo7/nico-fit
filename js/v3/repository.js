@@ -1,6 +1,7 @@
 import {ENTITY_STORES,INTERNAL_STORES,openUserDatabase,requestResult,transactionDone} from './indexed-db.js';
 import {isV3LocalStorageEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
+import {summarizeOperations} from './diagnostic-model.js';
 
 export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed','superseded']);
 export const MUTATION_TYPES=Object.freeze(['insert','update','soft_delete']);
@@ -270,6 +271,36 @@ export class V3LocalRepository{
     return rows.filter(row=>row.owner_id===this.userId).sort((a,b)=>a.sequence-b.sequence).slice(0,limit).map(clone);
   }
 
+  async recordSyncAttempt(attemptId,patch){
+    return runTransaction(this.database,[INTERNAL_STORES.metadata],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.metadata),key=`diagnostic:attempt:${attemptId}`,existing=await requestResult(store.get(key));
+      const value={...(existing?.value||{}),attemptId};
+      if(!existing){const counter=await requestResult(store.get('diagnostic:sequence'));value.sequence=(counter?.value||0)+1;await requestResult(store.put({key:'diagnostic:sequence',owner_id:this.userId,value:value.sequence}));}
+      for(const name of ['startedAt','finishedAt','status','phase','error','result'])if(Object.hasOwn(patch,name))value[name]=clone(patch[name]);
+      await requestResult(store.put({key,owner_id:this.userId,value,updated_at:nowIso()}));
+      for(const [durable,eligible] of [['last-success',value.status==='completed'],['last-error',!!value.error]])if(eligible){const previous=await requestResult(store.get(`diagnostic:${durable}`));if(!previous||previous.value.sequence<=value.sequence)await requestResult(store.put({key:`diagnostic:${durable}`,owner_id:this.userId,value:clone(value)}));}
+      if(value.status==='failed')await requestResult(store.put({key:`audit:event:${attemptId}`,owner_id:this.userId,value:{event_id:attemptId,user_id:this.userId,event_type:'sync_failure',entity:null,entity_id:null,strategy:null,local_revision:null,local_remote_version:null,remote_version:null,occurred_at:value.finishedAt||value.startedAt,error_kind:value.error?.kind||'permanent',error_code:value.error?.code||null},updated_at:nowIso()}));
+      const rows=(await requestResult(store.getAll())).filter(row=>row.key.startsWith('diagnostic:attempt:')).sort((a,b)=>b.value.sequence-a.value.sequence);
+      for(const row of rows.slice(30))if(row.value.status!=='running')await requestResult(store.delete(row.key));
+      return clone(value);
+    });
+  }
+
+  async operationalSnapshot({now=Date.now(),maxAttempts=5}={}){
+    return runTransaction(this.database,[INTERNAL_STORES.operations,INTERNAL_STORES.metadata,INTERNAL_STORES.leases],'readonly',async transaction=>{
+      const operations=(await requestResult(transaction.objectStore(INTERNAL_STORES.operations).getAll())).filter(row=>row.owner_id===this.userId),metadata=(await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).getAll())).filter(row=>row.owner_id===this.userId);
+      const attempts=metadata.filter(row=>row.key.startsWith('diagnostic:attempt:')).map(row=>row.value).sort((a,b)=>b.sequence-a.sequence),checkpoints={};
+      for(const row of metadata.filter(row=>row.key.startsWith('checkpoint:')))checkpoints[row.key.slice(11)]=clone(row.value);
+      const lease=await requestResult(transaction.objectStore(INTERNAL_STORES.leases).get(`nico-fit-v3-sync:${this.userId}`));
+      const lock=lease&&lease.owner_id===this.userId?{active:lease.expires_at>now,expired:lease.expires_at<=now,backend:lease.backend||'lease',acquiredAt:new Date(lease.acquired_at).toISOString(),expiresAt:new Date(lease.expires_at).toISOString()}: {active:false,expired:false,backend:null,acquiredAt:null,expiresAt:null};
+      return {...summarizeOperations(operations,{now,maxAttempts}),attempts:clone(attempts),lastSuccess:clone(metadata.find(row=>row.key==='diagnostic:last-success')?.value||null),lastError:clone(metadata.find(row=>row.key==='diagnostic:last-error')?.value||null),checkpoints,lock};
+    });
+  }
+
+  async auditEvents(){const rows=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).getAll());return rows.filter(row=>row.owner_id===this.userId&&row.key.startsWith('audit:event:')).map(row=>clone(row.value));}
+  async auditDelivery(eventId){return clone((await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get(`audit:delivery:${eventId}`)))?.value||null);}
+  async setAuditDelivery(eventId,value){return runTransaction(this.database,[INTERNAL_STORES.metadata],'readwrite',async transaction=>{await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put({key:`audit:delivery:${eventId}`,owner_id:this.userId,value:clone(value),updated_at:nowIso()}));});}
+
   async claimPendingOperations(limit=25,{now=Date.now(),entities=ENTITY_STORES}={}){
     return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.operations);
@@ -520,11 +551,11 @@ export class V3LocalRepository{
     });
   }
 
-  async acquireLease(name,ownerToken,{ttlMs=30000,now=Date.now()}={}){
+  async acquireLease(name,ownerToken,{ttlMs=30000,now=Date.now(),backend='lease'}={}){
     return runTransaction(this.database,[INTERNAL_STORES.leases],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.leases),current=await requestResult(store.get(name));
       if(current&&current.owner_token!==ownerToken&&current.expires_at>now)return false;
-      await requestResult(store.put({name,owner_id:this.userId,owner_token:ownerToken,acquired_at:current?.owner_token===ownerToken?current.acquired_at:now,expires_at:now+ttlMs}));
+      await requestResult(store.put({name,owner_id:this.userId,owner_token:ownerToken,backend,acquired_at:current?.owner_token===ownerToken?current.acquired_at:now,expires_at:now+ttlMs}));
       return true;
     });
   }

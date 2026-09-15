@@ -3,6 +3,10 @@ export const V3_SYNC_FLAG='nicoFit.v3.sync.enabled';
 export const V3_TRAINING_FLAG='v3.training.enabled';
 export const V3_COACH_FLAG='v3.coach.enabled';
 export const V3_CONFLICT_UI_FLAG='v3.conflicts.enabled';
+export const V3_OBSERVABILITY_FLAG='v3.observability.enabled';
+export const V3_AUDIT_FLAG='v3.audit.enabled';
+export function isV3ObservabilityEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_OBSERVABILITY_FLAG)==='true';}catch{return false;}}
+export function isV3AuditEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_AUDIT_FLAG)==='true';}catch{return false;}}
 export function isV3ConflictsEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_CONFLICT_UI_FLAG)==='true';}catch{return false;}}
 export const V3_BRIDGE_FLAG='v3.signals.enabled';
 export const V3_BRIDGE_SYNC_FLAG='v3.signals.sync.enabled';
