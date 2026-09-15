@@ -11,3 +11,4 @@
 .v3-training-screen button[aria-current=page] { outline: 2px solid #7edca5; }
 .v3-training-screen :focus-visible { outline: 3px solid #7edca5; outline-offset: 3px; }
 .v3-conflict:not(:empty) { border: 1px solid #f0bd61; padding: 12px; border-radius: 8px; }
+.v3-training-screen pre { white-space: pre-wrap; overflow-wrap: anywhere; }
