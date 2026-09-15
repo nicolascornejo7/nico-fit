@@ -7,6 +7,8 @@
     "test:v3:storage": "node --test test/v3-client-storage.test.js",
     "test:v3:training": "node --test test/v3-training-engine.test.js",
     "test:v3:coach": "node --test test/v3-coach.test.js",
+    "test:v3:signals": "node --test test/v3-signals.test.js",
+    "test:v3:signals:staging": "node --env-file=.env.v3-staging.local scripts/v3-signals-staging.mjs",
     "test:v3:sync": "node --test test/v3-sync-engine.test.js",
     "test:v3:sync:staging": "node --env-file=.env.v3-staging.local scripts/v3-sync-staging.mjs",
     "test:v3:dry-run": "node scripts/v3-dry-run.mjs",

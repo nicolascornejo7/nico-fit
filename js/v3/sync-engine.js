@@ -1,5 +1,5 @@
-import {ENTITY_STORES} from './indexed-db.js';
-import {isV3SyncEnabled} from './feature-flags.js';
+import {ENTITY_STORES,SIGNAL_STORES} from './indexed-db.js';
+import {isV3SyncEnabled,isV3SignalsSyncEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs} from './sync-protocol.js';
 
@@ -17,11 +17,12 @@ function errorSnapshot(error){
 }
 
 export class V3SyncEngine{
-  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,locks=globalThis.navigator?.locks,now=Date.now,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
+  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,signalsSyncEnabled,locks=globalThis.navigator?.locks,now=Date.now,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
     if(!repository||!remote)throw new Error('V3 sync requires a local repository and remote adapter.');
     this.repository=repository;this.remote=remote;this.flagStorage=flagStorage;this.featureEnabled=featureEnabled;
     this.locks=locks;this.now=now;this.random=random;this.pageSize=pageSize;this.batchSize=batchSize;
     this.maxAttempts=maxAttempts;this.leaseTtlMs=leaseTtlMs;
+    this.signalsSyncEnabled=signalsSyncEnabled;
   }
 
   async syncOnce(){
@@ -45,7 +46,7 @@ export class V3SyncEngine{
   }
 
   async #pull(result){
-    for(const entity of PULL_ORDER){
+    for(const entity of this.#entities()){
       if(!ENTITY_STORES.includes(entity))continue;
       let cursor=await this.repository.getSyncCheckpoint(entity);
       while(true){
@@ -58,7 +59,9 @@ export class V3SyncEngine{
           const unresolved=await this.repository.unresolvedOperations(entity,remoteRecord.id);
           if(unresolved.length){
             const groups=compactOperations(unresolved),last=groups.at(-1),effective=effectiveOperation(last);
-            if(groups.length===1&&remoteConfirmsOperation(effective,remoteRecord,this.repository.userId)){
+            if(unresolved.some(item=>item.status==='conflict')){
+              await this.repository.recordConflict({entity,recordId:remoteRecord.id,operationIds:unresolved.map(item=>item.operation_id),reason:'conflict_remote_refresh',localPayload:await this.repository.get(entity,remoteRecord.id),remotePayload:remoteRecord});
+            }else if(groups.length===1&&remoteConfirmsOperation(effective,remoteRecord,this.repository.userId)){
               await this.repository.acknowledgeOperations(last.operationIds,{remoteRecord});result.pushed+=1;
             }else if(!remoteRecord.deleted_at&&unresolved.every(item=>item.type!=='insert'&&item.base_remote_version===remoteRecord.version)){
               // The pull returned the exact server base on which these offline edits were made.
@@ -84,7 +87,7 @@ export class V3SyncEngine{
   }
 
   async #push(result){
-    const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now()});
+    const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now(),entities:this.#entities()});
     for(const originalGroup of compactOperations(claimed)){
       // A preceding insert/update may have advanced the base of later queued edits.
       // Use the persisted base, not the stale claim snapshot (important for reorders).
@@ -128,7 +131,8 @@ export class V3SyncEngine{
   }
 
   #assertRemoteOwner(entity,record){
-    if(entity==='workout_sessions'&&record.user_id!==this.repository.userId)throw new Error('Remote workout session belongs to another user.');
+    if(['workout_sessions',...SIGNAL_STORES].includes(entity)&&record.user_id!==this.repository.userId)throw new Error('Remote record belongs to another user.');
     if(entity==='exercise_catalog'&&record.owner_user_id!=null&&record.owner_user_id!==this.repository.userId)throw new Error('Remote exercise catalog row belongs to another user.');
   }
+  #entities(){return [...PULL_ORDER,...((this.signalsSyncEnabled??isV3SignalsSyncEnabled(this.flagStorage))?SIGNAL_STORES:[])];}
 }

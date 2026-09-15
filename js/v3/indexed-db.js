@@ -1,7 +1,8 @@
-const DB_VERSION=2;
+const DB_VERSION=3;
 const DB_PREFIX='nico-fit-v3-local';
 
-export const ENTITY_STORES=['workout_sessions','session_exercises','exercise_sets','exercise_catalog'];
+export const SIGNAL_STORES=['daily_readiness','football_sessions','match_reviews'];
+export const ENTITY_STORES=['workout_sessions','session_exercises','exercise_sets','exercise_catalog',...SIGNAL_STORES];
 export const INTERNAL_STORES={
   operations:'pending_operations',migrations:'migration_map',
   metadata:'sync_metadata',conflicts:'sync_conflicts',leases:'sync_leases'
@@ -37,6 +38,7 @@ function ensureIndex(store,name,keyPath,options){
 }
 
 function upgrade(database,transaction){
+  for(const name of SIGNAL_STORES){const store=getOrCreateStore(database,transaction,name);ensureIndex(store,'local_date','local_date',{unique:name==='daily_readiness'});ensureIndex(store,'updated_at','updated_at');ensureIndex(store,'sync_status','sync_status');if(name==='match_reviews')ensureIndex(store,'football_session_id','football_session_id');}
   const sessions=getOrCreateStore(database,transaction,'workout_sessions');
   ensureIndex(sessions,'session_date','session_date');
   ensureIndex(sessions,'status','status');
