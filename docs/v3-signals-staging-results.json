@@ -1,0 +1,131 @@
+{
+  "project": "nico-fit-v3-staging",
+  "projectRef": "tmydirzzlmlmtjgwqcgh",
+  "runId": "f1029650-22d1-42a7-93e6-92ceb133b1ca",
+  "date": "2133-02-24",
+  "storage": "fake-indexeddb (real repository; simulated browser storage)",
+  "steps": [
+    {
+      "name": "two real Auth sessions and schema visibility",
+      "status": "passed",
+      "detail": {
+        "schemaVisible": true
+      }
+    },
+    {
+      "name": "anon denied on all signal tables",
+      "status": "passed",
+      "detail": {
+        "daily_readiness": "42501",
+        "football_sessions": "42501",
+        "match_reviews": "42501"
+      }
+    },
+    {
+      "name": "offline readiness, multiple football occurrences, match review",
+      "status": "passed",
+      "detail": {
+        "footballSessions": 3,
+        "queued": true
+      }
+    },
+    {
+      "name": "IndexedDB to staging confirms writes and generated load",
+      "status": "passed",
+      "detail": {
+        "pulled": 34,
+        "pushed": 5,
+        "conflicts": 0,
+        "failed": 0,
+        "recovered": 0,
+        "requeued": 0
+      }
+    },
+    {
+      "name": "staging to second IndexedDB with paginated signal pull",
+      "status": "passed",
+      "detail": {
+        "result": {
+          "pulled": 39,
+          "pushed": 0,
+          "conflicts": 0,
+          "failed": 0,
+          "recovered": 0,
+          "requeued": 0
+        },
+        "pages": {
+          "exercise_catalog": 4,
+          "workout_sessions": 9,
+          "session_exercises": 5,
+          "exercise_sets": 6,
+          "daily_readiness": 5,
+          "football_sessions": 7,
+          "match_reviews": 4
+        }
+      }
+    },
+    {
+      "name": "RLS two users rejects cross reads, inserts, updates and parent links",
+      "status": "passed",
+      "detail": {
+        "crossInsert": "42501",
+        "crossParent": "23514"
+      }
+    },
+    {
+      "name": "update and PT409 reject obsolete and jumped versions",
+      "status": "passed",
+      "detail": {
+        "version": 2,
+        "http": 409
+      }
+    },
+    {
+      "name": "local remote conflict retained without silent overwrite",
+      "status": "passed",
+      "detail": {
+        "conflicts": 1
+      }
+    },
+    {
+      "name": "V2 import idempotent, ambiguous payloads pending_review",
+      "status": "passed",
+      "detail": {
+        "migrated": 2,
+        "pendingReview": 2,
+        "duplicates": 0
+      }
+    },
+    {
+      "name": "Coach consumes only V3 behind explicit signals flag",
+      "status": "passed",
+      "detail": {
+        "score": 93,
+        "title": "Reducir volumen y mantener margen"
+      }
+    },
+    {
+      "name": "soft delete readiness and linked reviews, tombstones block resurrection",
+      "status": "passed",
+      "detail": {
+        "tombstones": 3,
+        "resurrectionRejected": true,
+        "sqlCode": "55000",
+        "httpStatus": 500,
+        "classification": "conflict"
+      }
+    },
+    {
+      "name": "repeated sync produces no duplicated writes",
+      "status": "passed",
+      "detail": {
+        "pulled": 1,
+        "pushed": 0,
+        "conflicts": 0,
+        "failed": 0,
+        "recovered": 0,
+        "requeued": 0
+      }
+    }
+  ]
+}

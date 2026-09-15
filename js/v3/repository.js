@@ -126,8 +126,8 @@ export class V3LocalRepository{
           deleted_at:type==='soft_delete'?timestamp:current.deleted_at
         };
         await this.#assertParent(transaction,entity,record);
-        const parentEntity=entity==='session_exercises'?'workout_sessions':entity==='exercise_sets'?'session_exercises':null;
-        const parentId=record.session_id||record.session_exercise_id;
+        const parentEntity=entity==='session_exercises'?'workout_sessions':entity==='exercise_sets'?'session_exercises':entity==='match_reviews'&&record.football_session_id?'football_sessions':null;
+        const parentId=record.session_id||record.session_exercise_id||record.football_session_id;
         const parent=parentEntity?await requestResult(transaction.objectStore(parentEntity).get(parentId)):null;
         if(parent?.deleted_at)throw new Error('Parent entity was deleted.');
         const existingConflict=await requestResult(conflicts.get(`${entity}:${id}`));
@@ -269,11 +269,11 @@ export class V3LocalRepository{
     return rows.filter(row=>row.owner_id===this.userId).sort((a,b)=>a.sequence-b.sequence).slice(0,limit).map(clone);
   }
 
-  async claimPendingOperations(limit=25,{now=Date.now()}={}){
+  async claimPendingOperations(limit=25,{now=Date.now(),entities=ENTITY_STORES}={}){
     return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.operations);
       const pending=(await requestResult(store.index('status').getAll('pending'))).filter(row=>
-        row.owner_id===this.userId&&(!row.next_attempt_at||Date.parse(row.next_attempt_at)<=now)
+        row.owner_id===this.userId&&entities.includes(row.entity)&&(!row.next_attempt_at||Date.parse(row.next_attempt_at)<=now)
       )
         .sort((a,b)=>a.sequence-b.sequence).slice(0,limit);
       const timestamp=nowIso();
@@ -381,11 +381,13 @@ export class V3LocalRepository{
   async applyRemoteRecord(entity,remoteRecord){
     assertEntity(entity);
     if(!remoteRecord?.id||remoteRecord.version==null)throw new Error('Remote V3 record requires id and version.');
-    return runTransaction(this.database,[entity,INTERNAL_STORES.operations],'readwrite',async transaction=>{
+    return runTransaction(this.database,[entity,INTERNAL_STORES.operations,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
       const operationStore=transaction.objectStore(INTERNAL_STORES.operations);
       const unresolved=(await requestResult(operationStore.index('entity_record').getAll([entity,remoteRecord.id])))
         .filter(item=>item.owner_id===this.userId&&UNRESOLVED_OPERATION_STATES.has(item.status));
       if(unresolved.length)return {applied:false,unresolved:unresolved.sort((a,b)=>a.sequence-b.sequence).map(clone)};
+      const conflictStore=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=await requestResult(conflictStore.get(`${entity}:${remoteRecord.id}`));
+      if(conflict?.status==='open'){conflict.remote_payload=clone(remoteRecord);conflict.updated_at=nowIso();await requestResult(conflictStore.put(conflict));return {applied:false,blocked:true,unresolved:[]};}
       const entityStore=transaction.objectStore(entity),current=await requestResult(entityStore.get(remoteRecord.id));
       if(current?.remote_version!=null&&current.remote_version>remoteRecord.version)return {applied:false,stale:true,unresolved:[]};
       const record={...clone(remoteRecord),owner_id:this.userId,remote_version:remoteRecord.version,local_revision:current?.local_revision||1,sync_status:'synced'};
@@ -478,17 +480,18 @@ export class V3LocalRepository{
     });
   }
 
-  async importRecord(entity,{sourceKey,id,payload,status='pending_review',note=''}){
+  async importRecord(entity,{sourceKey,id,payload,status='pending_review',note='',enqueue=false}){
     assertEntity(entity);
-    return runTransaction(this.database,[entity,INTERNAL_STORES.migrations],'readwrite',async transaction=>{
+    return runTransaction(this.database,[entity,INTERNAL_STORES.migrations,INTERNAL_STORES.operations],'readwrite',async transaction=>{
       const mappings=transaction.objectStore(INTERNAL_STORES.migrations),existingMap=await requestResult(mappings.get(sourceKey));
       if(existingMap){
         const record=await requestResult(transaction.objectStore(entity).get(existingMap.target_id));
         return {record:record?clone(assertOwned(record,this.userId)):null,mapping:clone(existingMap),created:false};
       }
-      const record=normalizeRecord(entity,{...payload,migration_status:status,migration_note:note},{userId:this.userId,id,syncStatus:'conflict'});
+      const record=normalizeRecord(entity,{...payload,migration_status:status,migration_note:note},{userId:this.userId,id,syncStatus:enqueue?'pending':'conflict'});
       await requestResult(transaction.objectStore(entity).add(record));
-      const mapping={source_key:sourceKey,owner_id:this.userId,entity,target_id:id,migration_status:status,migration_note:note,created_at:nowIso()};
+      if(enqueue){const operations=transaction.objectStore(INTERNAL_STORES.operations);await requestResult(operations.add(operationRecord({operationId:uuid(this.crypto),userId:this.userId,entity,record,type:'insert',baseRemoteVersion:null,sequence:await nextOperationSequence(operations)})));}
+      const mapping={source_key:sourceKey,owner_id:this.userId,entity,target_id:id,migration_status:status,migration_note:note,source_payload:clone(payload.source_payload??payload),created_at:nowIso(),migrated_at:nowIso()};
       await requestResult(mappings.add(mapping));
       return {record:clone(record),mapping:clone(mapping),created:true};
     });
@@ -499,7 +502,25 @@ export class V3LocalRepository{
     return rows.filter(row=>row.owner_id===this.userId).map(clone);
   }
 
+  async markSignalImportChanged(sourceKey,sourcePayload){
+    return runTransaction(this.database,[...ENTITY_STORES,INTERNAL_STORES.migrations,INTERNAL_STORES.operations,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
+      const mappings=transaction.objectStore(INTERNAL_STORES.migrations),mapping=await requestResult(mappings.get(sourceKey));
+      if(!mapping||mapping.migration_status==='pending_review')return false;
+      const timestamp=nowIso();mapping.migration_status='pending_review';mapping.migration_note='V2 source changed after import; explicit review required.';mapping.latest_source_payload=clone(sourcePayload);mapping.updated_at=timestamp;await requestResult(mappings.put(mapping));
+      if(mapping.target_id){
+        const store=transaction.objectStore(mapping.entity),record=await requestResult(store.get(mapping.target_id));
+        if(record){record.migration_status='pending_review';record.sync_status='conflict';record.updated_at=timestamp;await requestResult(store.put(record));
+          const operations=transaction.objectStore(INTERNAL_STORES.operations),related=await requestResult(operations.index('entity_record').getAll([mapping.entity,record.id]));
+          for(const operation of related.filter(row=>UNRESOLVED_OPERATION_STATES.has(row.status))){operation.status='conflict';operation.last_error=mapping.migration_note;await requestResult(operations.put(operation));}
+          await requestResult(transaction.objectStore(INTERNAL_STORES.conflicts).put({conflict_id:`${mapping.entity}:${record.id}`,owner_id:this.userId,entity:mapping.entity,record_id:record.id,status:'open',reason:'v2_source_changed',operation_ids:related.filter(row=>UNRESOLVED_OPERATION_STATES.has(row.status)).map(row=>row.operation_id),local_payload:clone(record),remote_payload:null,source_payload:clone(sourcePayload),created_at:timestamp,updated_at:timestamp}));
+        }
+      }
+      return true;
+    });
+  }
+
   async #assertParent(transaction,entity,payload){
+    if(entity==='match_reviews'&&payload.football_session_id){const parent=await requestResult(transaction.objectStore('football_sessions').get(payload.football_session_id));if(!parent)throw new Error('Parent football_session not found.');assertOwned(parent,this.userId);}
     if(entity==='session_exercises'){
       const sessionStore=transaction.objectStoreNames.contains('workout_sessions')?transaction.objectStore('workout_sessions'):null;
       const parent=sessionStore&&await requestResult(sessionStore.get(payload.session_id));

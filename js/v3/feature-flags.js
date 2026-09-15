@@ -2,6 +2,10 @@ export const V3_LOCAL_STORAGE_FLAG='nicoFit.v3.localStorage.enabled';
 export const V3_SYNC_FLAG='nicoFit.v3.sync.enabled';
 export const V3_TRAINING_FLAG='v3.training.enabled';
 export const V3_COACH_FLAG='v3.coach.enabled';
+export const V3_BRIDGE_FLAG='v3.signals.enabled';
+export const V3_BRIDGE_SYNC_FLAG='v3.signals.sync.enabled';
+export function isV3SignalsEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_BRIDGE_FLAG)==='true';}catch{return false;}}
+export function isV3SignalsSyncEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_BRIDGE_SYNC_FLAG)==='true';}catch{return false;}}
 export function isV3CoachEnabled(storage=globalThis.localStorage){
   try{return storage?.getItem(V3_COACH_FLAG)==='true';}catch{return false;}
 }
