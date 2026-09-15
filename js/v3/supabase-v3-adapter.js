@@ -20,7 +20,10 @@ export class SupabaseV3Adapter{
 
   async authenticatedUserId(){
     const {data,error}=await this.client.auth.getUser();
-    if(error)throw asError(error,401);
+    if(error){
+      if(error.name==='AuthSessionMissingError'||[400,401,403].includes(Number(error.status)))throw asError({message:'Supabase session is expired.',code:'PGRST301'},401);
+      throw asError(error,Number(error.status)>=500?Number(error.status):503);
+    }
     if(!data?.user?.id)throw asError({message:'Supabase session is expired.',code:'PGRST301'},401);
     return data.user.id;
   }

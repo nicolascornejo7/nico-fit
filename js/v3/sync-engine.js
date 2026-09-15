@@ -2,6 +2,7 @@ import {ENTITY_STORES,SIGNAL_STORES} from './indexed-db.js';
 import {isV3SyncEnabled,isV3SignalsSyncEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs} from './sync-protocol.js';
+import {safeDiagnosticError} from './diagnostic-model.js';
 
 const PULL_ORDER=['exercise_catalog','workout_sessions','session_exercises','exercise_sets'];
 
@@ -17,31 +18,42 @@ function errorSnapshot(error){
 }
 
 export class V3SyncEngine{
-  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,signalsSyncEnabled,locks=globalThis.navigator?.locks,now=Date.now,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
+  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,signalsSyncEnabled,locks=globalThis.navigator?.locks,now=Date.now,online=()=>globalThis.navigator?.onLine!==false,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
     if(!repository||!remote)throw new Error('V3 sync requires a local repository and remote adapter.');
     this.repository=repository;this.remote=remote;this.flagStorage=flagStorage;this.featureEnabled=featureEnabled;
     this.locks=locks;this.now=now;this.random=random;this.pageSize=pageSize;this.batchSize=batchSize;
     this.maxAttempts=maxAttempts;this.leaseTtlMs=leaseTtlMs;
     this.signalsSyncEnabled=signalsSyncEnabled;
+    this.online=online;
   }
 
   async syncOnce(){
     const enabled=this.featureEnabled??isV3SyncEnabled(this.flagStorage);
     if(!enabled)return {skipped:'disabled'};
-    const remoteUserId=await this.remote.authenticatedUserId();
-    if(remoteUserId!==this.repository.userId)throw new Error('Authenticated Supabase user does not match the local V3 repository.');
-    return withV3SyncLock({
-      repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,
-      task:()=>this.#runLocked()
-    });
+    const attemptId=globalThis.crypto.randomUUID(),stamp=()=>new Date(this.now()).toISOString();
+    await this.#observe(attemptId,{startedAt:stamp(),status:'running',phase:'auth'});
+    try{
+      if(!this.online()){await this.#observe(attemptId,{status:'offline',phase:'offline',finishedAt:stamp()});return {skipped:'offline'};}
+      const remoteUserId=await this.remote.authenticatedUserId();
+      if(remoteUserId!==this.repository.userId)throw Object.assign(new Error('Authenticated Supabase user does not match the local V3 repository.'),{status:401});
+      const result=await withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:()=>this.#runLocked(attemptId)});
+      await this.#observe(attemptId,{status:result.skipped?'locked':result.failed?'failed':'completed',phase:result.skipped?'locked':'finished',finishedAt:stamp(),result});
+      return result;
+    }catch(error){
+      const snapshot=await this.repository.operationalSnapshot().catch(()=>({attempts:[]})),phase=snapshot.attempts.find(row=>row.attemptId===attemptId)?.phase||'auth';
+      await this.#observe(attemptId,{status:'failed',phase,finishedAt:stamp(),error:safeDiagnosticError(error,classifySyncError(error),phase)});throw error;
+    }
   }
 
-  async #runLocked(){
+  // Diagnostic writes are best effort; quota errors must not prevent domain sync.
+  async #observe(attemptId,patch){try{await this.repository.recordSyncAttempt(attemptId,patch);}catch{}}
+
+  async #runLocked(attemptId){
     const result={pulled:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
     result.recovered=await this.repository.recoverInterruptedOperations();
     result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts});
-    await this.#pull(result);
-    await this.#push(result);
+    await this.#observe(attemptId,{phase:'pull'});await this.#pull(result);
+    await this.#observe(attemptId,{phase:'push'});await this.#push(result,attemptId);
     return result;
   }
 
@@ -86,7 +98,7 @@ export class V3SyncEngine{
     }
   }
 
-  async #push(result){
+  async #push(result,attemptId){
     const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now(),entities:this.#entities()});
     for(const originalGroup of compactOperations(claimed)){
       // A preceding insert/update may have advanced the base of later queued edits.
@@ -106,6 +118,7 @@ export class V3SyncEngine{
         await this.repository.acknowledgeOperations(group.operationIds,{remoteRecord});result.pushed+=1;
       }catch(error){
         const kind=classifySyncError(error);
+        await this.#observe(attemptId,{error:safeDiagnosticError(error,kind,'push')});
         if(kind!=='auth'&&kind!=='transient'){
           const existing=await this.remote.fetchById(operation.entity,operation.record_id).catch(()=>null);
           if(existing&&remoteConfirmsOperation(operation,existing,this.repository.userId)){
