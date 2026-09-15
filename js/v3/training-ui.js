@@ -83,7 +83,7 @@ export class V3TrainingUI{
       card.append(button('Agregar a la sesión',()=>this.run(()=>this.engine.addExercise(choice.value,{sets:target.value,min:minimum.value,max:maximum.value,step:step.value})),'primary'));
     }
     const name=field(card,'Nombre de ejercicio personalizado',{type:'text'}),mode=select(card,'Unidad', [['reps','Repeticiones'],['seconds','Segundos'],['mixed','Elegir reps o segundos por serie']]);
-    card.append(button('Crear ejercicio personalizado y agregar',()=>this.run(async()=>{const custom=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(custom.id);}))); 
+    card.append(button('Crear ejercicio personalizado y agregar',()=>this.run(async()=>{const custom=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(custom.id);})));
   }
 
   async renderSets(shell,exercise,state){
