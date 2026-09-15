@@ -1,4 +1,6 @@
 import {sessionMetrics} from './training-metrics.js';
+import {isV3CoachEnabled} from './feature-flags.js';
+import {localDateKey} from '../plan.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -36,6 +38,8 @@ export class V3TrainingUI{
     shell.append(el('p','Guardado local por usuario. Esta pantalla no activa sincronización remota.','muted'));
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
     this.conflict=el('p','','advice v3-conflict');this.conflict.setAttribute('role','status');this.conflict.setAttribute('aria-live','polite');shell.append(this.conflict);
+    this.coachSlot=null;
+    if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
     if(!snapshot||snapshot.session.status!=='draft'){await this.renderStart(shell);return;}
     shell.append(el('h3',snapshot.session.label));shell.append(el('p',`Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
     this.clock=el('strong',duration(sessionMetrics(snapshot).durationSeconds));shell.append(this.clock);
@@ -127,7 +131,17 @@ export class V3TrainingUI{
   }
 
   async refreshStatus(){
-    if(this.destroyed||this.busy)return;const snapshot=await this.engine.snapshot();if(!snapshot||this.destroyed)return;
+    if(this.destroyed||this.busy)return;const snapshot=await this.engine.snapshot();if(this.destroyed)return;
+    if(this.coachSlot&&this.coachDate!==localDateKey())await this.refreshCoach(snapshot);
+    if(!snapshot||this.destroyed)return;
     if(this.clock)this.clock.textContent=duration(sessionMetrics(snapshot).durationSeconds);this.setConflict(snapshot);
+  }
+
+  async refreshCoach(snapshot){
+    const slot=this.coachSlot;if(!slot)return;
+    try{const [{V3CoachService},{renderCoachCard}]=await Promise.all([import('./coach-service.js'),import('./coach-presentation.js')]);
+      const result=await new V3CoachService({engine:this.engine}).today(snapshot);if(this.destroyed||slot!==this.coachSlot)return;
+      slot.replaceChildren(renderCoachCard(result,snapshot),button('Actualizar Coach',async()=>{await this.refreshCoach(await this.engine.snapshot());}));this.coachDate=result.signals.date;
+    }catch(error){if(this.destroyed||slot!==this.coachSlot)return;slot.replaceChildren(el('p',`Coach no disponible: ${error.message}`,'advice'));this.coachDate=localDateKey();}
   }
 }

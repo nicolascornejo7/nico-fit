@@ -1,6 +1,15 @@
 export const V3_LOCAL_STORAGE_FLAG='nicoFit.v3.localStorage.enabled';
 export const V3_SYNC_FLAG='nicoFit.v3.sync.enabled';
 export const V3_TRAINING_FLAG='v3.training.enabled';
+export const V3_COACH_FLAG='v3.coach.enabled';
+export function isV3CoachEnabled(storage=globalThis.localStorage){
+  try{return storage?.getItem(V3_COACH_FLAG)==='true';}catch{return false;}
+}
+export function setV3CoachEnabled(enabled,storage=globalThis.localStorage){
+  if(!storage)throw new Error('Feature flag storage is unavailable.');
+  if(enabled)storage.setItem(V3_COACH_FLAG,'true');else storage.removeItem(V3_COACH_FLAG);
+  return !!enabled;
+}
 
 export function isV3TrainingEnabled(storage=globalThis.localStorage){
   try{return storage?.getItem(V3_TRAINING_FLAG)==='true';}catch{return false;}
