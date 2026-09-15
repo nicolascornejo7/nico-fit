@@ -15,10 +15,11 @@ if(isV3TrainingEnabled()){
     const flush=ui?.engine.flush();ui?.destroy();ui=null;const prior=repository;repository=null;
     if(prior)Promise.resolve(flush).finally(()=>prior.close());button.focus();
   };
+  document.addEventListener('nico-fit:v3-panel-open',event=>{if(event.detail!=='training'&&ui)close();});
   root.addEventListener('keydown',event=>{
     if(event.key==='Escape'){close();return;}
     if(event.key!=='Tab')return;
-    const focusable=[...root.querySelectorAll('button,input,select,textarea')].filter(node=>!node.disabled&&node.offsetParent!==null);
+    const focusable=[...root.querySelectorAll('button,input,select,textarea,summary')].filter(node=>{const closed=node.closest('details:not([open])');return !node.disabled&&node.offsetParent!==null&&(!closed||closed.querySelector(':scope > summary')===node);});
     const first=focusable[0],last=focusable.at(-1);if(!first){event.preventDefault();return;}
     if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
     else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
@@ -36,7 +37,7 @@ if(isV3TrainingEnabled()){
       const [{V3LocalRepository},{V3TrainingEngine},{V3TrainingUI}]=await Promise.all([import('./repository.js'),import('./training-engine.js'),import('./training-ui.js')]);
       const opened=await V3LocalRepository.open({userId:expectedUser});
       if(token!==generation||expectedUser!==userId){opened.close();return;}
-      repository=opened;const engine=new V3TrainingEngine({repository});
+      document.dispatchEvent(new CustomEvent('nico-fit:v3-panel-open',{detail:'training'}));repository=opened;const engine=new V3TrainingEngine({repository});
       ui=new V3TrainingUI({root,engine,onClose:close});root.classList.remove('hidden');setBackgroundInert(true);await ui.mount();
     }catch(error){if(token===generation){close();window.alert(error.message);}}
     finally{opening=false;}
