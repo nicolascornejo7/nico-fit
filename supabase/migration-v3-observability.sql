@@ -4,7 +4,7 @@ create table if not exists nico_fit_v3.operational_audit (
  event_id uuid primary key,
  user_id uuid not null references auth.users(id) on delete restrict,
  event_type text not null check(event_type in ('conflict_resolution','sync_failure')),
- entity text check(entity in ('workout_sessions','session_exercises','exercise_sets','exercise_catalog','daily_readiness','football_sessions','match_reviews')),
+ entity text check(entity in ('workout_sessions','session_exercises','exercise_sets','exercise_catalog','daily_readiness','football_sessions','match_reviews','routine_templates','routine_versions','routine_exercises')),
  entity_id uuid,
  strategy text check(strategy in ('accept_remote','keep_local','keep_both','defer')),
  check(strategy is distinct from 'keep_both' or entity='football_sessions'),

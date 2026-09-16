@@ -8,7 +8,7 @@ const id=value=>typeof value==='string'&&/^[0-9a-f-]{36}$/i.test(value)?value:nu
 const statuses=new Set(['running','offline','locked','failed','completed']);
 const phases=new Set(['auth','pull','push','finished','offline','locked']);
 function attemptView(row){return {attemptId:id(row.attemptId),startedAt:stamp(row.startedAt),finishedAt:stamp(row.finishedAt),status:statuses.has(row.status)?row.status:'unknown',phase:phases.has(row.phase)?row.phase:null,error:row.error?safeDiagnosticError(row.error,row.error.kind,phases.has(row.error.phase)?row.error.phase:null):null,result:Object.fromEntries(['pulled','pushed','conflicts','failed','recovered','requeued'].map(name=>[name,Number.isSafeInteger(row.result?.[name])&&row.result[name]>=0?row.result[name]:0]))};}
-export function v3FlagState(storage){return Object.fromEntries(['V3_LOCAL_STORAGE_FLAG','V3_SYNC_FLAG','V3_TRAINING_FLAG','V3_COACH_FLAG','V3_BRIDGE_FLAG','V3_BRIDGE_SYNC_FLAG','V3_CONFLICT_UI_FLAG','V3_OBSERVABILITY_FLAG','V3_AUDIT_FLAG'].map(name=>{const key=flags[name];try{return [key,storage?.getItem(key)==='true'];}catch{return [key,false];}}));}
+export function v3FlagState(storage){return Object.fromEntries(['V3_LOCAL_STORAGE_FLAG','V3_SYNC_FLAG','V3_TRAINING_FLAG','V3_COACH_FLAG','V3_BRIDGE_FLAG','V3_BRIDGE_SYNC_FLAG','V3_CONFLICT_UI_FLAG','V3_OBSERVABILITY_FLAG','V3_AUDIT_FLAG','V3_ROUTINES_FLAG','V3_ROUTINES_SYNC_FLAG'].map(name=>{const key=flags[name];try{return [key,storage?.getItem(key)==='true'];}catch{return [key,false];}}));}
 
 export class V3ObservabilityService{
   constructor({repository,engine=null,audit=null,flagStorage=globalThis.localStorage,online=()=>globalThis.navigator?.onLine!==false,locks=globalThis.navigator?.locks,now=Date.now}={}){

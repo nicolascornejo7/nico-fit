@@ -1,6 +1,7 @@
 import {sessionMetrics} from './training-metrics.js';
 import {isV3CoachEnabled} from './feature-flags.js';
 import {localDateKey} from '../plan.js';
+import {routineIdentityCard,routineListView} from './routine-presentation.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -12,6 +13,7 @@ const field=(parent,label,{value='',type='number',min,max,step='1'}={})=>{
 };
 const select=(parent,label,options,value)=>{
   const wrapper=el('label',label,'field-label'),node=el('select');
+  node.setAttribute('aria-label',label);
   for(const [id,name] of options){const option=el('option',name);option.value=String(id);node.append(option);}if(value!=null)node.value=String(value);
   wrapper.append(node);parent.append(wrapper);return node;
 };
@@ -42,6 +44,7 @@ export class V3TrainingUI{
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
     if(!snapshot||snapshot.session.status!=='draft'){await this.renderStart(shell);return;}
     shell.append(el('h3',snapshot.session.label));shell.append(el('p',`Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
+    if(snapshot.session.routine_snapshot)shell.append(routineIdentityCard(snapshot.session.routine_snapshot,snapshot.routineIdentity));
     this.clock=el('strong',duration(sessionMetrics(snapshot).durationSeconds));shell.append(this.clock);
     const tabs=el('nav','','v3-actions');tabs.setAttribute('aria-label','Vistas del entrenamiento V3');
     for(const [id,title] of [['active','Sesión activa'],['exercises','Ejercicios'],['summary','Resumen']]){
@@ -58,6 +61,7 @@ export class V3TrainingUI{
   }
 
   async renderStart(shell){
+    if(this.engine.routines){await this.engine.routines.seedDefaults();const routines=await this.engine.routines.list();shell.append(routineListView(routines));const available=[];for(const template of routines.filter(row=>row.is_active&&!row.conflicts.length))for(const version of template.versions)if(version.sync_status!=='conflict')available.push([version.id,`${template.name} · versión ${version.version_number}`]);if(available.length){const choice=select(shell,'Versión concreta de rutina',available);shell.append(button('Crear sesión con esta versión',()=>this.run(()=>this.engine.createSession({routineVersionId:choice.value})),'primary'));}}
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
     const card=el('section','','card');shell.append(card);card.append(el('h3','Nueva sesión'));
     const routine=select(card,'Rutina',[[0,'Personalizada'],[2,'Martes · fuerza'],[4,'Jueves · prevención'],[5,'Viernes · prepartido']],[2,4,5].includes(new Date().getDay())?new Date().getDay():0);
