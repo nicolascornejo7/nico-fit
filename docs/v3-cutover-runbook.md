@@ -47,15 +47,15 @@ No pueden descartarse todavía. IndexedDB y localStorage dependen del origen, pe
 | Destino | Migrated | Pending review | Skipped | Condición |
 |---|---:|---:|---:|---|
 | `workout_sessions` | 1 | 0 | 0 | Sesión terminada |
-| `session_exercises` | 0 | 4 | 0 | Orden V2 sintético; revisión obligatoria |
-| `exercise_sets` | 12 candidatos | 0 | 0 | Sólo tras aprobar el mapa estable de los 4 ejercicios |
+| `session_exercises` | 4 | 0 | 0 | Cuatro posiciones prescritas aprobadas y ligadas a PK V2 |
+| `exercise_sets` | 12 | 0 | 0 | Identidad y unidad aprobadas; valores preservados literalmente |
 | `daily_readiness` | 5 | 0 | 0 | Conversión `freshness = 6 - fatigue` |
 | `football_sessions` | 1 | 0 | 0 | Tipo reconocido |
 | `match_reviews` | 0 | 0 | 0 | Sin fuentes |
 
 No se detectaron sesiones draft, ejercicios sin sesión, múltiples sesiones candidatas, identidades desconocidas, tipos de fútbol desconocidos, series inválidas, tombstones malformados ni entidades inesperadas. Los hashes de identidad permiten repetir la revisión sin publicar nombres, usuario, notas, cargas ni valores de readiness.
 
-El resultado es una estimación. Los 12 sets no se consideran definitivamente migrados hasta aprobar `v2_exercise_name_map`; los 4 ejercicios siguen `pending_review` hasta revisar orden y prescripción.
+La revisión humana quedó registrada en `config/v3-production-workout-mappings.v1.json`. El preflight exige que cada payload fuente conserve exactamente su huella; si cambia, el caso vuelve a `pending_review`. Este resultado es una proyección y no implica que el backfill haya sido ejecutado.
 
 ## Backup y restauración
 
@@ -147,7 +147,7 @@ Ante eliminación de cuenta: autenticar nuevamente al usuario, ofrecer export, c
 - [ ] Backup lógico con checksum y restauración aislada aprobada.
 - [ ] Backup local de cada dispositivo/origen activo.
 - [ ] Inventario repetido; conteos congelados y firmados.
-- [ ] Cuatro ejercicios y doce sets revisados; cero `pending_review` sin decisión.
+- [x] Cuatro ejercicios y doce sets revisados; proyección con cero `pending_review`.
 - [ ] SQL de esquema, señales, observabilidad y rutinas reejecutado en clon restaurado.
 - [ ] Backfills idempotentes ejecutados dos veces en clon.
 - [ ] RLS/anon/dos usuarios validados.
@@ -193,7 +193,7 @@ Cada paso de escritura requiere confirmación manual nueva. No se encadenan todo
 | Datos sólo locales no inventariados | Media | Alto | Abierto | NO-GO |
 | Service worker actualiza inmediatamente | Media | Alto | Abierto | NO-GO |
 | Versión mínima/rollout remoto no implementado | Alta | Alto | Abierto | NO-GO |
-| Cuatro órdenes de ejercicio sintéticos | Cierta | Medio | Revisión simple | CONDITIONAL GO tras aprobar |
+| Cuatro órdenes de ejercicio sintéticos | Baja | Medio | Aprobados con PK y huella fuente | GO para este bloqueante |
 | Colisión/conflicto V3 | Baja | Alto | UI y auditoría existen | CONDITIONAL GO tras prueba física |
 | PWA/Android/iOS/suspensión no probados | Media | Alto | Abierto | NO-GO |
 | Retención de auditoría no aprobada | Media | Medio | Propuesta | CONDITIONAL GO |
