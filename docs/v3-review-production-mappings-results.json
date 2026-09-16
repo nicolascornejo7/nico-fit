@@ -1,0 +1,28 @@
+{
+  "validated_at": "2026-09-16T17:21:22.7925499-03:00",
+  "mapping_set_id": "nico-fit-production-v2-workouts-2026-09-15-v1",
+  "mapping_version": 1,
+  "source_export_sha256": "118d73d464a50711901d04dd0cdf5ac44691d1175ea01ed82b6195c3e28a86e7",
+  "source_writes": 0,
+  "v3_production_writes": 0,
+  "position_semantics": "historical_prescribed_order_not_observed_execution",
+  "decisions": [
+    {"v2_workout_id": 60, "canonical_exercise_key": "sentadilla-prensa", "position": 0, "series": 3},
+    {"v2_workout_id": 10, "canonical_exercise_key": "press-banca", "position": 2, "series": 3},
+    {"v2_workout_id": 1, "canonical_exercise_key": "elevacion-gemelos", "position": 5, "series": 3},
+    {"v2_workout_id": 35, "canonical_exercise_key": "plancha-pallof", "position": 6, "series": 3}
+  ],
+  "projected": {
+    "session_exercises": {"migrated": 4, "pending_review": 0, "skipped": 0},
+    "exercise_sets": {"migrated": 12, "pending_review": 0, "skipped": 0}
+  },
+  "validation": {
+    "mapping_contract": "PASS",
+    "read_only_sql_on_production_export_restore": "PASS",
+    "idempotency": "PASS",
+    "source_change_detection": "PASS",
+    "verbatim_series": "PASS"
+  },
+  "mapping_blocker": "GO",
+  "cutover": "NO-GO"
+}

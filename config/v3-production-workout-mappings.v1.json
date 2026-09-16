@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "mapping_version": 1,
+  "mapping_set_id": "nico-fit-production-v2-workouts-2026-09-15-v1",
+  "status": "human_approved",
+  "source_project_ref": "xaklsoqyzwowtjwcpwmb",
+  "source_export_captured_at": "2026-09-16T10:36:15.092203-03:00",
+  "source_export_sha256": "118d73d464a50711901d04dd0cdf5ac44691d1175ea01ed82b6195c3e28a86e7",
+  "approved_at": "2026-09-16T17:21:22.7925499-03:00",
+  "approval": {
+    "kind": "explicit_human_review",
+    "actor": "nico-fit-owner",
+    "note": "Approved the four concrete V2 workout mappings and prescribed positions after reviewing every source set."
+  },
+  "position_semantics": "historical_prescribed_order_not_observed_execution",
+  "preserve_source_sets_verbatim": true,
+  "source_session": {
+    "v2_session_id": 1,
+    "date": "2026-09-15",
+    "day": "Martes",
+    "label": "Fuerza principal",
+    "source_fingerprint_sha256": "2b1f069cc685850cd5983678eebee29d9c604d7f763f70d4cb9789e8e267f627"
+  },
+  "routine": {
+    "stable_key": "v2-validated-day-2",
+    "version": 1,
+    "day_index": 2,
+    "label": "Fuerza principal"
+  },
+  "mappings": [
+    {
+      "v2_workout_id": 60,
+      "v2_session_id": 1,
+      "source": {
+        "date": "2026-09-15",
+        "day": "Martes",
+        "exercise": "Sentadilla o prensa",
+        "updated_at": "2026-09-16T00:17:37.045+00:00"
+      },
+      "source_fingerprint_sha256": "3d19309462c1b16cb195d5baa46b2e510905c928094a0868f55ad80a42178386",
+      "canonical_exercise_key": "sentadilla-prensa",
+      "measurement_kind": "reps",
+      "prescribed_position": 0,
+      "series_count": 3,
+      "combined_identity_preserved": true,
+      "decision_reason": "Exact plan[2] name and stable identity match; approved as the first prescribed exercise without inferring squat versus leg press."
+    },
+    {
+      "v2_workout_id": 10,
+      "v2_session_id": 1,
+      "source": {
+        "date": "2026-09-15",
+        "day": "Martes",
+        "exercise": "Press banca",
+        "updated_at": "2026-09-16T00:17:37.045+00:00"
+      },
+      "source_fingerprint_sha256": "e2ad330af251b94939618dba10f50a39cc457dcb05ee4bee091cd74e0c3d077f",
+      "canonical_exercise_key": "press-banca",
+      "measurement_kind": "reps",
+      "prescribed_position": 2,
+      "series_count": 3,
+      "combined_identity_preserved": false,
+      "decision_reason": "Exact plan[2] name and stable identity match; approved as the third prescribed exercise."
+    },
+    {
+      "v2_workout_id": 1,
+      "v2_session_id": 1,
+      "source": {
+        "date": "2026-09-15",
+        "day": "Martes",
+        "exercise": "Elevación de gemelos",
+        "updated_at": "2026-09-16T00:17:37.045+00:00"
+      },
+      "source_fingerprint_sha256": "3a6fe6368eb188e631bed3df6bd6b2fb05237db203ae79f30124575e9522d64d",
+      "canonical_exercise_key": "elevacion-gemelos",
+      "measurement_kind": "reps",
+      "prescribed_position": 5,
+      "series_count": 3,
+      "combined_identity_preserved": false,
+      "decision_reason": "Exact plan[2] name and reviewed stable identity match; approved as the sixth prescribed exercise."
+    },
+    {
+      "v2_workout_id": 35,
+      "v2_session_id": 1,
+      "source": {
+        "date": "2026-09-15",
+        "day": "Martes",
+        "exercise": "Plancha / Pallof press",
+        "updated_at": "2026-09-16T00:17:37.045+00:00"
+      },
+      "source_fingerprint_sha256": "3bd5b21cbddeeb247f06c6433dd145c070988b6b240778d4422ce742fe34d870",
+      "canonical_exercise_key": "plancha-pallof",
+      "measurement_kind": "seconds",
+      "prescribed_position": 6,
+      "series_count": 3,
+      "combined_identity_preserved": true,
+      "decision_reason": "Exact plan[2] name and seconds-based stable identity match; approved as the seventh prescribed exercise without inferring plank versus Pallof press."
+    }
+  ]
+}
