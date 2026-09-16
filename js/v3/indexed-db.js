@@ -1,8 +1,9 @@
-const DB_VERSION=3;
+const DB_VERSION=4;
 const DB_PREFIX='nico-fit-v3-local';
 
 export const SIGNAL_STORES=['daily_readiness','football_sessions','match_reviews'];
-export const ENTITY_STORES=['workout_sessions','session_exercises','exercise_sets','exercise_catalog',...SIGNAL_STORES];
+export const ROUTINE_STORES=['routine_templates','routine_versions','routine_exercises'];
+export const ENTITY_STORES=['workout_sessions','session_exercises','exercise_sets','exercise_catalog',...SIGNAL_STORES,...ROUTINE_STORES];
 export const INTERNAL_STORES={
   operations:'pending_operations',migrations:'migration_map',
   metadata:'sync_metadata',conflicts:'sync_conflicts',leases:'sync_leases'
@@ -38,12 +39,19 @@ function ensureIndex(store,name,keyPath,options){
 }
 
 function upgrade(database,transaction){
+  for(const name of ROUTINE_STORES){const store=getOrCreateStore(database,transaction,name);ensureIndex(store,'updated_at','updated_at');ensureIndex(store,'sync_status','sync_status');}
+  ensureIndex(transaction.objectStore('routine_templates'),'stable_key','stable_key',{unique:true});
+  ensureIndex(transaction.objectStore('routine_versions'),'routine_id','routine_id');
+  ensureIndex(transaction.objectStore('routine_versions'),'routine_number',['routine_id','version_number'],{unique:true});
+  ensureIndex(transaction.objectStore('routine_exercises'),'routine_version_id','routine_version_id');
+  ensureIndex(transaction.objectStore('routine_exercises'),'version_position',['routine_version_id','position'],{unique:true});
   for(const name of SIGNAL_STORES){const store=getOrCreateStore(database,transaction,name);ensureIndex(store,'local_date','local_date',{unique:name==='daily_readiness'});ensureIndex(store,'updated_at','updated_at');ensureIndex(store,'sync_status','sync_status');if(name==='match_reviews')ensureIndex(store,'football_session_id','football_session_id');}
   const sessions=getOrCreateStore(database,transaction,'workout_sessions');
   ensureIndex(sessions,'session_date','session_date');
   ensureIndex(sessions,'status','status');
   ensureIndex(sessions,'sync_status','sync_status');
   ensureIndex(sessions,'updated_at','updated_at');
+  ensureIndex(sessions,'routine_id','routine_id');
 
   const exercises=getOrCreateStore(database,transaction,'session_exercises');
   ensureIndex(exercises,'session_id','session_id');

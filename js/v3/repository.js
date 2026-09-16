@@ -2,6 +2,7 @@ import {ENTITY_STORES,INTERNAL_STORES,openUserDatabase,requestResult,transaction
 import {isV3LocalStorageEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {summarizeOperations} from './diagnostic-model.js';
+import {validateRoutineRecord,assertRoutineImmutable,sameRoutineValue} from './routine-validation.js';
 
 export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed','superseded']);
 export const MUTATION_TYPES=Object.freeze(['insert','update','soft_delete']);
@@ -60,6 +61,7 @@ async function mutationType(operationStore,entity,recordId,remoteVersion,fallbac
 }
 
 function mutationStores(entity,enqueue=true){
+  if(['workout_sessions','routine_templates','routine_versions','routine_exercises'].includes(entity))return [...ENTITY_STORES,...(enqueue?[INTERNAL_STORES.operations]:[])];
   const stores=[entity];
   if(entity==='session_exercises')stores.push('workout_sessions');
   if(entity==='exercise_sets')stores.push('session_exercises');
@@ -127,13 +129,14 @@ export class V3LocalRepository{
           ...current,...patch,local_revision:current.local_revision+1,updated_at:timestamp,sync_status:'pending',
           deleted_at:type==='soft_delete'?timestamp:current.deleted_at
         };
+        if(current)assertRoutineImmutable(entity,current,record);
         await this.#assertParent(transaction,entity,record);
-        const parentEntity=entity==='session_exercises'?'workout_sessions':entity==='exercise_sets'?'session_exercises':entity==='match_reviews'&&record.football_session_id?'football_sessions':null;
-        const parentId=record.session_id||record.session_exercise_id||record.football_session_id;
+        const parentEntity=entity==='routine_versions'?'routine_templates':entity==='routine_exercises'?'routine_versions':entity==='session_exercises'?'workout_sessions':entity==='exercise_sets'?'session_exercises':entity==='match_reviews'&&record.football_session_id?'football_sessions':null;
+        const parentId=record.routine_id||record.routine_version_id||record.session_id||record.session_exercise_id||record.football_session_id;
         const parent=parentEntity?await requestResult(transaction.objectStore(parentEntity).get(parentId)):null;
         if(parent?.deleted_at)throw new Error('Parent entity was deleted.');
         const existingConflict=await requestResult(conflicts.get(`${entity}:${id}`));
-        const catalog=entity==='session_exercises'&&record.exercise_catalog_id?await requestResult(transaction.objectStore('exercise_catalog').get(record.exercise_catalog_id)):null;
+        const catalog=['session_exercises','routine_exercises'].includes(entity)&&record.exercise_catalog_id?await requestResult(transaction.objectStore('exercise_catalog').get(record.exercise_catalog_id)):null;
         if(catalog?.deleted_at&&type!=='soft_delete')throw new Error('Catalog exercise was deleted.');
         const blocked=current?.sync_status==='conflict'||parent?.sync_status==='conflict'||catalog?.sync_status==='conflict'||existingConflict?.status==='open';
         if(blocked)record.sync_status='conflict';
@@ -184,8 +187,8 @@ export class V3LocalRepository{
       }
       const existing=await requestResult(entityStore.get(id));
       if(existing)return clone(assertOwned(existing,this.userId));
-      await this.#assertParent(transaction,entity,payload);
       const record=normalizeRecord(entity,payload,{userId:this.userId,id,syncStatus:options.syncStatus||'pending'});
+      await this.#assertParent(transaction,entity,record);
       await requestResult(entityStore.add(record));
       if(enqueue){
         const operationStore=transaction.objectStore(INTERNAL_STORES.operations),sequence=await nextOperationSequence(operationStore);
@@ -211,6 +214,7 @@ export class V3LocalRepository{
       const immutable=['id','owner_id','created_at','remote_version','version','local_revision','sync_status','deleted_at'];
       const safePatch={...clone(patch)};for(const key of immutable)delete safePatch[key];
       const timestamp=nowIso(),record={...current,...safePatch,updated_at:timestamp,local_revision:current.local_revision+1,sync_status:'pending'};
+      assertRoutineImmutable(entity,current,record);
       await this.#assertParent(transaction,entity,record);
       await requestResult(entityStore.put(record));
       const sequence=await nextOperationSequence(operationStore),type=await mutationType(operationStore,entity,id,current.remote_version,'update');
@@ -301,13 +305,15 @@ export class V3LocalRepository{
   async auditDelivery(eventId){return clone((await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get(`audit:delivery:${eventId}`)))?.value||null);}
   async setAuditDelivery(eventId,value){return runTransaction(this.database,[INTERNAL_STORES.metadata],'readwrite',async transaction=>{await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put({key:`audit:delivery:${eventId}`,owner_id:this.userId,value:clone(value),updated_at:nowIso()}));});}
 
-  async claimPendingOperations(limit=25,{now=Date.now(),entities=ENTITY_STORES}={}){
+  async claimPendingOperations(limit=25,{now=Date.now(),entities=ENTITY_STORES,routinesEnabled=true}={}){
     return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.operations);
-      const pending=(await requestResult(store.index('status').getAll('pending'))).filter(row=>
+      let pending=(await requestResult(store.index('status').getAll('pending'))).filter(row=>
         row.owner_id===this.userId&&entities.includes(row.entity)&&(!row.next_attempt_at||Date.parse(row.next_attempt_at)<=now)
       )
-        .sort((a,b)=>a.sequence-b.sequence).slice(0,limit);
+        .sort((a,b)=>a.sequence-b.sequence);
+      if(!routinesEnabled){const filtered=[];for(const row of pending){let session=row.entity==='workout_sessions'?row.payload:null;if(row.entity==='session_exercises')session=await requestResult(transaction.objectStore('workout_sessions').get(row.payload.session_id));if(row.entity==='exercise_sets'){const ex=await requestResult(transaction.objectStore('session_exercises').get(row.payload.session_exercise_id));if(ex)session=await requestResult(transaction.objectStore('workout_sessions').get(ex.session_id));}if(!session?.routine_id)filtered.push(row);}pending=filtered;}
+      pending=pending.slice(0,limit);
       const timestamp=nowIso();
       for(const operation of pending){
         operation.status='syncing';operation.attempts+=1;operation.updated_at=timestamp;await requestResult(store.put(operation));
@@ -481,7 +487,7 @@ export class V3LocalRepository{
       if(strategy==='defer'){conflict.deferred_at=timestamp;return persistAudit();}
       if(conflict.reason==='v2_source_changed'||local.migration_status==='pending_review')throw new Error('Review the changed import source separately before sync resolution.');
       if(!remote||remote.id!==local.id||!Number.isSafeInteger(remote.version)||remote.version<1)throw new Error('Remote snapshot required. Sync and refresh first.');
-      if(['workout_sessions','daily_readiness','football_sessions','match_reviews'].includes(entity)&&remote.user_id!==this.userId)throw new Error('Remote ownership mismatch.');
+      if(['workout_sessions','daily_readiness','football_sessions','match_reviews','routine_templates','routine_versions','routine_exercises'].includes(entity)&&remote.user_id!==this.userId)throw new Error('Remote ownership mismatch.');
       if(entity==='exercise_catalog'&&remote.owner_user_id!==this.userId)throw new Error('Catalog ownership mismatch.');
       const related=await requestResult(operations.index('entity_record').getAll([entity,local.id]));if(related.some(row=>row.status==='syncing'))throw new Error('Operation in flight. Retry after sync.');
       const stateEntry=await requestResult(auditStore.get('training:state')),state=stateEntry?.value;
@@ -631,6 +637,21 @@ export class V3LocalRepository{
   }
 
   async #assertParent(transaction,entity,payload){
+    validateRoutineRecord(entity,payload);
+    if(entity==='routine_versions'){
+      const parent=assertOwned(await requestResult(transaction.objectStore('routine_templates').get(payload.routine_id)),this.userId);
+      if(!parent||parent.deleted_at)throw new Error('Rutina padre no disponible.');
+    }
+    if(entity==='routine_exercises'){
+      const parent=assertOwned(await requestResult(transaction.objectStore('routine_versions').get(payload.routine_version_id)),this.userId),catalog=assertOwned(await requestResult(transaction.objectStore('exercise_catalog').get(payload.exercise_catalog_id)),this.userId);
+      const historical=parent?.prescription_snapshot.exercises.find(ex=>ex.id===payload.id);
+      if(!parent||parent.deleted_at||!catalog||catalog.deleted_at||!historical||!['exercise_catalog_id','position','exercise_name_snapshot','prescription_snapshot'].every(key=>sameRoutineValue(historical[key],payload[key])))throw new Error('Ejercicio no coincide con snapshot de versión.');
+    }
+    if(entity==='workout_sessions'&&payload.routine_id){
+      if(!payload.routine_snapshot||payload.routine_snapshot.routine_id!==payload.routine_id||payload.routine_snapshot.routine_version!==payload.routine_version||payload.routine_snapshot.routine_version_id!==payload.routine_version_id)throw new Error('Identidad histórica de sesión incompleta.');
+      const existing=await requestResult(transaction.objectStore('workout_sessions').get(payload.id));
+      if(!existing){const template=assertOwned(await requestResult(transaction.objectStore('routine_templates').get(payload.routine_id)),this.userId),version=assertOwned(await requestResult(transaction.objectStore('routine_versions').get(payload.routine_version_id)),this.userId);if(!template?.is_active||template.deleted_at||template.sync_status==='conflict'||!version||version.deleted_at||version.sync_status==='conflict'||version.version_number!==payload.routine_version||!sameRoutineValue(version.prescription_snapshot,payload.routine_snapshot))throw new Error('Rutina/version no disponible o snapshot histórico inconsistente.');}
+    }
     if(entity==='match_reviews'&&payload.football_session_id){const parent=await requestResult(transaction.objectStore('football_sessions').get(payload.football_session_id));if(!parent)throw new Error('Parent football_session not found.');assertOwned(parent,this.userId);}
     if(entity==='session_exercises'){
       const sessionStore=transaction.objectStoreNames.contains('workout_sessions')?transaction.objectStore('workout_sessions'):null;
@@ -646,11 +667,11 @@ export class V3LocalRepository{
     }
   }
 
-  async recordMigrationDecision({sourceKey,entity,status,note='',sourcePayload=null}){
+  async recordMigrationDecision({sourceKey,entity,status,note='',sourcePayload=null,targetId=null}){
     return runTransaction(this.database,[INTERNAL_STORES.migrations],'readwrite',async transaction=>{
       const store=transaction.objectStore(INTERNAL_STORES.migrations),existing=await requestResult(store.get(sourceKey));
       if(existing)return {...clone(existing),created:false};
-      const mapping={source_key:sourceKey,owner_id:this.userId,entity,target_id:null,migration_status:status,migration_note:note,source_payload:clone(sourcePayload),created_at:nowIso()};
+      const mapping={source_key:sourceKey,owner_id:this.userId,entity,target_id:targetId,migration_status:status,migration_note:note,source_payload:clone(sourcePayload),created_at:nowIso(),migrated_at:nowIso()};
       await requestResult(store.add(mapping));return {...clone(mapping),created:true};
     });
   }

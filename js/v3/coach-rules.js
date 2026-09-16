@@ -22,7 +22,7 @@ export function applyCoachRules(signals,snapshot){
   if(dayIndex===0){level='recovery';add('domingo: preservar el día de recuperación.');}
   if(pain>=4)warnings.push('Si la molestia persiste o aumenta, buscá orientación profesional. No es un diagnóstico.');
   const exercises=(snapshot?.exercises??[]).filter(ex=>!ex.deleted_at),adjustments=[];
-  const sameType=signals.history.filter(item=>new Date(`${item.session.session_date}T12:00:00Z`).getUTCDay()===dayIndex&&!item.session.reconstructed&&item.session.id!==snapshot?.session.id&&(!snapshot||item.session.started_at<snapshot.session.started_at))
+  const sameType=signals.history.filter(item=>(snapshot?.session.routine_id?item.session.routine_id===snapshot.session.routine_id&&item.session.routine_version===snapshot.session.routine_version:new Date(`${item.session.session_date}T12:00:00Z`).getUTCDay()===dayIndex)&&!item.session.reconstructed&&item.session.id!==snapshot?.session.id&&(!snapshot||item.session.started_at<snapshot.session.started_at))
     .sort((a,b)=>String(b.session.started_at).localeCompare(String(a.session.started_at)));
   const previous=sameType[0];
   if(previous)add(`sesión anterior del mismo tipo: ${previous.session.session_date}, RPE ${previous.session.rpe??'desconocido'}.`);

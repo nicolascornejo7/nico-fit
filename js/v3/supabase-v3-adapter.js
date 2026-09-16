@@ -47,7 +47,7 @@ export class SupabaseV3Adapter{
     let result;
     if(operation.type==='insert')result=await table.insert(payload).select('*').single();
     else result=await table.update(payload).eq('id',operation.record_id).select('*').maybeSingle();
-    if(result.error)throw asError(result.error,result.status);
+    if(result.error){if(operation.entity==='routine_versions'&&result.error.code==='23505')throw asError({...result.error,code:'PT409',reason:'routine_version_number_collision',message:'Routine version number already exists; explicit review required.'},409);throw asError(result.error,result.status);}
     if(!result.data)throw asError({message:'Remote row was not visible after mutation.',code:'REMOTE_ROW_MISSING'},404);
     return result.data;
   }

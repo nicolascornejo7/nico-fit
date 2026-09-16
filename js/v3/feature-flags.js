@@ -5,6 +5,10 @@ export const V3_COACH_FLAG='v3.coach.enabled';
 export const V3_CONFLICT_UI_FLAG='v3.conflicts.enabled';
 export const V3_OBSERVABILITY_FLAG='v3.observability.enabled';
 export const V3_AUDIT_FLAG='v3.audit.enabled';
+export const V3_ROUTINES_FLAG='v3.routines.enabled';
+export const V3_ROUTINES_SYNC_FLAG='v3.routines.sync.enabled';
+export function isV3RoutinesEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_ROUTINES_FLAG)==='true';}catch{return false;}}
+export function isV3RoutinesSyncEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_ROUTINES_SYNC_FLAG)==='true';}catch{return false;}}
 export function isV3ObservabilityEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_OBSERVABILITY_FLAG)==='true';}catch{return false;}}
 export function isV3AuditEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_AUDIT_FLAG)==='true';}catch{return false;}}
 export function isV3ConflictsEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_CONFLICT_UI_FLAG)==='true';}catch{return false;}}

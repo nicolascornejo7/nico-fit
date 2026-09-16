@@ -1,5 +1,5 @@
-import {ENTITY_STORES,SIGNAL_STORES} from './indexed-db.js';
-import {isV3SyncEnabled,isV3SignalsSyncEnabled} from './feature-flags.js';
+import {ENTITY_STORES,SIGNAL_STORES,ROUTINE_STORES} from './indexed-db.js';
+import {isV3SyncEnabled,isV3SignalsSyncEnabled,isV3RoutinesSyncEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs} from './sync-protocol.js';
 import {safeDiagnosticError} from './diagnostic-model.js';
@@ -18,12 +18,13 @@ function errorSnapshot(error){
 }
 
 export class V3SyncEngine{
-  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,signalsSyncEnabled,locks=globalThis.navigator?.locks,now=Date.now,online=()=>globalThis.navigator?.onLine!==false,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
+  constructor({repository,remote,flagStorage=globalThis.localStorage,featureEnabled,signalsSyncEnabled,routinesSyncEnabled,locks=globalThis.navigator?.locks,now=Date.now,online=()=>globalThis.navigator?.onLine!==false,random=Math.random,pageSize=100,batchSize=50,maxAttempts=5,leaseTtlMs=30000}={}){
     if(!repository||!remote)throw new Error('V3 sync requires a local repository and remote adapter.');
     this.repository=repository;this.remote=remote;this.flagStorage=flagStorage;this.featureEnabled=featureEnabled;
     this.locks=locks;this.now=now;this.random=random;this.pageSize=pageSize;this.batchSize=batchSize;
     this.maxAttempts=maxAttempts;this.leaseTtlMs=leaseTtlMs;
     this.signalsSyncEnabled=signalsSyncEnabled;
+    this.routinesSyncEnabled=routinesSyncEnabled;
     this.online=online;
   }
 
@@ -68,6 +69,15 @@ export class V3SyncEngine{
         const applyOrder=[...ordered].sort((a,b)=>Number(Boolean(b.deleted_at))-Number(Boolean(a.deleted_at)));
         for(const remoteRecord of applyOrder){
           this.#assertRemoteOwner(entity,remoteRecord);
+          if(entity==='routine_versions'){
+            const ordinalCollision=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).find(local=>local.id!==remoteRecord.id&&local.routine_id===remoteRecord.routine_id&&local.version_number===remoteRecord.version_number);
+            if(ordinalCollision){
+              const operations=await this.repository.unresolvedOperations(entity,ordinalCollision.id);
+              await this.repository.recordConflict({entity,recordId:ordinalCollision.id,operationIds:operations.map(item=>item.operation_id),reason:'routine_version_number_collision',localPayload:ordinalCollision,remotePayload:remoteRecord});
+              result.conflicts+=1;
+              continue;
+            }
+          }
           const unresolved=await this.repository.unresolvedOperations(entity,remoteRecord.id);
           if(unresolved.length){
             const groups=compactOperations(unresolved),last=groups.at(-1),effective=effectiveOperation(last);
@@ -99,7 +109,7 @@ export class V3SyncEngine{
   }
 
   async #push(result,attemptId){
-    const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now(),entities:this.#entities()});
+    const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now(),entities:this.#entities(),routinesEnabled:this.#routinesEnabled()});
     for(const originalGroup of compactOperations(claimed)){
       // A preceding insert/update may have advanced the base of later queued edits.
       // Use the persisted base, not the stale claim snapshot (important for reorders).
@@ -127,7 +137,7 @@ export class V3SyncEngine{
           if(kind==='conflict'){
             await this.repository.recordConflict({
               entity:operation.entity,recordId:operation.record_id,operationIds:group.operationIds,
-              reason:'remote_version_conflict',localPayload:operation.payload,remotePayload:existing,error:errorSnapshot(error)
+              reason:error.reason==='routine_version_number_collision'?'routine_version_number_collision':'remote_version_conflict',localPayload:operation.payload,remotePayload:existing,error:errorSnapshot(error)
             });
             result.conflicts+=1;continue;
           }
@@ -144,8 +154,9 @@ export class V3SyncEngine{
   }
 
   #assertRemoteOwner(entity,record){
-    if(['workout_sessions',...SIGNAL_STORES].includes(entity)&&record.user_id!==this.repository.userId)throw new Error('Remote record belongs to another user.');
+    if(['workout_sessions',...SIGNAL_STORES,...ROUTINE_STORES].includes(entity)&&record.user_id!==this.repository.userId)throw new Error('Remote record belongs to another user.');
     if(entity==='exercise_catalog'&&record.owner_user_id!=null&&record.owner_user_id!==this.repository.userId)throw new Error('Remote exercise catalog row belongs to another user.');
   }
-  #entities(){return [...PULL_ORDER,...((this.signalsSyncEnabled??isV3SignalsSyncEnabled(this.flagStorage))?SIGNAL_STORES:[])];}
+  #routinesEnabled(){return this.routinesSyncEnabled??isV3RoutinesSyncEnabled(this.flagStorage);}
+  #entities(){return ['exercise_catalog',...(this.#routinesEnabled()?ROUTINE_STORES:[]),...PULL_ORDER.slice(1),...((this.signalsSyncEnabled??isV3SignalsSyncEnabled(this.flagStorage))?SIGNAL_STORES:[])];}
 }
