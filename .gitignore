@@ -3,5 +3,6 @@ Thumbs.db
 .vercel
 node_modules/
 .env.v3-staging.local
+.env.v3-dr.local
 .tmp/
 artifacts/
