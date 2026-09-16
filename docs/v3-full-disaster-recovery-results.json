@@ -1,0 +1,30 @@
+{
+  "validated_at": "2026-09-16",
+  "branch": "feature/v3-full-disaster-recovery",
+  "production_ref": "xaklsoqyzwowtjwcpwmb",
+  "protected_staging_ref": "tmydirzzlmlmtjgwqcgh",
+  "production_writes": 0,
+  "staging_writes": 0,
+  "status": "NO-GO",
+  "reason": "No complete production dump or operational Auth restore has been executed in a new disposable Supabase project.",
+  "verified": {
+    "prior_v2_logical_restore": "PASS",
+    "protected_target_guards": "PASS",
+    "powershell_parse": "PASS",
+    "v2_ownership_remap_pglite": "PASS",
+    "auth_flow_static_contract": "PASS"
+  },
+  "blocked": {
+    "complete_production_dump": "Existing PostgreSQL password and required tools unavailable; password reset was not performed.",
+    "disposable_supabase_restore": "Free organization has production and retained staging active; no third disposable project was available.",
+    "preserved_hash_login": "Requires a completed full restore.",
+    "reset_and_rls_live_test": "Requires a new disposable Supabase target."
+  },
+  "required_to_close": [
+    "complete read-only dump with checksum",
+    "restore into a new isolated target",
+    "successful preserved-password login or password-recovery flow",
+    "verified owner access and cross-user/anon denial",
+    "recorded credential rotation and manual configuration"
+  ]
+}
