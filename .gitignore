@@ -4,3 +4,4 @@ Thumbs.db
 node_modules/
 .env.v3-staging.local
 .tmp/
+artifacts/

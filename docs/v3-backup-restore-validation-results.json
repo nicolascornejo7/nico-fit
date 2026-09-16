@@ -1,0 +1,45 @@
+{
+  "status": "PASS_APPLICATION_DATA_WITH_AUTH_LIMITATION",
+  "source": {
+    "project": "gym-futbol",
+    "project_ref": "xaklsoqyzwowtjwcpwmb",
+    "captured_at": "2026-09-16T13:36:15.092203+00:00",
+    "mode": "read-only logical export"
+  },
+  "target": "local-isolated-pglite",
+  "backup": {
+    "bytes": 36828,
+    "sha256": "118d73d464a50711901d04dd0cdf5ac44691d1175ea01ed82b6195c3e28a86e7",
+    "payload_bytes": 27248,
+    "payload_sha256": "dc4616b39abc0737733c8cf1cda06534a868bbe8b4345469214db2e96d70612d"
+  },
+  "schema": {
+    "bytes": 8921,
+    "sha256": "6d13c257fcaebb26e02e35974d2dcf2064a2706354a6926cac9eb6133ee8287e"
+  },
+  "counts": {
+    "auth_users": { "source": 1, "restored": 1 },
+    "readiness": { "source": 5, "restored": 5 },
+    "workouts": { "source": 4, "restored": 4 },
+    "match_reviews": { "source": 0, "restored": 0 },
+    "football_sessions": { "source": 1, "restored": 1 },
+    "workout_sessions": { "source": 1, "restored": 1 },
+    "sync_tombstones": { "source": 0, "restored": 0 }
+  },
+  "catalog": {
+    "columns": { "source": 49, "restored": 49 },
+    "indexes": { "source": 18, "restored": 18 },
+    "constraints": { "source": 30, "restored": 30 },
+    "policies": { "source": 24, "restored": 24 },
+    "rls_tables": { "source": 6, "restored": 6 }
+  },
+  "verification": {
+    "orphan_relations_zero": true,
+    "identity_sequences_ready": true,
+    "authenticated_owner_visible": true,
+    "authenticated_other_hidden": true,
+    "anon_hidden": true
+  },
+  "decision": "NO-GO_TO_CLOSE_COMPLETE_BACKUP_BLOCKER",
+  "open_blocker": "Supabase Auth credentials and runtime tables are not recoverable from this sanitized export."
+}
