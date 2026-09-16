@@ -1,0 +1,76 @@
+{
+  "captured_at": "2026-09-16T11:09:00.451464Z",
+  "mode": "read_only",
+  "project": {
+    "name": "gym-futbol",
+    "ref": "xaklsoqyzwowtjwcpwmb",
+    "postgres_version": "17.6",
+    "dashboard_backup_status": "No backups",
+    "dashboard_migration_status": "No migrations"
+  },
+  "schema": {
+    "public_tables": [
+      "football_sessions",
+      "match_reviews",
+      "readiness",
+      "sync_tombstones",
+      "workout_sessions",
+      "workouts"
+    ],
+    "nico_fit_v3_exists": false,
+    "all_public_tables_have_rls": true,
+    "indexes": 18,
+    "policies": 24,
+    "custom_functions": 0,
+    "custom_triggers": 0,
+    "identity_columns": 6,
+    "difference_from_expected_v2": []
+  },
+  "raw_counts": {
+    "auth_users": 1,
+    "readiness": 5,
+    "workouts": 4,
+    "workout_sets": 12,
+    "match_reviews": 0,
+    "football_sessions": 1,
+    "workout_sessions": 1,
+    "sync_tombstones": 0
+  },
+  "date_ranges": {
+    "readiness": ["2026-09-08", "2026-09-15"],
+    "workouts": ["2026-09-15", "2026-09-15"],
+    "workout_sessions": ["2026-09-15", "2026-09-15"],
+    "football_sessions": ["2026-09-14", "2026-09-14"],
+    "match_reviews": [null, null]
+  },
+  "preflight": {
+    "workout_sessions": {"migrated": 1, "pending_review": 0, "skipped": 0},
+    "session_exercises": {"migrated": 0, "pending_review": 4, "skipped": 0},
+    "exercise_sets": {"migrated_if_known_map_approved": 12, "pending_review": 0, "skipped": 0},
+    "daily_readiness": {"migrated": 5, "pending_review": 0, "skipped": 0},
+    "football_sessions": {"migrated": 1, "pending_review": 0, "skipped": 0},
+    "match_reviews": {"migrated": 0, "pending_review": 0, "skipped": 0}
+  },
+  "ambiguities": {
+    "draft_sessions": 0,
+    "workouts_without_session": 0,
+    "workouts_with_multiple_sessions": 0,
+    "unknown_exercise_identities": 0,
+    "invalid_or_untyped_sets": 0,
+    "unknown_football_types": 0,
+    "match_reviews_without_explicit_match_uuid": 0,
+    "malformed_tombstone_keys": 0,
+    "unexpected_tombstone_entities": 0,
+    "exercise_rows_requiring_order_review": 4
+  },
+  "local_only_data": {
+    "status": "not_proven",
+    "reason": "Browser storage is origin and profile scoped. The discovered deployment URL opened without an authenticated session and cannot prove the state of the installed PWA or another device.",
+    "required_before_cutover": "Run the documented local export and comparison on every active device/profile."
+  },
+  "security_observations": {
+    "anon_and_authenticated_have_default_table_grants": true,
+    "rls_blocks_row_access_without_matching_auth_uid": true,
+    "cutover_requirement": "Revoke V2 INSERT/UPDATE/DELETE during the write freeze; do not rely on a client version header to block stale clients."
+  }
+}
