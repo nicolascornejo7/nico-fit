@@ -2,6 +2,7 @@ import {sessionMetrics} from './training-metrics.js';
 import {isV3CoachEnabled} from './feature-flags.js';
 import {localDateKey} from '../plan.js';
 import {routineIdentityCard,routineListView} from './routine-presentation.js';
+import {mayStartNewWork} from '../pwa-update-gate.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -26,7 +27,9 @@ export class V3TrainingUI{
   destroy(){this.destroyed=true;clearInterval(this.timer);this.root.replaceChildren();}
 
   async run(task){
-    if(this.busy||this.destroyed)return;this.busy=true;this.setDisabled(true);
+    if(this.busy||this.destroyed)return;
+    if(!mayStartNewWork()){this.message.textContent='Esta pestaña debe actualizarse antes de iniciar trabajo nuevo.';return;}
+    this.busy=true;this.setDisabled(true);
     try{await task();if(!this.destroyed){await this.render();this.heading?.focus();}}
     catch(error){if(!this.destroyed){this.message.textContent=error.message;this.message.focus();}}
     finally{this.busy=false;if(!this.destroyed)this.setDisabled(false);}

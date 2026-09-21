@@ -1,9 +1,10 @@
+import {mayStartNewWork} from '../pwa-update-gate.js';
 const node=(tag,text)=>{const element=document.createElement(tag);if(tag==='button'){element.type='button';element.className='ghost';}if(text!=null)element.textContent=text;return element;};
 const labels={defer:'Posponer decisión',keep_local:'Conservar local',accept_remote:'Aceptar remoto',keep_both:'Crear otra sesión de fútbol independiente'};
 const states={open:'Pendiente de decisión',resolution_pending:'Decisión pendiente de sync',resolved:'Resuelto'};
 const counter=rows=>`${rows.filter(row=>row.status==='open').length} conflictos abiertos · ${rows.filter(row=>row.status==='resolution_pending').length} decisiones pendientes de sync · ${rows.filter(row=>row.status==='resolved').length} resueltos`;
 export class V3ConflictUI{
-  constructor({root,service,onClose}){Object.assign(this,{root,service,onClose});this.destroyed=false;}
+  constructor({root,service,onClose}){Object.assign(this,{root,service,onClose});this.destroyed=false;this.busy=false;}
   destroy(){this.destroyed=true;}
   async mount(){
     this.root.replaceChildren();const heading=node('h1','Conflictos V3'),close=node('button','Cerrar'),refresh=node('button','Actualizar lista'),list=node('div'),status=node('p');status.setAttribute('role','status');
@@ -18,7 +19,7 @@ export class V3ConflictUI{
           const label=node('label','Decisión explícita '),select=node('select');for(const strategy of row.strategies){const option=node('option',labels[strategy]);option.value=strategy;select.append(option);}label.append(select);
           const noteLabel=node('label','Nota para la trazabilidad '),note=node('textarea');note.maxLength=2000;noteLabel.append(note);const confirm=node('button','Confirmar decisión'),message=node('p');message.setAttribute('role','status');
           detail.append(node('p','Conservar local queda pendiente de confirmación del servidor. Aceptar remoto reemplaza la copia local y archiva sus operaciones. Crear otra sesión no copia sus reviews. Un conflicto de una sesión activa puede requerir finalizarla o posponer.'),label,noteLabel,confirm,message);
-          confirm.onclick=async()=>{confirm.disabled=true;try{await this.service.resolve(row,select.value,{note:note.value});if(this.destroyed)return;message.textContent='Decisión registrada. La auditoría completa está disponible al actualizar la lista.';select.disabled=true;note.disabled=true;const current=await this.service.list();if(this.destroyed)return;status.textContent=counter(current);const updated=current.find(item=>item.conflict_id===row.conflict_id);summary.textContent=`${row.entity} · ${row.date} · ${states[updated?.status]||row.status}`;summary.focus();}catch(error){if(this.destroyed)return;message.textContent=error.message.includes('Affected active session')?'Este conflicto afecta la sesión activa. Finalizala localmente o posponé antes de aceptar remoto.':error.message;confirm.disabled=false;confirm.focus();}};
+          confirm.onclick=async()=>{if(!mayStartNewWork()){message.textContent='Actualizá esta pestaña antes de registrar una decisión.';return;}confirm.disabled=true;this.busy=true;try{await this.service.resolve(row,select.value,{note:note.value});if(this.destroyed)return;message.textContent='Decisión registrada. La auditoría completa está disponible al actualizar la lista.';select.disabled=true;note.disabled=true;const current=await this.service.list();if(this.destroyed)return;status.textContent=counter(current);const updated=current.find(item=>item.conflict_id===row.conflict_id);summary.textContent=`${row.entity} · ${row.date} · ${states[updated?.status]||row.status}`;summary.focus();}catch(error){if(this.destroyed)return;message.textContent=error.message.includes('Affected active session')?'Este conflicto afecta la sesión activa. Finalizala localmente o posponé antes de aceptar remoto.':error.message;confirm.disabled=false;confirm.focus();}finally{this.busy=false;}};
         }
         detail.append(node('pre',JSON.stringify({decisions:row.decisions,operations:row.operationStates},null,2)));list.append(detail);
       }

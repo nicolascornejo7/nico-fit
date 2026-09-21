@@ -8,6 +8,7 @@ const LOCAL_FLAGS=new Set(['nicoFit.v3.localStorage.enabled','nicoFit.v3.sync.en
 const SECRET_KEY=/(token|password|passphrase|authorization|cookie|service.?role|supabase.?key|api.?key|secret|jwt)/i;
 const SECRET_TEXT=[/Bearer\s+[A-Za-z0-9._~+\/-]{12,}/gi,/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,/\bsb_(?:secret|publishable)_[A-Za-z0-9_-]+\b/gi,/([?&](?:apikey|token|key)=)[^&\s]+/gi,/\b(?:access_token|refresh_token|password|apikey|api_key|service_role|secret)\s*[:=]\s*[^\s,;]+/gi];
 const OP_STATES=['pending','syncing','synced','conflict','failed','superseded'];
+import {pwaVersionSnapshot} from './pwa-version.js';
 
 const clone=value=>globalThis.structuredClone?globalThis.structuredClone(value):JSON.parse(JSON.stringify(value));
 function canonical(value){
@@ -117,7 +118,7 @@ export async function createLocalDeviceInventory({userId=null,storage=globalThis
   const indexedDatabases=[];for(const info of databaseInfos){const database=await readDatabase(indexedDB,info,owner,warnings);if(database)indexedDatabases.push(database);}
   let cacheNames=[];try{cacheNames=(await cacheStorage?.keys?.()||[]).filter(name=>name.startsWith('nico-fit-v')).sort();}catch(error){warnings.push(`No se pudo consultar la versión del service worker: ${sanitizeInventoryValue(error?.message||'error',{error:true})}`);}
   let registration=null;try{registration=await navigatorLike?.serviceWorker?.getRegistration?.();}catch{}
-  const base={kind:KIND,schemaVersion:SCHEMA_VERSION,createdAt:now().toISOString(),origin:String(locationLike?.origin||'unknown'),userId:owner,device:{id:deviceId(storage,cryptoImpl),...browserDescriptor(navigatorLike)},app:{build:documentLike?.querySelector?.('meta[name="nico-fit-build"]')?.content||'unknown',online:navigatorLike?.onLine!==false,serviceWorker:{controlled:!!navigatorLike?.serviceWorker?.controller,script:registration?.active?.scriptURL?new URL(registration.active.scriptURL,String(locationLike?.origin||undefined)).pathname:null,cacheVersions:cacheNames}},summary:null,payload:{localStorage:localEntries,indexedDB:indexedDatabases},warnings:sanitizeInventoryValue(warnings,{error:true})};
+  const base={kind:KIND,schemaVersion:SCHEMA_VERSION,createdAt:now().toISOString(),origin:String(locationLike?.origin||'unknown'),userId:owner,device:{id:deviceId(storage,cryptoImpl),...browserDescriptor(navigatorLike)},app:{build:documentLike?.querySelector?.('meta[name="nico-fit-build"]')?.content||'unknown',online:navigatorLike?.onLine!==false,serviceWorker:{controlled:!!navigatorLike?.serviceWorker?.controller,script:registration?.active?.scriptURL?new URL(registration.active.scriptURL,String(locationLike?.origin||undefined)).pathname:null,cacheVersions:cacheNames,...await pwaVersionSnapshot({documentLike,navigatorLike,registration})}},summary:null,payload:{localStorage:localEntries,indexedDB:indexedDatabases},warnings:sanitizeInventoryValue(warnings,{error:true})};
   base.summary=inventorySummary(localEntries,indexedDatabases);const value=await digest(canonical(base),cryptoImpl);return {...base,checksum:{algorithm:'SHA-256',value}};
 }
 
