@@ -1,6 +1,6 @@
 # Inventario local previo al cutover V3
 
-Estado: herramienta implementada en `feature/v3-local-device-inventory`; **el bloqueante operativo sigue abierto** hasta inventariar y conciliar todos los dispositivos/orígenes reales. No ejecuta importación, sync ni escritura remota.
+Estado de la herramienta: disponible para respaldo/diagnóstico voluntario. Por decisión del 2026-09-20, **el inventario local ya no bloquea el lanzamiento V3**: el usuario actual empieza V3 desde cero, V2 queda como histórico y los datos no migrados se descartan conscientemente **para V3**, sin borrado físico. Ningún dispositivo real fue declarado inventariado por este documento. La herramienta no ejecuta importación, sync ni escritura remota.
 
 ## Uso
 
@@ -10,7 +10,7 @@ Estado: herramienta implementada en `feature/v3-local-device-inventory`; **el bl
 3. Guardar cada archivo en almacenamiento cifrado fuera de Git. Anotar dispositivo, navegador/perfil, origen, fecha, nombre y checksum. El JSON puede contener notas y datos de entrenamiento personales aunque se excluyan credenciales.
 4. En la misma página, cargar el archivo con **Validar un inventario**. Confirmar `valid: true` y `complete: true`. Si hay corrupción, stores no reconocidos o filas de otro usuario, no cerrar el dispositivo.
 5. Comparar los candidatos V2 con Supabase V2 por identidad/fecha y estado, y los V3 con confirmaciones remotas, tombstones y cola. La herramienta **no puede demostrar por sí sola** qué V2 existe únicamente localmente: marca todos los registros V2 como candidatos para comparar, sin escribir al servidor.
-6. Sincronizar o acordar revisión/recuperación de cada diferencia. Repetir el export después de sincronizar y antes de la ventana crítica. Una sesión activa, cola no confirmada, conflictos o resoluciones pendientes bloquean el cierre.
+6. Si se desea preservar o reconciliar datos históricos, sincronizar o acordar revisión/recuperación de cada diferencia y repetir el export. Bajo el arranque limpio aprobado, una sesión V2 activa, cola V2 no confirmada o dispositivo no inventariado **no bloquean V3**. Una sesión o cola **V3** existente en el usuario que se supone nuevo sí exige revisión para comprobar el baseline vacío antes de habilitar escrituras V3.
 
 ## Formato JSON v1
 
@@ -18,7 +18,7 @@ Estado: herramienta implementada en `feature/v3-local-device-inventory`; **el bl
 
 `checksum.algorithm` es `SHA-256` y `checksum.value` se calcula sobre el JSON canónico con claves ordenadas **sin** el propio objeto `checksum`. Detecta cambios accidentales; no autentica el origen ni sustituye una firma. Dos exportaciones del mismo estado con igual `createdAt` producen el mismo contenido/checksum.
 
-El validador devuelve `valid`, `complete`, `corrupt`, `summary`, `localOnlyCandidates`, `pendingSync`, `activeSession`, `conflicts` y `shouldSyncBeforeCutover`. `valid` verifica formato, conteos y hash. `complete` exige que todas las fuentes elegidas sean legibles. `localOnlyCandidates` son **candidatos**, no una afirmación de ausencia remota. `shouldSyncBeforeCutover` es conservador y también se activa por datos ambiguos o parciales.
+El validador devuelve `valid`, `complete`, `corrupt`, `summary`, `localOnlyCandidates`, `pendingSync`, `activeSession`, `conflicts` y `shouldSyncBeforeCutover`. `valid` verifica formato, conteos y hash. `complete` exige que todas las fuentes elegidas sean legibles. `localOnlyCandidates` son **candidatos**, no una afirmación de ausencia remota. **`shouldSyncBeforeCutover` es un campo legado del formato v1 y no representa la nueva política de GO/NO-GO**: sigue siendo conservador para quien opte por reconciliar históricos, pero no obliga a migrar V2.
 
 ## Seguridad y límites
 
@@ -26,7 +26,7 @@ La extracción usa solamente APIs locales de navegador. Nunca llama a Supabase n
 
 No se implementa importación ni restauración desde este formato. Un archivo íntegro no equivale a un respaldo remoto ni confirma sincronización. Si `indexedDB.databases()` no está disponible, la herramienta intenta abrir únicamente la base del UUID elegido y aborta la creación si no existe. Por eso una base V3 perteneciente a un UUID no conocido puede quedar sin descubrir; el checklist debe cubrirlo.
 
-## Checklist de dispositivos reales
+## Checklist opcional de dispositivos reales
 
 Registrar una fila por **dispositivo + navegador/perfil + origen** (la PWA instalada puede compartir o no almacenamiento con el navegador, según plataforma):
 
@@ -39,8 +39,8 @@ Registrar una fila por **dispositivo + navegador/perfil + origen** (la PWA insta
 
 Antes de marcar una fila como conciliada: revisar sesión activa, V2 guest, cola `pending/syncing/failed/conflict`, tombstones, conflictos, resoluciones `pending_sync` y checkpoints; comparar conteos y registros candidatos con el remoto. No borrar archivos locales ni datos del navegador durante esta etapa. **Un dispositivo no inventariado continúa siendo riesgo de pérdida de datos locales.**
 
-## Criterio de cierre
+## Criterio de uso y riesgo aceptado
 
-GO para cerrar **el bloqueante de inventario local** sólo con todas las superficies reales listadas, JSON íntegro y completo por perfil, candidatos reconciliados, ninguna sesión activa o cola/conflicto sin decisión, y export final custodiado. Si falta un dispositivo, hay datos corruptos, diferencias no explicadas o un perfil no accesible: **NO-GO**. Esto no cambia el NO-GO general de cutover por otros bloqueantes, incluido disaster recovery Auth.
+Si se busca una recuperación histórica exhaustiva, completar todas las superficies reales, validar JSON y conciliar candidatos sigue siendo la mejor evidencia. Si faltan dispositivos, esos datos pueden perderse del historial local al cambiar de navegador, limpiar almacenamiento o dejar de usar V2. **Ese riesgo está aceptado para lanzar V3 vacío y ya no es un NO-GO de cutover.** La decisión no autoriza borrar V2, ejecutar backfill ni afirmar que los datos históricos se copiaron. Permanecen otros bloqueantes de producción, incluido disaster recovery Auth y actualización segura de la PWA.
 
 Prueba reproducible: `npm run test:v3:local-inventory`. No usa producción ni staging.

@@ -1,6 +1,8 @@
 # Runbook de preparación V2 → V3
 
-Estado al 2026-09-16: **NO-GO para ejecutar cutover**. Esta rama sólo prepara consultas, backup, write-freeze, rollback y validaciones. No agrega producto, no activa flags y no ejecuta SQL de escritura.
+Estrategia aprobada el 2026-09-20: **V3 arranca desde cero para el usuario actual**. V2 queda conservado como histórico/legado; no se borra ni se transforma en datos V3. No se ejecutará backfill productivo de datos personales sin una decisión posterior explícita. Los datos V2 y locales que no se migren quedan **conscientemente excluidos de V3**, no eliminados físicamente por este plan. El inventario local y los mappings productivos dejan de ser requisitos de lanzamiento.
+
+Estado operativo: **NO-GO para ejecutar cutover todavía** por los bloqueantes de seguridad de actualización PWA, control de versiones, pruebas de dispositivo y recuperación que siguen abiertos. Este documento prepara el procedimiento; no autoriza SQL productivo, freeze, flags ni deploy.
 
 ## Inventario productivo observado
 
@@ -36,11 +38,11 @@ Conteos observados:
 
 El detalle no sensible queda en `docs/v3-cutover-production-inventory.json`. La consulta reproducible es `supabase/production-inventory-readonly.sql`.
 
-### Datos sólo locales
+### Datos sólo locales y alcance histórico
 
-No pueden descartarse todavía. IndexedDB y localStorage dependen del origen, perfil y dispositivo. El deployment descubierto abrió sin sesión (`Solo local`) y no prueba el contenido de la PWA instalada o de otro teléfono. El procedimiento nuevo está en [inventario local](v3-local-device-inventory.md): cada dispositivo/perfil/origen debe exportar y validar su JSON antes del cutover. La herramienta no prueba ausencia remota; los candidatos se comparan con el inventario remoto. Cualquier registro local no confirmado bloquea el cutover hasta sincronizarlo o marcarlo para revisión. Un dispositivo no inventariado mantiene abierto el riesgo.
+IndexedDB y localStorage dependen del origen, perfil y dispositivo. Bajo la nueva decisión, **no se exige reconciliar datos V2 locales de PC o celular para arrancar V3**. La herramienta de [inventario/export local](v3-local-device-inventory.md) sigue disponible como respaldo voluntario, pero un dispositivo no inventariado ya no bloquea este cutover. Los datos locales V2 no sincronizados pueden perderse si se borra el almacenamiento o deja de funcionar el cliente legado; esa exclusión de V3 es una consecuencia aceptada de la decisión. No borrar V2 ni su almacenamiento durante este trabajo.
 
-## Preflight de migración
+## Preflight histórico de migración (no requerido para el lanzamiento)
 
 `supabase/preflight-v3-production-readonly.sql` reproduce las reglas sin crear tablas, funciones ni temporales.
 
@@ -55,7 +57,7 @@ No pueden descartarse todavía. IndexedDB y localStorage dependen del origen, pe
 
 No se detectaron sesiones draft, ejercicios sin sesión, múltiples sesiones candidatas, identidades desconocidas, tipos de fútbol desconocidos, series inválidas, tombstones malformados ni entidades inesperadas. Los hashes de identidad permiten repetir la revisión sin publicar nombres, usuario, notas, cargas ni valores de readiness.
 
-La revisión humana quedó registrada en `config/v3-production-workout-mappings.v1.json`. El preflight exige que cada payload fuente conserve exactamente su huella; si cambia, el caso vuelve a `pending_review`. Este resultado es una proyección y no implica que el backfill haya sido ejecutado.
+La revisión humana quedó registrada en `config/v3-production-workout-mappings.v1.json`. Los cuatro mappings aprobados y las doce series son evidencia para una **eventual migración posterior, separada y explícitamente autorizada**. El preflight exigiría repetir la comparación de huellas sobre una fuente fresca si se decidiera usarlos. No son necesarios para iniciar V3 y esta proyección no autoriza ni ejecuta backfill.
 
 ## Backup y restauración
 
@@ -67,12 +69,12 @@ La falta de backup administrado impone estos pasos:
 4. Ejecutar `ops/v3-cutover/backup-production.ps1 -Execute` en almacenamiento cifrado.
 5. Confirmar tamaño y SHA-256 del dump, esquema e inventario en `manifest.json`.
 6. Restaurar en un stack Supabase local y descartable mediante `restore-verify-isolated.ps1`; el script rechaza tanto producción como `nico-fit-v3-staging`, que debe conservarse.
-7. Ejecutar inventario, RLS, Auth, backfill dry-run y suite de integración sobre la restauración.
+7. Verificar RLS, Auth y suite de integración sobre la restauración. El backfill dry-run y el inventario de datos V2 quedan como ejercicios opcionales de recuperación histórica, no como pasos de lanzamiento V3.
 8. Registrar fecha, operador, checksum, destino cifrado y prueba de restauración.
 
 El dump contiene información personal. Se almacena cifrado, con acceso limitado y sin subirlo a Git. `pg_restore --clean` sólo está autorizado contra un stack Supabase local descartable creado para la prueba. La restauración productiva nunca se improvisa con `pg_restore`; se usa el procedimiento aprobado por Supabase o una reconciliación revisada. El staging existente no se borra ni se reutiliza como destino de restore.
 
-Para cada navegador/PWA se descarga el JSON de `/local-device-inventory.html`, que incluye SHA-256 de contenido, se valida y se guarda junto al manifiesto del dispositivo. El script previo `local-backup-browser.js` y `local-restore-browser.js` queda sólo para el procedimiento de recuperación ya documentado; este inventario no importa ni restaura datos.
+El JSON de `/local-device-inventory.html` conserva una opción de respaldo local voluntario por navegador/PWA. Incluye SHA-256 de contenido y un validador, pero no se exige para activar V3 desde cero. El script previo `local-backup-browser.js` y `local-restore-browser.js` queda sólo para el procedimiento de recuperación ya documentado; el inventario no importa ni restaura datos.
 
 ## Activación gradual y reversible
 
@@ -80,14 +82,14 @@ Los flags actuales son locales, por lo que no permiten rollout centralizado ni v
 
 Orden obligatorio:
 
-1. **Storage V3**: habilitar IndexedDB e importación shadow; V2 continúa autoritativo. Comparar conteos.
-2. **Signals**: habilitar bridge local; revisar readiness/fútbol/reviews. Sync de señales permanece apagado.
-3. **Routines**: habilitar identidad y snapshots; sync de rutinas permanece apagado.
-4. **Training**: habilitar para una cohorte interna después de backup local y prueba de sesión activa.
-5. **Sync**: habilitar señales/rutinas y motor general sólo después del write-freeze V2 y backfill validado.
+1. **Storage V3**: habilitar IndexedDB vacío para el usuario actual; no invocar importadores V2. V2 queda como histórico/legado.
+2. **Signals**: habilitar captura V3 nueva de readiness/fútbol/reviews; no importar señales V2. Sync de señales permanece apagado.
+3. **Routines**: habilitar identidad y snapshots de rutinas V3 nuevas; sync de rutinas permanece apagado.
+4. **Training**: habilitar para una cohorte interna después de probar sesión activa y recuperación local V3.
+5. **Sync**: habilitar señales/rutinas y motor V3 sólo después de validar esquema, RLS, versión mínima y protección contra clientes V2 antiguos. No depende de backfill.
 6. **Conflicts**: habilitar panel antes de ampliar la cohorte; cero resolución automática.
 7. **Observability**: habilitar panel y auditoría, verificar retención y ausencia de secretos.
-8. **Coach**: habilitar al final; depende de señales e historial V3 confirmados.
+8. **Coach**: habilitar al final; con poco historial V3 debe usar sus reglas conservadoras y explicar la falta de tendencia personal.
 
 Cada paso requiere 24 horas o un ciclo de entrenamiento observado, cero pérdida de datos, cola estable y rollback probado. Un kill switch apaga el módulo recién habilitado sin apagar storage ni borrar datos. Training y sync nunca se encienden implícitamente.
 
@@ -95,23 +97,23 @@ Cada paso requiere 24 horas o un ciclo de entrenamiento observado, cero pérdida
 
 - Definir `CLIENT_BUILD_ID` y `MIN_SUPPORTED_BUILD_ID` en configuración remota. Un cliente inferior entra en modo sólo lectura y muestra actualización requerida.
 - La protección fuerte es `cutover-freeze-v2-writes.sql`: revoca DML V2 a `anon` y `authenticated`. Una pestaña antigua conservará su borrador local, pero el servidor rechazará la escritura.
-- Publicar primero una versión puente con flags apagados, export local, manejo de `409/403`, versión mínima y pantalla de actualización. Esperar adopción antes del cutover.
+- Publicar primero una versión puente con flags apagados, export local opcional, manejo de `409/403`, versión mínima y pantalla de actualización. Esperar adopción antes del cutover.
 - El service worker actual usa `skipWaiting()` y `clients.claim()` inmediatamente. Eso puede cambiar código durante una sesión. Antes del GO debe reemplazarse o validarse con un protocolo: detectar update, conservar sesión, pedir recarga al finalizar y bloquear sync con versiones mixtas.
-- En la ventana crítica: cerrar pestañas adicionales, terminar o exportar la sesión activa, activar freeze, validar colas, recargar hasta que `CLIENT_BUILD_ID` coincida y recién entonces activar V3.
-- Una pestaña vieja abierta recibe rechazo de escritura V2 y no puede iniciar sync V3. Sus datos locales se exportan y revisan; nunca se fusionan automáticamente.
+- En la ventana crítica: cerrar pestañas adicionales, terminar o conservar la sesión V2 en el cliente legado, activar freeze, recargar hasta que `CLIENT_BUILD_ID` coincida y recién entonces activar V3. No trasladar automáticamente una sesión V2 activa a V3.
+- Una pestaña vieja abierta recibe rechazo de escritura V2 y no puede iniciar sync V3. Sus datos locales no se fusionan automáticamente; el export voluntario permite conservarlos fuera de V3.
 
 ## Rollback
 
 | Momento | Acción | ¿Simple? |
 |---|---|---|
 | Antes de escrituras V3 | Apagar flags, retirar release puente si corresponde, mantener V2 | Sí |
-| Esquema/backfill creado, V3 todavía read-only | Apagar flags, revocar grants V3, conservar o retirar esquema después de comparar; V2 intacto | Sí |
+| Esquema V3 creado, aún sin escrituras personales V3 | Apagar flags, revocar grants V3 si corresponde y conservar el esquema para revisión; V2 intacto | Sí |
 | Freeze V2 activo, todavía sin escrituras V3 | Ejecutar `rollback-unfreeze-v2-writes.sql` con aprobación y volver a V2 | Sí |
 | Después de cualquier escritura V3 confirmada | Congelar V2 y V3, exportar deltas, comparar versiones/tombstones y reconciliar por entidad | **No** |
 
-El punto de no retorno simple es la primera escritura V3 aceptada después del freeze. A partir de allí no se restaura un dump sobre producción ni se vuelve a habilitar V2 sin reconciliar UUIDs, versiones, tombstones, sesiones y señales. El backup sigue siendo evidencia y recuperación de desastre, no un mecanismo automático de overwrite.
+El punto de no retorno simple es la primera escritura V3 aceptada después del freeze. A partir de allí no se restaura un dump sobre producción ni se vuelve a habilitar V2 como camino de escritura sin decidir qué hacer con los datos nuevos V3: exportarlos, conservar V3 read-only o reconciliarlos explícitamente. **V2 no contiene esas nuevas sesiones V3**. El backup sigue siendo evidencia y recuperación de desastre, no un mecanismo automático de overwrite.
 
-ABORT inmediato antes de escribir V3 si falla el backup/restauración, aparecen datos sólo locales, cambia cualquier conteo durante el freeze, hay `pending_review` sin aprobar, la versión mínima no se aplica, existe una sesión activa no exportada, la cola no está vacía o una prueba de dispositivo falla.
+ABORT inmediato antes de escribir V3 si falla el backup/restauración exigido, la versión mínima o el bloqueo de clientes V2 antiguos no se aplican, el service worker cambia código durante una sesión sin conservar el estado, el usuario V3 ya tiene datos inesperados que no se han revisado, o falla una prueba de dispositivo bloqueante. Datos V2 sólo locales, `pending_review` de mappings históricos y diferencias de conteos V2 ya no son causas de ABORT bajo el arranque limpio.
 
 ## Pruebas de dispositivo
 
@@ -132,7 +134,7 @@ Cada ejecución registra dispositivo/OS/navegador/build, flags, usuario de prueb
 
 ## Auditoría y eliminación de cuenta
 
-- Conflictos abiertos, migraciones `pending_review` y tombstones: retener durante toda la migración y al menos 180 días después del cutover estable.
+- Conflictos V3 abiertos y tombstones: retener durante el rollout y al menos 180 días después del cutover estable. Los mapas históricos V2→V3 quedan archivados; si algún día se autoriza migrar, definir entonces su retención específica.
 - Decisiones de conflicto resueltas: 365 días.
 - Eventos operativos exitosos: 90 días.
 - Errores y eventos críticos: 180 días, sin payloads completos, tokens, notas ni valores de salud.
@@ -145,11 +147,10 @@ Ante eliminación de cuenta: autenticar nuevamente al usuario, ofrecer export, c
 
 - [ ] Commit desplegado con release puente, flags apagados y versión mínima.
 - [ ] Backup lógico con checksum y restauración aislada aprobada.
-- [ ] Backup local de cada dispositivo/origen activo.
-- [ ] Inventario repetido; conteos congelados y firmados.
-- [x] Cuatro ejercicios y doce sets revisados; proyección con cero `pending_review`.
+- [ ] Confirmar explícitamente que V3 del usuario actual empieza sin datos personales previos; cualquier dato V3 de pruebas se revisa antes de activar, sin borrado automático.
+- [x] Decisión registrada: V2 queda histórico; datos no migrados, incluidos los sólo locales, se descartan **para V3** sin borrar la fuente.
+- [x] Cuatro mappings y doce sets documentados para una eventual migración posterior; no son condición de lanzamiento.
 - [ ] SQL de esquema, señales, observabilidad y rutinas reejecutado en clon restaurado.
-- [ ] Backfills idempotentes ejecutados dos veces en clon.
 - [ ] RLS/anon/dos usuarios validados.
 - [ ] Todos los casos de dispositivo bloqueantes en PASS.
 - [ ] Política de auditoría aprobada.
@@ -160,14 +161,14 @@ Ante eliminación de cuenta: autenticar nuevamente al usuario, ofrecer export, c
 ## Pasos CUTOVER preparados, no autorizados
 
 1. Anunciar ventana y detener nuevos entrenamientos.
-2. Verificar build mínimo y exportar cualquier sesión activa.
-3. Ejecutar inventario final y comparar con baseline.
+2. Verificar build mínimo; no trasladar sesiones V2 activas a V3. Ofrecer export local voluntario.
+3. Confirmar que no se importarán datos V2 y que el espacio V3 del usuario actual está vacío o fue revisado explícitamente.
 4. Crear backup final y validar checksum.
 5. Activar freeze V2 con el guard explícito y comprobar rechazo desde un cliente antiguo.
-6. Aplicar esquema V3 por fases: base, signals, observability, routines; nunca backfill mezclado con DDL.
-7. Aplicar grants mínimos y validar RLS antes del backfill.
-8. Ejecutar backfills separados, revisar mapas y repetir para idempotencia.
-9. Abort si cambia cualquier conteo o aparece ambigüedad no aprobada.
+6. Aplicar esquema V3 por fases: base, signals, observability, routines; **no ejecutar backfill de datos personales V2**.
+7. Aplicar grants mínimos y validar RLS, Auth y usuario V3 antes de abrir escrituras.
+8. Verificar que importadores V2 y cualquier doble escritura V2/V3 estén desactivados; registrar baseline V3 vacío.
+9. Abort si aparece un dato V3 previo inesperado o falla un control de versión, RLS o dispositivo bloqueante.
 10. Habilitar flags en el orden definido para cohorte interna.
 11. Validar post-cutover antes de ampliar cohorte.
 
@@ -175,8 +176,8 @@ Cada paso de escritura requiere confirmación manual nueva. No se encadenan todo
 
 ## POST-CUTOVER
 
-- [ ] Conteos fuente/mapa/destino conciliados.
-- [ ] Cero resurrecciones y tombstones conservados.
+- [ ] Baseline V3 sin sesiones históricas y primeras escrituras V3 nuevas verificadas; ninguna fila V2 importada accidentalmente.
+- [ ] Cero resurrecciones V3 y tombstones conservados.
 - [ ] Cola sin `syncing` abandonados; conflicts/failed explicados.
 - [ ] Sesión creada, editada, finalizada y recuperada offline.
 - [ ] Readiness, fútbol, match review, rutina y Coach correctos.
@@ -190,14 +191,14 @@ Cada paso de escritura requiere confirmación manual nueva. No se encadenan todo
 | Riesgo | Probabilidad | Impacto | Estado | Decisión |
 |---|---|---|---|---|
 | Sin backup administrado/restaurado | Alta | Crítico | Abierto | NO-GO |
-| Datos sólo locales no inventariados | Media | Alto | Abierto | NO-GO |
+| Datos V2 sólo locales no inventariados | Media | Alto para recuperación histórica | Exclusión de V3 aceptada; export voluntario | No bloquea V3 |
 | Service worker actualiza inmediatamente | Media | Alto | Abierto | NO-GO |
 | Versión mínima/rollout remoto no implementado | Alta | Alto | Abierto | NO-GO |
-| Cuatro órdenes de ejercicio sintéticos | Baja | Medio | Aprobados con PK y huella fuente | GO para este bloqueante |
+| Cuatro órdenes de ejercicio V2 | Baja | Medio si se migra luego | Mappings aprobados y archivados | No requeridos para V3 desde cero |
 | Colisión/conflicto V3 | Baja | Alto | UI y auditoría existen | CONDITIONAL GO tras prueba física |
 | PWA/Android/iOS/suspensión no probados | Media | Alto | Abierto | NO-GO |
 | Retención de auditoría no aprobada | Media | Medio | Propuesta | CONDITIONAL GO |
 | Esquema V2 inesperado | Baja | Medio | No detectado | GO |
-| Datos productivos inválidos | Baja | Medio | No detectado | GO |
+| Datos V2 productivos no migrados | Cierta | Historial ausente en V3 | Descarte para V3 aprobado; V2 retenido | No bloquea V3 |
 
-Recomendación actual: **NO-GO para cutover**. Puede pasar a **CONDITIONAL GO** cuando backup/restauración, inventario local, release puente, versión mínima, service worker y pruebas físicas estén completos. **GO** requiere además cero ambigüedades sin decisión, preflight repetido durante el freeze y confirmación manual del propietario, operador de base y responsable de release.
+Recomendación actual: **NO-GO para cutover**. Puede pasar a **CONDITIONAL GO** cuando recuperación/backup exigidos, release puente, versión mínima, actualización segura del service worker y pruebas físicas estén completos. **GO** exige verificar V3 vacío para el usuario actual, ninguna importación ni doble escritura accidental, RLS y sync correctos, rollback probado y confirmación manual del propietario, operador de base y responsable de release. El inventario local, el preflight de V2 y los mappings productivos **no son condiciones de GO** para este arranque limpio.

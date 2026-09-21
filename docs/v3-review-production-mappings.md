@@ -50,4 +50,4 @@ Un mapping ausente o incorrecto permanece `pending_review`. Cualquier cambio pos
 
 ## Decisión
 
-**GO para cerrar el bloqueante específico de los cuatro órdenes productivos.** El backfill continúa sin autorización y debe repetir el preflight sobre un export fresco antes de usar estas decisiones. Disaster recovery, pruebas de dispositivo y los demás bloqueantes de cutover siguen abiertos; el estado general continúa **NO-GO para cutover**.
+**Los cuatro mappings permanecen documentados y aprobados como evidencia histórica, pero no son condición de lanzamiento.** Por decisión del 2026-09-20, V3 empieza sin sesiones V2; no se ejecuta backfill productivo de datos personales. Si se autoriza una migración posterior, habrá que repetir el preflight sobre un export fresco y revalidar cualquier fuente modificada. V2 se conserva y el estado general continúa **NO-GO para cutover** por otros bloqueantes.
