@@ -1,8 +1,11 @@
 import {isV3ConflictsEnabled,isV3LocalStorageEnabled} from './feature-flags.js';
 import {mayStartNewWork} from '../pwa-update-gate.js';
-if(isV3ConflictsEnabled()){
+import {rolloutReady} from './rollout-boot.js';
+await rolloutReady;
+{
   const css=document.createElement('link');css.rel='stylesheet';css.href='./v3-training.css';document.head.append(css);
   const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Conflictos V3';document.querySelector('.top-actions').append(button);
+  button.hidden=!isV3ConflictsEnabled();document.addEventListener('nico-fit:rollout-change',()=>{button.hidden=!isV3ConflictsEnabled();});
   const root=document.createElement('section');root.className='v3-training-screen hidden';root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-label','Conflictos V3');document.body.append(root);
   const background=[...document.querySelectorAll('.app-shell,.bottom-nav,#restOverlay,#sessionSummary')];let userId=null,repository=null,ui=null,generation=0,opening=false;
   document.addEventListener('nico-fit:pwa-safety-request',event=>{event.detail.critical ||= opening||!!ui?.busy;event.detail.userId ||= userId;});

@@ -40,6 +40,10 @@ update.addEventListener('click',async()=>{
 });
 later.addEventListener('click',()=>coordinator.defer());
 reminder.addEventListener('click',()=>{coordinator.deferred=false;coordinator.refresh().then(()=>update.focus());});
+document.addEventListener('nico-fit:pwa-apply-update',async()=>{
+  if(!coordinator)return;
+  try{await coordinator.registration.update();await coordinator.refresh();await coordinator.apply();}catch{await coordinator.refresh();}
+});
 
 if('serviceWorker'in navigator){
   window.addEventListener('load',async()=>{

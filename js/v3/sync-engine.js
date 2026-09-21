@@ -3,6 +3,7 @@ import {isV3SyncEnabled,isV3SignalsSyncEnabled,isV3RoutinesSyncEnabled} from './
 import {withV3SyncLock} from './sync-lock.js';
 import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs} from './sync-protocol.js';
 import {safeDiagnosticError} from './diagnostic-model.js';
+import {rolloutAllowsRemote,rolloutFlag} from './rollout-state.js';
 
 const PULL_ORDER=['exercise_catalog','workout_sessions','session_exercises','exercise_sets'];
 
@@ -31,6 +32,7 @@ export class V3SyncEngine{
   async syncOnce(){
     const enabled=this.featureEnabled??isV3SyncEnabled(this.flagStorage);
     if(!enabled)return {skipped:'disabled'};
+    if(!await rolloutAllowsRemote())return {skipped:'rollout_blocked'};
     const attemptId=globalThis.crypto.randomUUID(),stamp=()=>new Date(this.now()).toISOString();
     await this.#observe(attemptId,{startedAt:stamp(),status:'running',phase:'auth'});
     try{
@@ -38,7 +40,7 @@ export class V3SyncEngine{
       const remoteUserId=await this.remote.authenticatedUserId();
       if(remoteUserId!==this.repository.userId)throw Object.assign(new Error('Authenticated Supabase user does not match the local V3 repository.'),{status:401});
       const result=await withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:()=>this.#runLocked(attemptId)});
-      await this.#observe(attemptId,{status:result.skipped?'locked':result.failed?'failed':'completed',phase:result.skipped?'locked':'finished',finishedAt:stamp(),result});
+      await this.#observe(attemptId,{status:result.skipped==='locked'?'locked':result.failed?'failed':'completed',phase:result.skipped==='locked'?'locked':'finished',finishedAt:stamp(),result});
       return result;
     }catch(error){
       const snapshot=await this.repository.operationalSnapshot().catch(()=>({attempts:[]})),phase=snapshot.attempts.find(row=>row.attemptId===attemptId)?.phase||'auth';
@@ -53,16 +55,18 @@ export class V3SyncEngine{
     const result={pulled:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
     result.recovered=await this.repository.recoverInterruptedOperations();
     result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts});
-    await this.#observe(attemptId,{phase:'pull'});await this.#pull(result);
-    await this.#observe(attemptId,{phase:'push'});await this.#push(result,attemptId);
+    await this.#observe(attemptId,{phase:'pull'});if(!await this.#pull(result))return {...result,skipped:'rollout_blocked'};
+    await this.#observe(attemptId,{phase:'push'});if(!await this.#push(result,attemptId))return {...result,skipped:'rollout_blocked'};
     return result;
   }
 
   async #pull(result){
     for(const entity of this.#entities()){
+      if(!await rolloutAllowsRemote())return false;
       if(!ENTITY_STORES.includes(entity))continue;
       let cursor=await this.repository.getSyncCheckpoint(entity);
       while(true){
+        if(!await rolloutAllowsRemote())return false;
         const rows=await this.remote.fetchChanges(entity,{cursor,pageSize:this.pageSize});
         if(!rows.length)break;
         const ordered=[...rows].sort((a,b)=>a.updated_at.localeCompare(b.updated_at)||a.id.localeCompare(b.id));
@@ -106,11 +110,14 @@ export class V3SyncEngine{
         if(rows.length<this.pageSize)break;
       }
     }
+    return true;
   }
 
   async #push(result,attemptId){
+    if(!await rolloutAllowsRemote())return false;
     const claimed=await this.repository.claimPendingOperations(this.batchSize,{now:this.now(),entities:this.#entities(),routinesEnabled:this.#routinesEnabled()});
     for(const originalGroup of compactOperations(claimed)){
+      if(!await rolloutAllowsRemote()){await this.repository.recoverInterruptedOperations();return false;}
       // A preceding insert/update may have advanced the base of later queued edits.
       // Use the persisted base, not the stale claim snapshot (important for reorders).
       const related=await this.repository.unresolvedOperations(originalGroup.entity,originalGroup.recordId);
@@ -151,12 +158,14 @@ export class V3SyncEngine{
         if(kind==='auth')break;
       }
     }
+    return true;
   }
 
   #assertRemoteOwner(entity,record){
     if(['workout_sessions',...SIGNAL_STORES,...ROUTINE_STORES].includes(entity)&&record.user_id!==this.repository.userId)throw new Error('Remote record belongs to another user.');
     if(entity==='exercise_catalog'&&record.owner_user_id!=null&&record.owner_user_id!==this.repository.userId)throw new Error('Remote exercise catalog row belongs to another user.');
   }
-  #routinesEnabled(){return this.routinesSyncEnabled??isV3RoutinesSyncEnabled(this.flagStorage);}
-  #entities(){return ['exercise_catalog',...(this.#routinesEnabled()?ROUTINE_STORES:[]),...PULL_ORDER.slice(1),...((this.signalsSyncEnabled??isV3SignalsSyncEnabled(this.flagStorage))?SIGNAL_STORES:[])];}
+  #routinesEnabled(){return rolloutFlag('v3_routines_enabled')!==false&&(this.routinesSyncEnabled??isV3RoutinesSyncEnabled(this.flagStorage));}
+  #signalsEnabled(){return rolloutFlag('v3_signals_enabled')!==false&&(this.signalsSyncEnabled??isV3SignalsSyncEnabled(this.flagStorage));}
+  #entities(){return ['exercise_catalog',...(this.#routinesEnabled()?ROUTINE_STORES:[]),...PULL_ORDER.slice(1),...(this.#signalsEnabled()?SIGNAL_STORES:[])];}
 }

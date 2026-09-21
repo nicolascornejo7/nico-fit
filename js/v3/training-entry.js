@@ -1,10 +1,13 @@
 import {isV3TrainingEnabled,isV3LocalStorageEnabled} from './feature-flags.js';
 import {mayStartNewWork} from '../pwa-update-gate.js';
+import {rolloutReady} from './rollout-boot.js';
+await rolloutReady;
 
 // Auth is supplied by V2 coordination. This entry never creates a Supabase client.
-if(isV3TrainingEnabled()){
+{
   const stylesheet=document.createElement('link');stylesheet.rel='stylesheet';stylesheet.href='./v3-training.css';document.head.append(stylesheet);
   const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Entrenar V3';
+  button.hidden=!isV3TrainingEnabled();document.addEventListener('nico-fit:rollout-change',()=>{button.hidden=!isV3TrainingEnabled();});
   document.querySelector('.top-actions').append(button);
   const root=document.createElement('section');root.className='v3-training-screen hidden';root.setAttribute('aria-label','Entrenamiento V3');document.body.append(root);
   root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');

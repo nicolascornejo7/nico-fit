@@ -1,5 +1,5 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v17';
+const BUILD_ID='nico-fit-v18';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
@@ -10,6 +10,7 @@ const APP_ASSETS=[
   './js/local-device-inventory-page.js','./js/local-device-inventory.js','./js/metrics.js',
   './js/plan.js','./js/progression.js','./js/pwa-update-entry.js','./js/pwa-update-coordinator.js',
   './js/pwa-update-gate.js','./js/pwa-update-safety.js','./js/pwa-form-drafts.js','./js/pwa-version.js',
+  './js/v3/rollout-policy.js','./js/v3/rollout-state.js','./js/v3/rollout-control.js','./js/v3/rollout-boot.js',
   './js/safe-dom.js','./js/store.js','./js/sync.js','./js/validation.js',
   './js/v3/audit-service.js','./js/v3/client-storage.js','./js/v3/client-sync.js',
   './js/v3/coach-context.js','./js/v3/coach-presentation.js','./js/v3/coach-rules.js',

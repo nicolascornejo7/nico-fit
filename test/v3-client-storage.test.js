@@ -37,7 +37,8 @@ test('V2 app remains the default path and every V3 PWA asset exists',async()=>{
     readFile(new URL('../js/app.js',import.meta.url),'utf8'),
     readFile(new URL('../sw.js',import.meta.url),'utf8')
   ]);
-  assert.doesNotMatch(app,/\.\/v3\//);
+  assert.match(app,/rolloutReady/);
+  assert.doesNotMatch(app,/import .*\.\/v3\/(?:repository|training-engine|sync-engine)/);
   for(const module of ['client-storage.js','feature-flags.js','indexed-db.js','repository.js','import-v2.js']){
     assert.match(worker,new RegExp(`js/v3/${module.replace('.','\\.')}`));
     await access(new URL(`../js/v3/${module}`,import.meta.url));

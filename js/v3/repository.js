@@ -3,6 +3,8 @@ import {isV3LocalStorageEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {summarizeOperations} from './diagnostic-model.js';
 import {validateRoutineRecord,assertRoutineImmutable,sameRoutineValue} from './routine-validation.js';
+import {rolloutBlocksNewWork} from './rollout-state.js';
+const assertCurrentClient=()=>{if(rolloutBlocksNewWork())throw new Error('Actualización requerida: los cambios locales quedan conservados, pero esta versión no puede escribir más.');};
 
 export const OPERATION_STATES=Object.freeze(['pending','syncing','synced','conflict','failed','superseded']);
 export const MUTATION_TYPES=Object.freeze(['insert','update','soft_delete']);
@@ -105,6 +107,7 @@ export class V3LocalRepository{
 
   // Entity graph, outbox and local UI checkpoint commit atomically.
   async commitLocalChanges(changes=[],{trainingState,guards=[]}={}){
+    if(changes.length)assertCurrentClient();
     const prepared=changes.map(change=>({...change,id:change.id||change.payload?.id||uuid(this.crypto),operationId:change.operationId||uuid(this.crypto)}));
     return runTransaction(this.database,[...ENTITY_STORES,INTERNAL_STORES.operations,INTERNAL_STORES.metadata,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
       const operations=transaction.objectStore(INTERNAL_STORES.operations),conflicts=transaction.objectStore(INTERNAL_STORES.conflicts),results=[];
@@ -174,6 +177,7 @@ export class V3LocalRepository{
   }
 
   async create(entity,payload={},options={}){
+    assertCurrentClient();
     assertEntity(entity);
     const id=String(options.id||payload.id||uuid(this.crypto));
     const operationId=String(options.operationId||uuid(this.crypto));
@@ -200,6 +204,7 @@ export class V3LocalRepository{
   }
 
   async update(entity,id,patch={},options={}){
+    assertCurrentClient();
     assertEntity(entity);
     const operationId=String(options.operationId||uuid(this.crypto));
     return runTransaction(this.database,mutationStores(entity),'readwrite',async transaction=>{
@@ -224,6 +229,7 @@ export class V3LocalRepository{
   }
 
   async softDelete(entity,id,options={}){
+    assertCurrentClient();
     assertEntity(entity);
     const operationId=String(options.operationId||uuid(this.crypto));
     return runTransaction(this.database,[entity,INTERNAL_STORES.operations],'readwrite',async transaction=>{
@@ -598,6 +604,7 @@ export class V3LocalRepository{
   }
 
   async importRecord(entity,{sourceKey,id,payload,status='pending_review',note='',enqueue=false}){
+    assertCurrentClient();
     assertEntity(entity);
     return runTransaction(this.database,[entity,INTERNAL_STORES.migrations,INTERNAL_STORES.operations],'readwrite',async transaction=>{
       const mappings=transaction.objectStore(INTERNAL_STORES.migrations),existingMap=await requestResult(mappings.get(sourceKey));

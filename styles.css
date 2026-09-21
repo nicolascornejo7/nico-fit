@@ -10,3 +10,5 @@
  .pwa-update-actions button:focus-visible{outline:3px solid #7dd3fc;outline-offset:3px}
  .pwa-update-reminder{position:fixed;z-index:1200;right:max(12px,env(safe-area-inset-right));bottom:max(82px,calc(12px + env(safe-area-inset-bottom)));padding:10px 14px;border:1px solid #7dd3fc;border-radius:999px;background:#172535;color:#f8fafc}
  .pwa-update-reminder[hidden]{display:none}
+ .rollout-banner{position:fixed;z-index:1190;left:12px;right:12px;top:max(12px,env(safe-area-inset-top));max-width:550px;margin:auto;padding:14px 16px;border:1px solid #fbbf24;border-radius:12px;background:#2b2517;color:#fff;box-shadow:0 8px 28px #0009}
+ .rollout-banner[hidden]{display:none}.rollout-banner p{margin:8px 0}.rollout-banner button[hidden]{display:none}
