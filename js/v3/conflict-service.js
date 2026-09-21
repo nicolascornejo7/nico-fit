@@ -1,4 +1,5 @@
 import {withV3SyncLock} from './sync-lock.js';
+import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 
 const explanations={routine_version_number_collision:'Dos dispositivos publicaron el mismo número de versión con IDs distintos. Conservá los snapshots y revisá explícitamente la nueva versión; no se renumera ni se aplica automáticamente.',remote_changed:'El servidor cambió mientras había cambios locales pendientes.',remote_change_vs_local_change:'El servidor cambió mientras había cambios locales pendientes.',conflict_remote_refresh:'Se actualizó la copia remota de un conflicto que sigue abierto.',remote_version_conflict:'La versión enviada ya no coincide con la del servidor.',remote_tombstone:'El servidor conserva un registro de borrado. Su identidad no puede reactivarse.',version_conflict:'La versión enviada ya no coincide con la del servidor.',v2_source_changed:'La fuente V2 cambió después de importar. Requiere revisión explícita de la importación.'};
 export function availableStrategies(conflict,local){
@@ -25,6 +26,7 @@ export class V3ConflictService{
   async count(){return (await this.list()).filter(row=>row.status!=='resolved').length;}
   async history(){return this.repository.resolutionHistory();}
   async resolve(view,strategy,{note=''}={}){
+    if(rolloutBlocksNewWork()||rolloutFlag('v3_conflicts_enabled')===false)throw new Error('Conflictos V3 desactivados o actualización requerida.');
     if(!view.strategies.includes(strategy))throw new Error('Esta estrategia no está disponible. Actualizá el detalle.');
     const result=await withV3SyncLock({repository:this.repository,userId:this.repository.userId,locks:this.locks,task:()=>this.repository.resolveConflict({conflictId:view.conflict_id,strategy,expectedUpdatedAt:view.updated_at,expectedRemoteVersion:view.remote?.version??null,expectedLocalRevision:view.local.local_revision,metadata:{note:String(note).slice(0,2000),source:'conflict-ui',semantics:strategy==='keep_both'?'Independent football occurrence; linked reviews are not copied.':null}})});
     if(result?.skipped)throw new Error('La sincronización está trabajando. Reintentá cuando termine.');

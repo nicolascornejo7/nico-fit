@@ -29,7 +29,9 @@
     "test:v3:dry-run": "node scripts/v3-dry-run.mjs",
     "build:v3:staging": "node --env-file-if-exists=.env.v3-staging.local scripts/build-v3-staging-bundle.mjs",
     "serve:v3:staging": "node scripts/serve-v3-staging-bundle.mjs",
-    "test:v3:staging": "node --env-file=.env.v3-staging.local scripts/v3-supabase-staging.mjs"
+    "test:v3:staging": "node --env-file=.env.v3-staging.local scripts/v3-supabase-staging.mjs",
+    "test:v3:rollout:staging": "node --env-file=.env.v3-staging.local scripts/v3-remote-rollout-staging.mjs",
+    "serve:v3:rollout:manual": "node --env-file=.env.v3-staging.local scripts/serve-v3-rollout-manual.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

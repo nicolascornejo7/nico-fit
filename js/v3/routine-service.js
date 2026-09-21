@@ -3,6 +3,8 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {stableClientUuid} from './import-v2.js';
 import {requiredText} from './training-validation.js';
 import {routinePrescription,sameRoutineValue} from './routine-validation.js';
+import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
+const assertRoutineWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_routines_enabled')===false)throw new Error('Rutinas V3 desactivadas o actualización requerida.');};
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
 const uuid=()=>crypto.randomUUID();
 export const defaultRoutineId=(userId,dayIndex)=>stableClientUuid(`v3:routine-template:${userId}:validated-day-${dayIndex}`);
@@ -38,20 +40,23 @@ export class V3RoutineService{
     return [insert('routine_versions',versionId,{routine_id:template.id,version_number:versionNumber,name_snapshot:snapshot.name,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id,...row})=>insert('routine_exercises',id,row))];
   }
   async create({name,exercises,dayIndex=null,derivedFrom=null,id=uuid(),stableKey=`custom:${id}`}={}){
+    assertRoutineWrite();
     const template={id,name:requiredText(name,'Rutina'),stable_key:stableKey,is_active:true,derived_from_routine_id:derivedFrom};
     const changes=await this.#changes(template,exercises,{versionNumber:1,dayIndex});
     await this.repository.commitLocalChanges([insert('routine_templates',id,template),...changes]);return this.version(changes[0].id);
   }
   async createVersion(routineId,{exercises,dayIndex,name}={}){
+    assertRoutineWrite();
     const template=await this.repository.get('routine_templates',routineId);if(!template||template.deleted_at)throw new Error('Rutina no disponible.');
     const versions=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).filter(row=>row.routine_id===routineId),previous=versions.sort((a,b)=>b.version_number-a.version_number)[0];
     const changes=await this.#changes(template,exercises,{versionNumber:(previous?.version_number||0)+1,dayIndex:dayIndex===undefined?previous?.day_index??null:dayIndex,name:name??template.name});
     await this.repository.commitLocalChanges(changes,{guards:[{entity:'routine_templates',id:template.id,expectedLocalRevision:template.local_revision}]});return this.version(changes[0].id);
   }
-  async rename(id,name){const template=await this.repository.get('routine_templates',id);if(!template)throw new Error('Rutina no encontrada.');const [row]=await this.repository.commitLocalChanges([{entity:'routine_templates',id,type:'update',payload:{name:requiredText(name,'Rutina')},expectedLocalRevision:template.local_revision}]);return row;}
-  async setActive(id,isActive){if(typeof isActive!=='boolean')throw new Error('Estado inválido.');const template=await this.repository.get('routine_templates',id);if(!template)throw new Error('Rutina no encontrada.');const [row]=await this.repository.commitLocalChanges([{entity:'routine_templates',id,type:'update',payload:{is_active:isActive},expectedLocalRevision:template.local_revision}]);return row;}
-  async duplicate(versionId,name){const source=await this.version(versionId);return this.create({name,exercises:source.snapshot.exercises,dayIndex:source.version.day_index,derivedFrom:source.template.id});}
+  async rename(id,name){assertRoutineWrite();const template=await this.repository.get('routine_templates',id);if(!template)throw new Error('Rutina no encontrada.');const [row]=await this.repository.commitLocalChanges([{entity:'routine_templates',id,type:'update',payload:{name:requiredText(name,'Rutina')},expectedLocalRevision:template.local_revision}]);return row;}
+  async setActive(id,isActive){assertRoutineWrite();if(typeof isActive!=='boolean')throw new Error('Estado inválido.');const template=await this.repository.get('routine_templates',id);if(!template)throw new Error('Rutina no encontrada.');const [row]=await this.repository.commitLocalChanges([{entity:'routine_templates',id,type:'update',payload:{is_active:isActive},expectedLocalRevision:template.local_revision}]);return row;}
+  async duplicate(versionId,name){assertRoutineWrite();const source=await this.version(versionId);return this.create({name,exercises:source.snapshot.exercises,dayIndex:source.version.day_index,derivedFrom:source.template.id});}
   async seedDefaults(){
+    assertRoutineWrite();
     const result=[];
     for(const dayIndex of [2,4,5]){
       const id=await defaultRoutineId(this.repository.userId,dayIndex),source=routineForDay(dayIndex),versionId=await stableClientUuid(`v3:routine-version:${id}:1`);

@@ -2,11 +2,14 @@ import {isV3SignalsEnabled} from './feature-flags.js';
 import {validateSignal} from './signals-validation.js';
 import {stableClientUuid} from './import-v2.js';
 import {SIGNAL_STORES} from './indexed-db.js';
+import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
+const assertSignalWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_signals_enabled')===false)throw new Error('Señales V3 desactivadas o actualización requerida.');};
 
 export class V3SignalsRepository{
   constructor({repository,featureEnabled,flagStorage=globalThis.localStorage}={}){if(!(featureEnabled??isV3SignalsEnabled(flagStorage)))throw new Error('V3 signals disabled.');if(!repository?.userId)throw new Error('User repository required.');this.repository=repository;this.userId=repository.userId;}
   async list(entity,{date,includeDeleted=false}={}){if(!SIGNAL_STORES.includes(entity))throw new Error('Invalid signal entity.');return (await this.repository.listRecords(entity,{includeDeleted})).filter(row=>!date||row.local_date===date);}
   async save(entity,input,{id,expectedLocalRevision}={}){
+    assertSignalWrite();
     const payload=validateSignal(entity,input);if(!id&&entity==='daily_readiness')id=(await this.list(entity,{date:payload.local_date,includeDeleted:true}))[0]?.id;id??=entity==='daily_readiness'?await stableClientUuid(`signals:${this.userId}:readiness:${payload.local_date}`):this.repository.crypto.randomUUID();
     const existing=await this.repository.get(entity,id);if(existing&&existing.local_date!==payload.local_date)throw new Error('Signal date is immutable.');
     if(existing&&entity==='football_sessions'&&payload.session_type!=='match'&&(await this.list('match_reviews')).some(row=>row.football_session_id===id))throw new Error('Match with reviews cannot become training/friendly.');
@@ -15,7 +18,7 @@ export class V3SignalsRepository{
     if(entity==='match_reviews'&&payload.football_session_id){const parent=await this.repository.get('football_sessions',payload.football_session_id);if(!parent||parent.deleted_at||parent.session_type!=='match'||parent.local_date!==payload.local_date)throw new Error('Review requires live same-date match.');guards.push({entity:'football_sessions',id:parent.id,expectedLocalRevision:parent.local_revision});}
     await this.repository.commitLocalChanges([{entity,id,type:existing?'update':'insert',payload,...(existing?{expectedLocalRevision}:{})}],{guards});return this.repository.get(entity,id);
   }
-  async softDelete(entity,id,expectedLocalRevision){if(!SIGNAL_STORES.includes(entity))throw new Error('Invalid signal entity.');const changes=[];if(entity==='football_sessions')for(const review of (await this.list('match_reviews')).filter(row=>row.football_session_id===id))changes.push({entity:'match_reviews',id:review.id,type:'soft_delete',expectedLocalRevision:review.local_revision});changes.push({entity,id,type:'soft_delete',expectedLocalRevision});await this.repository.commitLocalChanges(changes);}
+  async softDelete(entity,id,expectedLocalRevision){assertSignalWrite();if(!SIGNAL_STORES.includes(entity))throw new Error('Invalid signal entity.');const changes=[];if(entity==='football_sessions')for(const review of (await this.list('match_reviews')).filter(row=>row.football_session_id===id))changes.push({entity:'match_reviews',id:review.id,type:'soft_delete',expectedLocalRevision:review.local_revision});changes.push({entity,id,type:'soft_delete',expectedLocalRevision});await this.repository.commitLocalChanges(changes);}
   async coachContext(){
     const [readiness,football,matches]=await Promise.all(SIGNAL_STORES.map(entity=>this.list(entity)));
     const mappings=await this.repository.listMigrationMappings(),pendingIds=new Set(mappings.filter(row=>row.migration_status==='pending_review').map(row=>row.target_id));

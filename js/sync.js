@@ -1,6 +1,7 @@
 import {applyTombstones,dedupeBy,recordKeys,tombstoneKey,nowIso} from './store.js';
 import {exerciseId} from './exercise-identity.js';
 import {mayStartNewWork} from './pwa-update-gate.js';
+import {rolloutAllowsLegacyRemote} from './v3/rollout-state.js';
 
 const TABLES={readiness:'readiness',workouts:'workouts',matches:'match_reviews',football:'football_sessions',sessions:'workout_sessions'};
 
@@ -86,8 +87,11 @@ export class SyncService{
     const userId=this.user.id;this.busy=true;this.state('pending','Sincronizando…');
     try{
       do{
-        this.rerun=false;const remote=await this.pull();if(this.user?.id!==userId)return false;
-        const merged=this.merge(this.getData(),remote);this.setData(merged);await this.push(merged,userId);
+        this.rerun=false;if(!await rolloutAllowsLegacyRemote()){this.state('pending','Sincronización pausada por configuración remota');return false;}
+        const remote=await this.pull();if(this.user?.id!==userId)return false;
+        const merged=this.merge(this.getData(),remote);this.setData(merged);
+        if(!await rolloutAllowsLegacyRemote()){this.state('pending','Sincronización pausada por configuración remota');return false;}
+        await this.push(merged,userId);
         const confirmed=await this.pull();if(this.user?.id!==userId)return false;this.setData(this.merge(this.getData(),confirmed));
       }while(this.rerun);
       this.state('synced','Sincronizado');return true;
@@ -95,7 +99,8 @@ export class SyncService{
     finally{this.busy=false;this.currentSync=null;}
   }
   async syncAll(){
-    if(!mayStartNewWork())return false;
+    if(!mayStartNewWork()){this.state('pending','Actualización requerida; sincronización pausada');return false;}
+    if(!await rolloutAllowsLegacyRemote()){this.state('pending','Sincronización pausada por configuración remota');return false;}
     if(!this.client||!this.user||!navigator.onLine){this.state(this.user?'pending':'local',this.user?'Pendiente de sincronizar':'Solo local');return false;}
     if(this.busy){this.rerun=true;return this.currentSync;}this.currentSync=this.runSync();return this.currentSync;
   }

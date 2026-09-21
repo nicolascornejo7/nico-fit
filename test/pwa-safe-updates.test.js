@@ -61,10 +61,10 @@ test('dirty form drafts survive a render and clear only after explicit save',()=
 });
 
 test('defer hides prompt and a safety transition reoffers the waiting update',async()=>{
-  let safe=false;const worker={postMessage(_message,[port]){port.postMessage({buildId:'nico-fit-v17'});}};
+  let safe=false;const worker={postMessage(_message,[port]){port.postMessage({buildId:'nico-fit-v18'});}};
   const registration={waiting:worker,addEventListener(){},update:async()=>{}};
   const sw={controller:worker,addEventListener(){},removeEventListener(){}};
-  const doc={querySelector:()=>({content:'nico-fit-v17'}),addEventListener(){},removeEventListener(){}};
+  const doc={querySelector:()=>({content:'nico-fit-v18'}),addEventListener(){},removeEventListener(){}};
   const coordinator=new PwaUpdateCoordinator({registration,serviceWorker:sw,documentLike:doc,windowLike:null,readSafety:async()=>({safe,reasons:safe?[]:['Sesión activa']}),Channel:MessageChannel});
   await coordinator.refresh();assert.equal(coordinator.state.canUpdate,false);
   coordinator.defer();assert.equal(coordinator.state.deferred,true);
@@ -74,12 +74,12 @@ test('defer hides prompt and a safety transition reoffers the waiting update',as
 test('finishing an active session permits explicit activation and one reload',async()=>{
   const memory=storage();memory.setItem('gymFutbolActiveSessionV2:guest',JSON.stringify({phase:'active'}));
   const worker=new EventTarget();worker.state='installed';worker.postMessage=(message,[port])=>{
-    if(message.type==='NICO_FIT_GET_VERSION')port.postMessage({buildId:'nico-fit-v17'});
+    if(message.type==='NICO_FIT_GET_VERSION')port.postMessage({buildId:'nico-fit-v18'});
     if(message.type==='NICO_FIT_ACTIVATE_IF_SAFE'){port.postMessage({accepted:true});worker.state='activated';worker.dispatchEvent(new Event('statechange'));}
   };
   const registration={waiting:worker,addEventListener(){},update:async()=>{}};
   const sw={controller:worker,addEventListener(){},removeEventListener(){}};
-  const doc={querySelector:()=>({content:'nico-fit-v17'}),addEventListener(){},removeEventListener(){}};
+  const doc={querySelector:()=>({content:'nico-fit-v18'}),addEventListener(){},removeEventListener(){}};
   let reloads=0;
   const coordinator=new PwaUpdateCoordinator({registration,serviceWorker:sw,documentLike:doc,windowLike:null,readSafety:()=>local({storage:memory}),reload:()=>{reloads++;},Channel:MessageChannel});
   assert.equal((await coordinator.refresh()).canUpdate,false);
@@ -108,9 +108,9 @@ test('worker precaches full version, avoids automatic takeover and cleans only N
   const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
   const index=await readFile(new URL('../index.html',import.meta.url),'utf8');
   const inventory=await readFile(new URL('../local-device-inventory.html',import.meta.url),'utf8');
-  assert.match(sw,/const BUILD_ID='nico-fit-v17'/);
-  assert.match(index,/nico-fit-build" content="nico-fit-v17"/);
-  assert.match(inventory,/nico-fit-build" content="nico-fit-v17"/);
+  assert.match(sw,/const BUILD_ID='nico-fit-v18'/);
+  assert.match(index,/nico-fit-build" content="nico-fit-v18"/);
+  assert.match(inventory,/nico-fit-build" content="nico-fit-v18"/);
   assert.doesNotMatch(sw,/clients\.claim\(/);
   assert.match(sw,/await self\.skipWaiting\(\)/);
   assert.match(sw,/Number\(name\.slice\(CACHE_PREFIX\.length\)\)<BUILD_NUMBER/);
@@ -130,11 +130,11 @@ test('waiting worker cache survives cleanup by the active worker',async()=>{
     globalThis.self={registration:{scope:'http://127.0.0.1:8199/'},location:{origin:'http://127.0.0.1:8199'},clients:{matchAll:async()=>[],get:async()=>null},addEventListener:(name,handler)=>events.set(name,handler)};
     await import(`../sw.js?cache-test=${Date.now()}`);
     let install;events.get('install')({waitUntil:promise=>{install=promise;}});await install;
-    assert.ok(buckets.get('nico-fit-v17').has('http://127.0.0.1:8199/index.html'));
-    await cacheStorage.open('nico-fit-v18');await cacheStorage.open('unrelated-cache');await cacheStorage.open('nico-fit-v16');
+    assert.ok(buckets.get('nico-fit-v18').has('http://127.0.0.1:8199/index.html'));
+    await cacheStorage.open('nico-fit-v19');await cacheStorage.open('unrelated-cache');await cacheStorage.open('nico-fit-v17');
     let cleanup;let result;events.get('message')({data:{type:'NICO_FIT_CLEANUP'},ports:[{postMessage:value=>{result=value;}}],waitUntil:promise=>{cleanup=promise;}});await cleanup;
     assert.equal(result.cleaned,true);
-    assert.deepEqual((await cacheStorage.keys()).sort(),['nico-fit-v17','nico-fit-v18','unrelated-cache']);
+    assert.deepEqual((await cacheStorage.keys()).sort(),['nico-fit-v18','nico-fit-v19','unrelated-cache']);
     let fetched;events.get('fetch')({request:{url:'http://127.0.0.1:8199/',method:'GET',mode:'navigate'},clientId:'',respondWith:promise=>{fetched=promise;}});
     assert.equal((await fetched).status,200);
   }finally{globalThis.self=old.self;globalThis.caches=old.caches;globalThis.fetch=old.fetch;}

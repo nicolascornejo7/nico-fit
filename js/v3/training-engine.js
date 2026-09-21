@@ -5,6 +5,7 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {requiredText,optionalNumber,validatePrescription,validateSet} from './training-validation.js';
 import {sessionMetrics,estimatedPRs} from './training-metrics.js';
 import {v3Progression} from './training-progression.js';
+import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -57,6 +58,7 @@ export class V3TrainingEngine{
   });}
 
   createSession({label,date,dayIndex,useRoutine=true,routineVersionId}={}){return this.#run(async()=>{
+    if(rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
     const now=this.now(),sessionDate=date??localDateKey(now);
     if(dayIndex!=null&&(!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>6))throw new Error('Día de rutina inválido.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)||localDateKey(new Date(`${sessionDate}T12:00:00`))!==sessionDate)throw new Error('Fecha inválida.');

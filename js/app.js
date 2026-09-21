@@ -10,6 +10,10 @@ import {appendTextElement,clearNode} from './safe-dom.js';
 import {hasWorkoutInput,validateFootball,validateMatch,validateReadiness,validateSessionSummary,validateWorkout} from './validation.js';
 import {mayStartNewWork} from './pwa-update-gate.js';
 import {restorePwaFormDrafts,clearPwaFormDrafts} from './pwa-form-drafts.js';
+import {rolloutReady} from './v3/rollout-boot.js';
+import {rolloutSnapshot} from './v3/rollout-state.js';
+
+await rolloutReady;
 
 let storageOwner='guest',data=loadLocalData(storageOwner),lastRenderedDate=localDateKey();
 let sessionTick=null,restTick=null,restoreExercisePosition=true;
@@ -30,7 +34,7 @@ function switchStorageOwner(user){
 }
 document.addEventListener('nico-fit:auth-request',()=>document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:sync.user?.id||null}})));
 document.addEventListener('nico-fit:pwa-safety-request',event=>{event.detail.critical ||= sync.busy;event.detail.userId=storageOwner;});
-const allowNewWork=()=>{if(mayStartNewWork())return true;alert('Esta pestaña tiene una actualización pendiente. Terminá la sesión abierta o recargá cuando sea seguro.');return false;};
+const allowNewWork=()=>{if(mayStartNewWork())return true;alert(rolloutSnapshot()?.updateRequired?'Actualización requerida. Tus datos locales quedan conservados; actualizá la app antes de continuar.':'Esta pestaña tiene una actualización pendiente. Terminá la sesión abierta o recargá cuando sea seguro.');return false;};
 function setSyncBadge(state,text){$('syncBadge').className=`sync-badge ${state}`;$('syncBadge').textContent=text;}
 function readinessScore(r){if(!r)return null;const freshness=6-(+r.fatigue||3);return Math.round(((+r.sleep + +r.energy + freshness)/15)*100-Math.max(0,(+r.pain||0)-2)*3);}
 function readinessLevel(score){if(score==null)return ['neutral','Sin registrar'];if(score>=78)return ['good',`${score}% · Bueno`];if(score>=60)return ['mid',`${score}% · Intermedio`];return ['low',`${score}% · Bajo`];}
@@ -96,7 +100,7 @@ function drawRest(){
 function stopRest(){activeSession.stopRest();$('restOverlay').classList.add('hidden');}
 function startTimerIntervals(){clearInterval(sessionTick);clearInterval(restTick);drawSessionTimer();drawRest();if(activeSession.state?.phase==='active')sessionTick=setInterval(drawSessionTimer,1000);if(activeSession.state?.rest)restTick=setInterval(drawRest,500);}
 function finishSession(){
-  const state=activeSession.state;if(!state||state.phase!=='active')return;captureActiveDrafts();clearInterval(sessionTick);clearInterval(restTick);const endedAt=nowIso(),durationSeconds=elapsedSeconds(state.startedAt),duration=Math.max(1,Math.round(durationSeconds/60)),exercises=activeSession.state.exercises;
+  const state=activeSession.state;if(!state||state.phase!=='active'||!allowNewWork())return;captureActiveDrafts();clearInterval(sessionTick);clearInterval(restTick);const endedAt=nowIso(),durationSeconds=elapsedSeconds(state.startedAt),duration=Math.max(1,Math.round(durationSeconds/60)),exercises=activeSession.state.exercises;
   activeSession.prepareSummary({date:state.sessionDate,day:state.day,label:state.label,startedAt:state.startedAt,endedAt,duration,durationSeconds,volume:sessionVolume(exercises),rpe:7,notes:''});renderAll(false);$('sessionRpe').focus();
 }
 function renderSessionSummary(){
@@ -104,7 +108,7 @@ function renderSessionSummary(){
   const metrics=clearNode($('summaryMetrics'));[[summary.duration,'min'],[state.exercises.filter(ex=>ex.sets.some(hasWorkoutInput)).length,'ejercicios'],[Math.round(summary.volume).toLocaleString('es-AR'),'kg volumen']].forEach(([value,label])=>{const item=metrics.ownerDocument.createElement('div');appendTextElement(item,'strong',value);appendTextElement(item,'span',label);metrics.append(item);});$('sessionRpe').value=summary.rpe??7;$('sessionNotes').value=summary.notes||'';$('summarySaveStatus').textContent=state.saveMessage||'';$('saveSessionSummary').disabled=state.saveStatus==='saving';
 }
 async function saveSessionSummary(){
-  const state=activeSession.state;if(!state?.summary)return;const summaryValidation=validateSessionSummary({...state.summary,rpe:+$('sessionRpe').value,notes:$('sessionNotes').value});if(!summaryValidation.valid){$('summarySaveStatus').textContent=summaryValidation.message;$('sessionRpe').focus();return;}for(const exercise of state.exercises.filter(ex=>ex.sets.some(hasWorkoutInput))){const validation=validateWorkout(exercise,exercise.sets);if(!validation.valid){$('summarySaveStatus').textContent=`${exercise.name}: ${validation.message}`;return;}}activeSession.updateSummary({rpe:+$('sessionRpe').value,notes:$('sessionNotes').value});
+  const state=activeSession.state;if(!state?.summary||!allowNewWork())return;const summaryValidation=validateSessionSummary({...state.summary,rpe:+$('sessionRpe').value,notes:$('sessionNotes').value});if(!summaryValidation.valid){$('summarySaveStatus').textContent=summaryValidation.message;$('sessionRpe').focus();return;}for(const exercise of state.exercises.filter(ex=>ex.sets.some(hasWorkoutInput))){const validation=validateWorkout(exercise,exercise.sets);if(!validation.valid){$('summarySaveStatus').textContent=`${exercise.name}: ${validation.message}`;return;}}activeSession.updateSummary({rpe:+$('sessionRpe').value,notes:$('sessionNotes').value});
   const result=await commitPendingSession({store:activeSession,requireRemote:!!sync.user,syncRemote:()=>sync.syncRecord(),persistLocal:snapshot=>{
     const records=snapshot.exercises.filter(ex=>ex.sets.some(hasWorkoutInput)).map(ex=>({date:snapshot.sessionDate,day:snapshot.day,exerciseId:ex.exerciseId||exerciseId(ex.name),exercise:ex.name,sets:ex.sets,updatedAt:nowIso()})).map(record=>{const validation=validateWorkout(record,record.sets);return {...record,sets:validation.value.sets};});for(const record of records){data.workouts=data.workouts.filter(x=>workoutKey(x)!==workoutKey(record));data.workouts.push(record);}const record={...snapshot.summary,updatedAt:nowIso()};data.sessions=data.sessions.filter(x=>!(x.date===record.date&&x.label===record.label));data.sessions.push(record);persist();
   }});
