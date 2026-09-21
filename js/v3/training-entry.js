@@ -1,4 +1,5 @@
 import {isV3TrainingEnabled,isV3LocalStorageEnabled} from './feature-flags.js';
+import {mayStartNewWork} from '../pwa-update-gate.js';
 
 // Auth is supplied by V2 coordination. This entry never creates a Supabase client.
 if(isV3TrainingEnabled()){
@@ -10,6 +11,7 @@ if(isV3TrainingEnabled()){
   const background=[...document.querySelectorAll('.app-shell,.bottom-nav,#restOverlay,#sessionSummary')];
   const setBackgroundInert=value=>background.forEach(node=>{node.inert=value;});
   let userId=null,generation=0,ui=null,repository=null,opening=false;
+  document.addEventListener('nico-fit:pwa-safety-request',event=>{event.detail.critical ||= opening||!!ui?.busy;event.detail.userId ||= userId;});
   const close=()=>{
     generation++;root.classList.add('hidden');setBackgroundInert(false);
     const flush=ui?.engine.flush();ui?.destroy();ui=null;const prior=repository;repository=null;
@@ -30,6 +32,7 @@ if(isV3TrainingEnabled()){
   document.dispatchEvent(new CustomEvent('nico-fit:auth-request'));
   button.addEventListener('click',async()=>{
     if(opening)return;
+    if(!mayStartNewWork()){window.alert('Actualizá o recargá esta pestaña antes de iniciar trabajo nuevo.');return;}
     if(!isV3TrainingEnabled()||!isV3LocalStorageEnabled()){window.alert('Habilitá explícitamente los flags de entrenamiento y almacenamiento local V3.');return;}
     if(!userId){window.alert('Iniciá sesión en V2 antes de abrir el entrenamiento V3.');return;}
     opening=true;const expectedUser=userId,token=++generation;

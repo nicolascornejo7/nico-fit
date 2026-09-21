@@ -1,5 +1,6 @@
 import {applyTombstones,dedupeBy,recordKeys,tombstoneKey,nowIso} from './store.js';
 import {exerciseId} from './exercise-identity.js';
+import {mayStartNewWork} from './pwa-update-gate.js';
 
 const TABLES={readiness:'readiness',workouts:'workouts',matches:'match_reviews',football:'football_sessions',sessions:'workout_sessions'};
 
@@ -94,6 +95,7 @@ export class SyncService{
     finally{this.busy=false;this.currentSync=null;}
   }
   async syncAll(){
+    if(!mayStartNewWork())return false;
     if(!this.client||!this.user||!navigator.onLine){this.state(this.user?'pending':'local',this.user?'Pendiente de sincronizar':'Solo local');return false;}
     if(this.busy){this.rerun=true;return this.currentSync;}this.currentSync=this.runSync();return this.currentSync;
   }
