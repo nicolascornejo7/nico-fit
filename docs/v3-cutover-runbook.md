@@ -38,7 +38,7 @@ El detalle no sensible queda en `docs/v3-cutover-production-inventory.json`. La 
 
 ### Datos sólo locales
 
-No pueden descartarse todavía. IndexedDB y localStorage dependen del origen, perfil y dispositivo. El deployment descubierto abrió sin sesión (`Solo local`) y no prueba el contenido de la PWA instalada o de otro teléfono. Antes del cutover, cada dispositivo activo debe ejecutar `ops/v3-cutover/local-backup-browser.js` sobre su origen real. Se comparan sólo conteos e identidades estables con el inventario remoto; cualquier registro local que no esté confirmado remotamente bloquea el cutover hasta sincronizarlo o marcarlo para revisión.
+No pueden descartarse todavía. IndexedDB y localStorage dependen del origen, perfil y dispositivo. El deployment descubierto abrió sin sesión (`Solo local`) y no prueba el contenido de la PWA instalada o de otro teléfono. El procedimiento nuevo está en [inventario local](v3-local-device-inventory.md): cada dispositivo/perfil/origen debe exportar y validar su JSON antes del cutover. La herramienta no prueba ausencia remota; los candidatos se comparan con el inventario remoto. Cualquier registro local no confirmado bloquea el cutover hasta sincronizarlo o marcarlo para revisión. Un dispositivo no inventariado mantiene abierto el riesgo.
 
 ## Preflight de migración
 
@@ -72,7 +72,7 @@ La falta de backup administrado impone estos pasos:
 
 El dump contiene información personal. Se almacena cifrado, con acceso limitado y sin subirlo a Git. `pg_restore --clean` sólo está autorizado contra un stack Supabase local descartable creado para la prueba. La restauración productiva nunca se improvisa con `pg_restore`; se usa el procedimiento aprobado por Supabase o una reconciliación revisada. El staging existente no se borra ni se reutiliza como destino de restore.
 
-Para cada navegador/PWA se descarga un backup local con `local-backup-browser.js`, se calcula SHA-256 y se guarda junto al manifiesto del dispositivo. `local-restore-browser.js` exige el mismo origen y una frase explícita, reemplaza únicamente claves Nico Fit y nunca debe usarse mientras sync esté activo.
+Para cada navegador/PWA se descarga el JSON de `/local-device-inventory.html`, que incluye SHA-256 de contenido, se valida y se guarda junto al manifiesto del dispositivo. El script previo `local-backup-browser.js` y `local-restore-browser.js` queda sólo para el procedimiento de recuperación ya documentado; este inventario no importa ni restaura datos.
 
 ## Activación gradual y reversible
 

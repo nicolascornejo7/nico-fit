@@ -16,6 +16,8 @@
     "test:v3:backup-restore": "node --test test/v3-backup-restore-validation.test.js",
     "test:v3:disaster-recovery": "node --test test/v3-full-disaster-recovery.test.js",
     "test:v3:production-mappings": "node --test test/v3-review-production-mappings.test.js",
+    "test:v3:local-inventory": "node --test test/v3-local-device-inventory.test.js",
+    "serve:local-inventory:manual": "node scripts/serve-local-inventory-manual.mjs",
     "serve:v3:routines:manual": "node scripts/serve-v3-routines-manual.mjs",
     "test:v3:observability:staging": "node --env-file=.env.v3-staging.local scripts/v3-observability-staging.mjs",
     "serve:v3:observability:manual": "node scripts/serve-v3-observability-manual.mjs",
