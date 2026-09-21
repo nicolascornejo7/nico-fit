@@ -1,4 +1,4 @@
-const CACHE_NAME='nico-fit-v15';
+const CACHE_NAME='nico-fit-v16';
 const APP_ASSETS=['./','./index.html','./styles.css','./manifest.json','./js/app.js','./js/plan.js','./js/store.js','./js/sync.js','./js/charts.js','./js/active-session.js','./js/exercise-identity.js','./js/metrics.js','./js/progression.js','./js/safe-dom.js','./js/validation.js','./js/v3/client-storage.js','./js/v3/client-sync.js','./js/v3/feature-flags.js','./js/v3/indexed-db.js','./js/v3/repository.js','./js/v3/import-v2.js','./js/v3/sync-engine.js','./js/v3/sync-lock.js','./js/v3/sync-protocol.js','./js/v3/supabase-v3-adapter.js','./icons/icon-192.png','./icons/icon-512.png'];
 APP_ASSETS.push('./v3-training.css','./js/v3/training-entry.js','./js/v3/training-engine.js','./js/v3/training-ui.js','./js/v3/training-validation.js','./js/v3/training-metrics.js','./js/v3/training-progression.js','./js/v3/routines.js');
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_ASSETS)));self.skipWaiting();});
@@ -7,5 +7,6 @@ APP_ASSETS.push('./js/v3/coach-context.js','./js/v3/signals-repository.js','./js
 APP_ASSETS.push('./js/v3/conflict-entry.js','./js/v3/conflict-service.js','./js/v3/conflict-ui.js');
 APP_ASSETS.push('./js/v3/diagnostic-model.js','./js/v3/observability-entry.js','./js/v3/observability-service.js','./js/v3/observability-ui.js','./js/v3/observability-runtime.js','./js/v3/audit-service.js','./js/v3/supabase-audit-adapter.js');
 APP_ASSETS.push('./js/v3/routine-service.js','./js/v3/routine-validation.js','./js/v3/routine-presentation.js','./js/v3/import-v2-routines.js');
+APP_ASSETS.push('./local-device-inventory.html','./local-device-inventory.css','./js/local-device-inventory.js','./js/local-device-inventory-page.js');
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const url=new URL(e.request.url);if(url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE_NAME).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request).then(c=>c||caches.match('./index.html'))));});

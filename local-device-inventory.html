@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="nico-fit-build" content="nico-fit-v16">
+  <title>Nico Fit · Inventario local</title>
+  <link rel="stylesheet" href="./local-device-inventory.css">
+</head>
+<body>
+  <main>
+    <h1>Inventario local de Nico Fit</h1>
+    <p>Usá esta herramienta desde el mismo navegador y origen donde entrenás. No envía información por red ni modifica tus entrenamientos.</p>
+    <section aria-labelledby="exportTitle">
+      <h2 id="exportTitle">Exportar este dispositivo</h2>
+      <p>Incluye datos locales V2/V3, sesión activa, cola, conflictos y checkpoints. No incluye tokens, cookies, contraseñas ni claves.</p>
+      <label for="inventoryUser">Perfil local a exportar</label>
+      <select id="inventoryUser" aria-describedby="inventoryUserHelp"></select>
+      <p id="inventoryUserHelp">Generá un archivo separado por cada perfil de esta instalación. Los datos V2 antiguos sin usuario pertenecen a «guest».</p>
+      <label for="inventoryUserManual">UUID de usuario, sólo si falta en la lista</label>
+      <input id="inventoryUserManual" type="text" inputmode="text" autocomplete="off" placeholder="Opcional">
+      <button id="exportInventory" type="button">Descargar inventario JSON</button>
+    </section>
+    <section aria-labelledby="validateTitle">
+      <h2 id="validateTitle">Validar un inventario</h2>
+      <label for="validateInventory">Seleccionar JSON de inventario</label>
+      <input id="validateInventory" type="file" accept="application/json,.json">
+      <p>La validación es local y no restaura datos.</p>
+    </section>
+    <p id="inventoryStatus" role="status" aria-live="polite"></p>
+    <pre id="inventoryResult" tabindex="0" aria-label="Resultado técnico de la validación"></pre>
+  </main>
+  <script type="module" src="./js/local-device-inventory-page.js"></script>
+</body>
+</html>
