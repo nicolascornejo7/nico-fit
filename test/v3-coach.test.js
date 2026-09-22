@@ -15,6 +15,10 @@ function previous(day='2026-09-08'){
   const item=snapshot(day,'previous');Object.assign(item.session,{status:'completed',ended_at:`${day}T11:00:00Z`,rpe:7});
   item.exercises[0].sets=Array.from({length:3},(_,i)=>({id:`set${i}`,is_completed:true,load_kg:50,reps:10,rir:2}));return item;
 }
+function freeWorkout(day='2026-09-14',stableKey='sentadilla-prensa'){
+  const item={session:{id:`free-${stableKey}`,session_date:day,started_at:`${day}T10:00:00Z`,ended_at:`${day}T11:00:00Z`,status:'completed',session_type:'free_workout',rpe:8},exercises:[{id:`free-ex-${stableKey}`,exercise_catalog_id:`free-catalog-${stableKey}`,exercise_name_snapshot:stableKey,catalog:{stable_key:stableKey},prescription_snapshot:{sets:3,measurement_kind:'reps'},sets:[]}],conflicts:[]};
+  item.exercises[0].sets=Array.from({length:3},(_,i)=>({id:`free-set-${i}`,is_completed:true,load_kg:100,reps:8,rir:2}));return item;
+}
 const coach=(options={},active=snapshot())=>applyCoachRules(calculateCoachSignals({date,readiness:[ready()],history:[previous()],...options}),active);
 
 test('Tuesday high readiness progresses only with completed targets and margin',()=>{
@@ -60,6 +64,15 @@ test('same inputs produce stable explanatory output without mutating source data
 test('only previous same-day routine type is eligible and legs stay conservative near match',()=>{
   assert.equal(coach({history:[previous('2026-09-10')]}).exerciseAdjustments[0].action,'maintain_load');
   const day='2026-09-17',active=snapshot(day);active.exercises[0].catalog.stable_key='curl-femoral';const result=coach({date:day,readiness:[ready({date:day})],history:[previous('2026-09-10')]},active);assert.equal(result.exerciseAdjustments[0].action,'avoid_leg_progression');
+});
+test('recent heavy free leg work restricts later leg progression from recorded load only',()=>{
+  const active=snapshot();active.exercises[0].catalog.stable_key='sentadilla-prensa';const result=coach({history:[previous(),freeWorkout()]},active);
+  assert.equal(result.exerciseAdjustments[0].action,'avoid_leg_progression');assert.match(result.reasons.join(' '),/sesión libre de piernas/);
+  const signals=calculateCoachSignals({date,readiness:[ready()],history:[freeWorkout()]});assert.equal(signals.freeWorkoutLoads[0].family,'legs');assert.equal(signals.freeWorkoutLoads[0].completedSets,3);
+});
+test('recent free torso work does not automatically restrict leg progression',()=>{
+  const active=snapshot();active.exercises[0].catalog.stable_key='sentadilla-prensa';const result=coach({history:[previous(),freeWorkout('2026-09-14','press-banca')]},active);
+  assert.notEqual(result.exerciseAdjustments[0].action,'avoid_leg_progression');
 });
 test('invalid dates and deleted/future data do not contribute to signals',()=>{
   assert.ok(Number.isNaN(dateStamp('2026-99-99')));assert.throws(()=>calculateCoachSignals({date:'bad'}));const history=[previous()];history[0].session.deleted_at='x';const signals=calculateCoachSignals({date,history,readiness:[ready({deletedAt:'x'})],football:[{date:'2026-09-20',duration:90,rpe:10}]});assert.equal(signals.readinessScore,null);assert.equal(signals.gymTrend.recent,0);assert.equal(signals.intenseFootball,false);

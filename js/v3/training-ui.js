@@ -46,7 +46,7 @@ export class V3TrainingUI{
     this.coachSlot=null;
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
     if(!snapshot||snapshot.session.status!=='draft'){await this.renderStart(shell);return;}
-    shell.append(el('h3',snapshot.session.label));shell.append(el('p',`Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
+    shell.append(el('h3',snapshot.session.label));shell.append(el('p',`${snapshot.session.session_type==='free_workout'?'Musculación libre · ':''}Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
     if(snapshot.session.routine_snapshot)shell.append(routineIdentityCard(snapshot.session.routine_snapshot,snapshot.routineIdentity));
     this.clock=el('strong',duration(sessionMetrics(snapshot).durationSeconds));shell.append(this.clock);
     const tabs=el('nav','','v3-actions');tabs.setAttribute('aria-label','Vistas del entrenamiento V3');
@@ -70,6 +70,9 @@ export class V3TrainingUI{
     const routine=select(card,'Rutina',[[0,'Personalizada'],[2,'Martes · fuerza'],[4,'Jueves · prevención'],[5,'Viernes · prepartido']],[2,4,5].includes(new Date().getDay())?new Date().getDay():0);
     const name=field(card,'Nombre opcional',{type:'text'});
     card.append(button('Crear sesión V3',()=>this.run(()=>this.engine.createSession({label:name.value.trim()||undefined,dayIndex:Number(routine.value),useRoutine:routine.value!=='0'})),'primary'));
+    const free=el('section','','card');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Sin rutina fija. Elegí ejercicios del catálogo y registrá sólo lo que realmente hagas.','muted'));
+    const freeName=field(free,'Nombre opcional de sesión libre',{type:'text'});
+    free.append(button('Iniciar Musculación libre',()=>this.run(()=>this.engine.createFreeWorkout({label:freeName.value.trim()||undefined})),'primary'));
     const drafts=(await this.engine.repository.listSessions({status:'draft'})).filter(item=>item.started_at&&!item.reconstructed);
     for(const session of drafts)card.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))));
   }

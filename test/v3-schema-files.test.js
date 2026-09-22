@@ -62,3 +62,10 @@ test('ordered duplicates and typed set values are represented explicitly',async(
   assert.match(sql,/num_nonnulls\(reps, duration_seconds\) <= 1/i);
   assert.doesNotMatch(sql,/unique\s*\(session_id,\s*exercise_catalog_id\)/i);
 });
+
+test('free workouts are an explicit additive session type',async()=>{
+  const sql=await read('supabase/migration-v3-schema.sql');
+  const migration=await read('supabase/migration-v3-free-workouts.sql');
+  assert.match(sql,/session_type text not null default 'routine' check \(session_type in \('routine', 'free_workout'\)\)/i);
+  assert.match(migration,/add column if not exists session_type text not null default 'routine'/i);
+});

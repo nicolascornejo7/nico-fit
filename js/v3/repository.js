@@ -35,6 +35,8 @@ function normalizeRecord(entity,payload,{userId,id,syncStatus='pending',timestam
   if(entity==='workout_sessions'){
     if(!record.session_date)throw new Error('workout_sessions requires session_date.');
     record.status=record.status||'draft';
+    record.session_type=record.session_type||'routine';
+    if(!['routine','free_workout'].includes(record.session_type))throw new Error('Tipo de sesión V3 inválido.');
   }
   if(entity==='session_exercises'&&!record.session_id)throw new Error('session_exercises requires session_id.');
   if(entity==='exercise_sets'&&!record.session_exercise_id)throw new Error('exercise_sets requires session_exercise_id.');
