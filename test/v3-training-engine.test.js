@@ -44,6 +44,21 @@ test('two sessions on the same day keep independent UUIDs and selection',async()
   await engine.selectSession(first.session.id);assert.equal(engine.getState().activeSessionId,first.session.id);repository.close();
 });
 
+test('free workout uses the V3 session graph without a routine and persists across reload',async()=>{
+  const {repository,engine,indexedDB,setNow}=await setup();const created=await engine.createFreeWorkout({date:'2026-09-14'});
+  assert.equal(created.session.session_type,'free_workout');assert.equal(created.session.routine_id,undefined);assert.equal(created.exercises.length,0);
+  const operation=(await repository.listOperations()).find(item=>item.entity==='workout_sessions'&&item.record_id===created.session.id);assert.equal(remotePayloadForOperation(operation,userId).session_type,'free_workout');
+  const legs=await engine.createCustomExercise({name:'Sentadilla libre'});
+  const first=await engine.addExercise(legs.id,{sets:3,min:6,max:10,step:2.5}),repeat=await engine.repeatExercise(first.id);
+  await engine.reorderExercises([repeat.id,first.id]);await engine.saveSet(repeat.id,setInput({load_kg:100,reps:8}));await engine.saveUIState({view:'summary',currentExerciseId:repeat.id});repository.close();
+  const reopened=await setup(indexedDB);const restored=await reopened.engine.recover();assert.equal(restored.session.session_type,'free_workout');assert.deepEqual(restored.exercises.map(item=>item.id),[repeat.id,first.id]);
+  setNow('2026-09-14T13:00:00Z');const completed=await reopened.engine.finishSession({rpe:8,notes:'Libre de piernas'});assert.equal(completed.session.status,'completed');assert.equal(completed.session.notes,'Libre de piernas');assert.equal((await reopened.engine.history()).filter(item=>item.session.session_type==='free_workout').length,1);reopened.repository.close();
+});
+
+test('free workout cannot finish empty',async()=>{
+  const {repository,engine}=await setup();await engine.createFreeWorkout();await assert.rejects(()=>engine.finishSession({rpe:7}),/al menos una serie/);repository.close();
+});
+
 test('repeated exercises use occurrence IDs without sharing sets',async()=>{
   const {repository,engine}=await setup();await engine.createSession({useRoutine:false});const first=await custom(engine),second=await engine.repeatExercise(first.id);
   await engine.saveSet(first.id,setInput());const snapshot=await engine.snapshot();

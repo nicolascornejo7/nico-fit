@@ -1,6 +1,6 @@
 import {v3Progression} from './training-progression.js';
+import {exerciseFamily} from './exercise-family.js';
 
-const LEGS=new Set(['sentadilla-prensa','peso-muerto-rumano','zancada-bulgara','elevacion-gemelos','curl-femoral','copenhagen-plank','nordic-curl','sentadilla-ligera','peso-muerto-rumano-ligero','saltos-verticales','movilidad-prepartido']);
 const TITLES={normal:'Entrenar normal',maintain:'Mantener carga',progress:'Progresar carga de forma controlada',reduce:'Reducir volumen y mantener margen',activation:'Convertir la sesión en activación',recovery:'Priorizar descanso y recuperación'};
 
 export function applyCoachRules(signals,snapshot){
@@ -20,6 +20,8 @@ export function applyCoachRules(signals,snapshot){
   if(preMatch&&pain>=4)level='recovery';
   if(pain>=7||score!=null&&score<40||sleep===1&&energy===1){level='recovery';add('dolor alto o disponibilidad muy baja: preferir descanso/recuperación.');}
   if(dayIndex===0){level='recovery';add('domingo: preservar el día de recuperación.');}
+  const recentFreeLegs=(signals.freeWorkoutLoads||[]).filter(row=>row.family==='legs'&&row.daysAgo<=3&&row.completedSets>=3&&(row.volume>=1000||row.rpe>=7));
+  if(recentFreeLegs.length)add(`sesión libre de piernas registrada hace ${Math.min(...recentFreeLegs.map(row=>row.daysAgo))} día(s): se restringe progresión de piernas según las series, volumen y RPE realmente registrados.`);
   if(pain>=4)warnings.push('Si la molestia persiste o aumenta, buscá orientación profesional. No es un diagnóstico.');
   const exercises=(snapshot?.exercises??[]).filter(ex=>!ex.deleted_at),adjustments=[];
   const sameType=signals.history.filter(item=>(snapshot?.session.routine_id?item.session.routine_id===snapshot.session.routine_id&&item.session.routine_version===snapshot.session.routine_version:new Date(`${item.session.session_date}T12:00:00Z`).getUTCDay()===dayIndex)&&!item.session.reconstructed&&item.session.id!==snapshot?.session.id&&(!snapshot||item.session.started_at<snapshot.session.started_at))
@@ -28,8 +30,7 @@ export function applyCoachRules(signals,snapshot){
   if(previous)add(`sesión anterior del mismo tipo: ${previous.session.session_date}, RPE ${previous.session.rpe??'desconocido'}.`);
   if(!previous)warnings.push('Sin sesión anterior del mismo tipo: no se sugiere progresión de carga.');
   for(const exercise of exercises){
-    const rx=exercise.prescription_snapshot,stable=exercise.catalog?.stable_key,region=exercise.catalog?.metadata?.body_region;
-    const legs=LEGS.has(stable)||region==='legs',unknown=!legs&&!['upper','core'].includes(region)&&(!stable||stable.startsWith('custom:'));
+    const rx=exercise.prescription_snapshot,family=exerciseFamily(exercise.catalog),legs=family==='legs',unknown=family==='unknown';
     if(unknown)warnings.push(`Sin región corporal declarada: ${exercise.exercise_name_snapshot}; ajuste conservador cuando se bloquean piernas.`);
     const ordinal=exercises.filter(ex=>ex.exercise_catalog_id===exercise.exercise_catalog_id).findIndex(ex=>ex.id===exercise.id);
     const prior=previous?.exercises.filter(ex=>!ex.deleted_at&&ex.exercise_catalog_id===exercise.exercise_catalog_id)[ordinal];
@@ -40,6 +41,7 @@ export function applyCoachRules(signals,snapshot){
     if(level==='recovery'){action='rest';suggestedLoad=null;suggestedSets=0;targetRir=4;explanations.push('La recomendación principal prioriza recuperación.');}
     else if(level==='activation'){action='activation';suggestedLoad=base==null?null:Math.round(base*.8*100)/100;suggestedSets=Math.min(rx.sets,2);targetRir=4;explanations.push('Prepartido: sin aumentos, reducir intensidad y series.');}
     else if(level==='reduce'){action=pain>=4?'reduce_load':'reduce_sets';suggestedLoad=pain>=4&&base!=null?Math.round(base*.9*100)/100:base;suggestedSets=Math.max(1,rx.sets-(low&&rx.sets>=3?2:1));targetRir=3;explanations.push('Reducir volumen antes de buscar nuevos máximos.');}
+    else if(legs&&recentFreeLegs.length){action='avoid_leg_progression';targetRir=3;explanations.push('Sesión libre reciente de piernas con carga registrada: evitar progresión hasta recuperar margen.');}
     else if(legsBlocked&&(legs||unknown)){action='avoid_leg_progression';targetRir=3;explanations.push('Cercanía al partido o carga reciente: evitar progresión de piernas.');}
     else if(score!=null&&prior&&previous.session.rpe!=null&&previous.session.rpe<=8&&done.length>=rx.sets&&done.every(set=>set.rir!=null)&&!conflict){
       const result=v3Progression({exercise,history:[previous],session:snapshot.session,readinessScore:score,now:new Date(`${signals.date}T12:00:00`),occurrenceIndex:ordinal});

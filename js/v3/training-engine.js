@@ -57,8 +57,10 @@ export class V3TrainingEngine{
     await this.repository.commitLocalChanges([],{trainingState:this.state});return snapshot;
   });}
 
-  createSession({label,date,dayIndex,useRoutine=true,routineVersionId}={}){return this.#run(async()=>{
+  createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine'}={}){return this.#run(async()=>{
     if(rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
+    if(!['routine','free_workout'].includes(sessionType))throw new Error('Tipo de sesión inválido.');
+    if(sessionType==='free_workout'&&(useRoutine||routineVersionId))throw new Error('La musculación libre no usa una rutina.');
     const now=this.now(),sessionDate=date??localDateKey(now);
     if(dayIndex!=null&&(!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>6))throw new Error('Día de rutina inválido.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)||localDateKey(new Date(`${sessionDate}T12:00:00`))!==sessionDate)throw new Error('Fecha inválida.');
@@ -69,7 +71,7 @@ export class V3TrainingEngine{
       if(routineVersionId)concrete=await this.routines.version(routineVersionId,{forTraining:true});
       else{const defaults=await this.routines.seedDefaults(),selected=defaults.find(item=>item.version.day_index===routine.dayIndex);concrete=await this.routines.version(selected.version.id,{forTraining:true});}
     }
-    const session={session_date:sessionDate,label:requiredText(label??concrete?.snapshot.name??routine.label,'Nombre de sesión'),status:'draft',started_at:now.toISOString(),ended_at:null,duration_seconds:null,rpe:null,notes:''};
+    const session={session_date:sessionDate,label:requiredText(label??concrete?.snapshot.name??(sessionType==='free_workout'?'Musculación libre':routine.label),'Nombre de sesión'),session_type:sessionType,status:'draft',started_at:now.toISOString(),ended_at:null,duration_seconds:null,rpe:null,notes:''};
     if(concrete)Object.assign(session,{routine_id:concrete.template.id,routine_version:concrete.version.version_number,routine_version_id:concrete.version.id,routine_snapshot:clone(concrete.snapshot)});
     const changes=[insert('workout_sessions',id,session)],catalog=await this.catalog();
     const exerciseIds=[];
@@ -84,6 +86,8 @@ export class V3TrainingEngine{
     const state={activeSessionId:id,currentExerciseId:exerciseIds[0]||null,view:'active',drafts:{},summaryDraft:{}};
     await this.repository.commitLocalChanges(changes,{trainingState:state});this.state=state;return this.snapshot(id);
   });}
+
+  createFreeWorkout({label='Musculación libre',date}={}){return this.createSession({label,date,useRoutine:false,sessionType:'free_workout'});}
 
   selectSession(id){return this.#run(async()=>{
     const snapshot=await this.#editable(id),state={activeSessionId:id,currentExerciseId:snapshot.exercises[0]?.id||null,view:'active',drafts:{},summaryDraft:{}};

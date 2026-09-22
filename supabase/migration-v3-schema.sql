@@ -22,6 +22,7 @@ create table if not exists nico_fit_v3.workout_sessions (
   user_id uuid not null references auth.users(id) on delete cascade,
   session_date date not null,
   label text not null check (length(trim(label)) between 1 and 200),
+  session_type text not null default 'routine' check (session_type in ('routine', 'free_workout')),
   status text not null default 'draft' check (status in ('draft', 'completed', 'abandoned')),
   started_at timestamptz,
   ended_at timestamptz,

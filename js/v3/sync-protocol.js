@@ -2,7 +2,7 @@ const COMMON_FIELDS=['id','created_at','deleted_at'];
 const SIGNAL_TRACE=['migration_status','migration_note','source_payload'];
 
 export const REMOTE_ENTITY_FIELDS=Object.freeze({
-  workout_sessions:[...COMMON_FIELDS,'session_date','label','status','started_at','ended_at','duration_seconds','rpe','notes','routine_id','routine_version','routine_version_id','routine_snapshot'],
+  workout_sessions:[...COMMON_FIELDS,'session_date','label','status','started_at','ended_at','duration_seconds','rpe','notes','session_type','routine_id','routine_version','routine_version_id','routine_snapshot'],
   session_exercises:[...COMMON_FIELDS,'session_id','exercise_catalog_id','position','exercise_name_snapshot','prescription_snapshot','notes'],
   exercise_sets:[...COMMON_FIELDS,'session_exercise_id','position','load_kg','reps','duration_seconds','rir','is_completed','completed_at'],
   exercise_catalog:[...COMMON_FIELDS,'stable_key','canonical_name','measurement_kind','metadata'],
