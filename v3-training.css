@@ -1,21 +1,22 @@
-.v3-training-screen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: #07111f; color: #e8eef8; padding: 20px 16px 60px; }
+.v3-training-screen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(circle at 90% -10%,#491016 0,transparent 30%),#090909; color: #f8f8f8; padding: 20px 16px 60px; }
 .v3-training-screen.hidden { display: none; }
 .v3-training-shell { max-width: 850px; margin: auto; }
 .v3-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .v3-exercises { padding-left: 24px; }
 .v3-exercises li { margin: 16px 0; }
-.v3-set { border-bottom: 1px solid #31425b; padding: 10px 0; }
+.v3-set { border-bottom: 1px solid #3a3a3a; padding: 10px 0; }
 .v3-training-screen form { display: grid; gap: 12px; }
 .v3-training-screen .field-label { display: grid; gap: 6px; margin: 10px 0; }
 .v3-training-screen input[type=checkbox] { width: 28px; height: 28px; }
-.v3-training-screen button[aria-current=page] { outline: 2px solid #7edca5; }
-.v3-training-screen :focus-visible { outline: 3px solid #7edca5; outline-offset: 3px; }
+.v3-training-screen button[aria-current=page] { outline: 2px solid #ff3345; }
+.v3-training-screen :focus-visible { outline: 3px solid #ff6875; outline-offset: 3px; }
 .v3-conflict:not(:empty) { border: 1px solid #f0bd61; padding: 12px; border-radius: 8px; }
 .v3-training-screen pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .v3-conflict-sides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
 .v3-training-screen pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem}
-.v3-training-screen details{padding:1rem;border:1px solid #697080;border-radius:12px;margin:1rem 0}
+.v3-training-screen details{padding:1rem;border:1px solid #4b4b4b;border-radius:12px;margin:1rem 0}
 .v3-training-screen summary{cursor:pointer;min-height:44px}
 .v3-training-screen button{min-height:44px;min-width:44px}
 .v3-training-screen label{display:block;margin:.8rem 0}
+.v3-training-screen input:not([type="range"]):not([type="checkbox"]),.v3-training-screen select,.v3-training-screen textarea{font-size:17px;line-height:1.25;min-height:44px}
 @media(max-width:650px){.v3-conflict-sides{grid-template-columns:1fr}}

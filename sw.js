@@ -1,10 +1,10 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v18';
+const BUILD_ID='nico-fit-v22';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
 const APP_ASSETS=[
-  './','./index.html','./styles.css','./manifest.json','./icons/icon-192.png','./icons/icon-512.png',
+  './','./index.html','./styles.css','./manifest.json','./icons/icon-192.png','./icons/icon-512.png','./icons/nico-fit-logo-square.png',
   './local-device-inventory.html','./local-device-inventory.css','./v3-training.css',
   './js/app.js','./js/active-session.js','./js/charts.js','./js/exercise-identity.js',
   './js/local-device-inventory-page.js','./js/local-device-inventory.js','./js/metrics.js',
