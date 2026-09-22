@@ -31,11 +31,14 @@
     "serve:v3:staging": "node scripts/serve-v3-staging-bundle.mjs",
     "test:v3:staging": "node --env-file=.env.v3-staging.local scripts/v3-supabase-staging.mjs",
     "test:v3:rollout:staging": "node --env-file=.env.v3-staging.local scripts/v3-remote-rollout-staging.mjs",
-    "serve:v3:rollout:manual": "node --env-file=.env.v3-staging.local scripts/serve-v3-rollout-manual.mjs"
+    "serve:v3:rollout:manual": "node --env-file=.env.v3-staging.local scripts/serve-v3-rollout-manual.mjs",
+    "test:v3:audit-retention": "node --test test/v3-audit-retention-policy.test.js",
+    "test:v3:audit-retention:staging-admin": "node scripts/v3-audit-retention-staging-admin.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@supabase/supabase-js": "^2.116.0",
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "pg": "^8.23.0"
   }
 }
