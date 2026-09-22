@@ -4,6 +4,17 @@ import {mayStartNewWork} from './pwa-update-gate.js';
 import {rolloutAllowsLegacyRemote} from './v3/rollout-state.js';
 
 const TABLES={readiness:'readiness',workouts:'workouts',matches:'match_reviews',football:'football_sessions',sessions:'workout_sessions'};
+const PREVIEW_HOST='nico-ksdlbtnqm-cornejo1.vercel.app';
+const PREVIEW_HOST_PATTERN=/^nico-[a-z0-9]+-cornejo1\.vercel\.app$/i;
+
+export function authRedirectOrigin(locationLike=globalThis.window?.location){
+  const origin=locationLike?.origin;
+  const hostname=locationLike?.hostname?.toLowerCase();
+  if(!origin||!hostname)throw new Error('No se pudo determinar el origen de autenticación.');
+  if(hostname==='localhost'||hostname==='127.0.0.1'||hostname==='[::1]')return origin;
+  if(hostname===PREVIEW_HOST||PREVIEW_HOST_PATTERN.test(hostname))return origin;
+  throw new Error('Origen de autenticación no autorizado para este entorno.');
+}
 
 export class SyncService{
   constructor({getData,setData,onState}){
@@ -25,7 +36,7 @@ export class SyncService{
     return this.user;
   }
   async signIn(email,password){const {error}=await this.client.auth.signInWithPassword({email,password});if(error)throw error;}
-  async signUp(email,password){const {data,error}=await this.client.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});if(error)throw error;return data;}
+  async signUp(email,password){const {data,error}=await this.client.auth.signUp({email,password,options:{emailRedirectTo:authRedirectOrigin()}});if(error)throw error;return data;}
   async signOut(){await this.client?.auth.signOut();this.user=null;}
   async safeSelect(table,order='date'){
     const rows=[],pageSize=1000;

@@ -17,6 +17,20 @@ const row=(patch={})=>({singleton_id:true,config_version:1,minimum_client_versio
 const memory=()=>{const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)};};
 const control=(options={})=>new V3RolloutControl({buildId:'nico-fit-v18',storage:memory(),Channel:null,windowLike:null,...options});
 
+test('rollout reader sends the publishable key as both API key and bearer token',async()=>{
+  const requests=[];
+  const fetchImpl=async(input,init={})=>{
+    requests.push({input,headers:init.headers});
+    if(String(input)==='/api/config')return {ok:true,json:async()=>({url:'https://tmydirzzlmlmtjgwqcgh.supabase.co',publishableKey:'sb_publishable_staging'})};
+    return {ok:true,json:async()=>[row({config_version:11})]};
+  };
+  const config=await fetchRolloutConfig({fetchImpl});
+  assert.equal(config.config_version,11);
+  assert.equal(requests[1].headers.apikey,'sb_publishable_staging');
+  assert.equal(requests[1].headers.Authorization,'Bearer sb_publishable_staging');
+  assert.equal(requests[1].headers['Accept-Profile'],'nico_fit_v3');
+});
+
 test('valid singleton config requires exact booleans, version and timestamp',()=>{
   assert.equal(validateRolloutConfig(row()).config_version,1);
   for(const bad of [{singleton_id:false},{config_version:0},{v3_sync_enabled:'true'},{minimum_client_version:'latest'},{updated_at:'bad'}])assert.throws(()=>validateRolloutConfig(row(bad)));

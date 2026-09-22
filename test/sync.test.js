@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emptyData} from '../js/store.js';
-import {SyncService} from '../js/sync.js';
+import {SyncService,authRedirectOrigin} from '../js/sync.js';
 
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 const setOnline=value=>Object.defineProperty(globalThis,'navigator',{value:{onLine:value},configurable:true});
@@ -22,6 +22,25 @@ test('auth state callback defers Supabase synchronization',async()=>{
   assert.equal(syncCalls,0);
   await tick();
   assert.equal(syncCalls,1);
+});
+
+test('auth redirect keeps authorized Preview origin',()=>{
+  assert.equal(authRedirectOrigin({origin:'https://nico-ksdlbtnqm-cornejo1.vercel.app',hostname:'nico-ksdlbtnqm-cornejo1.vercel.app'}),'https://nico-ksdlbtnqm-cornejo1.vercel.app');
+  assert.equal(authRedirectOrigin({origin:'https://nico-abc123-cornejo1.vercel.app',hostname:'nico-abc123-cornejo1.vercel.app'}),'https://nico-abc123-cornejo1.vercel.app');
+});
+
+test('auth redirect allows localhost only for local development',()=>{
+  assert.equal(authRedirectOrigin({origin:'http://localhost:4173',hostname:'localhost'}),'http://localhost:4173');
+  assert.throws(()=>authRedirectOrigin({origin:'https://nico-fit.vercel.app',hostname:'nico-fit.vercel.app'}),/no autorizado/);
+});
+
+test('signup sends the explicit environment origin to Supabase',async()=>{
+  let options;
+  const client={auth:{signUp:async received=>{options=received;return {data:{},error:null};}}};
+  global.window={location:{origin:'https://nico-ksdlbtnqm-cornejo1.vercel.app',hostname:'nico-ksdlbtnqm-cornejo1.vercel.app'}};
+  const service=new SyncService({getData:emptyData,setData:()=>{}});service.client=client;
+  await service.signUp('test@example.com','password');
+  assert.equal(options.options.emailRedirectTo,'https://nico-ksdlbtnqm-cornejo1.vercel.app');
 });
 
 test('synced state is emitted only after the server confirmation pull',async()=>{

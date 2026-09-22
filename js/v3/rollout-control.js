@@ -11,7 +11,7 @@ export async function fetchRolloutConfig({fetchImpl=globalThis.fetch,timeoutMs=5
   try{
     const cfg=await fetchImpl('/api/config',{cache:'no-store',signal:controller.signal});if(!cfg.ok)throw new Error('Config pública no disponible.');
     const {url,publishableKey}=await cfg.json();if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)||typeof publishableKey!=='string'||!publishableKey)throw new Error('Endpoint de rollout inválido.');
-    const response=await fetchImpl(`${url}/rest/v1/rollout_config?select=*&singleton_id=eq.true`,{cache:'no-store',signal:controller.signal,headers:{apikey:publishableKey,'Accept-Profile':'nico_fit_v3'}});
+    const response=await fetchImpl(`${url}/rest/v1/rollout_config?select=*&singleton_id=eq.true`,{cache:'no-store',signal:controller.signal,headers:{apikey:publishableKey,Authorization:`Bearer ${publishableKey}`,'Accept-Profile':'nico_fit_v3'}});
     if(!response.ok)throw new Error('No se pudo leer el rollout remoto.');
     const rows=await response.json();if(!Array.isArray(rows)||rows.length!==1)throw new Error('Config de rollout ausente.');
     return validateRolloutConfig(rows[0]);
