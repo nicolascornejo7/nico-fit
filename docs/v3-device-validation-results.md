@@ -44,3 +44,15 @@ El resultado físico del flujo crítico es **PASS**. La PWA standalone conservó
 Los tombstones de las tres sesiones abandonadas permanecen como operaciones válidas de soft delete. No cuentan como sesiones activas, no ejecutan cronómetros y no bloquean safe-update.
 
 La cobertura física global queda **CONDITIONAL** por suspensión prolongada, dos pestañas, dos dispositivos y flapping prolongado. Esos casos no invalidan los PASS anteriores y no deben presentarse como ejecutados.
+
+## Estado consolidado del preflight
+
+| Bloque relacionado | Estado | Evidencia |
+|---|---|---|
+| Rollout control | PASS | Maintenance, reanudación, kill switch y minimum client version observados físicamente. |
+| Auditoría y retención | PASS | RLS, append-only, preview/purga administrativa e idempotencia validados en staging. |
+| Backup lógico V2 | PASS | Export, checksum, restauración aislada y comparación documentados. |
+| Disaster recovery/Auth Strategy B | PASS | Dos ejecuciones end-to-end en Supabase descartable: restore/remap sintético, Auth real, JWT, RLS, aislamiento, FKs y `operational_audit`. |
+| Cobertura móvil extendida | NOT TESTED | Suspensión prolongada, dos pestañas móviles, dos dispositivos y flapping prolongado. |
+
+No quedan bloqueantes técnicos conocidos en el flujo V3 validado. Los casos móviles extendidos requieren ejecución adicional o aceptación explícita como riesgo. El backup fresco, el freeze V2 y la activación gradual son controles operativos de la ventana de cutover, no fallos de implementación.

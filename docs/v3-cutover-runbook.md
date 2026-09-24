@@ -2,7 +2,7 @@
 
 Estrategia aprobada el 2026-09-20: **V3 arranca desde cero para el usuario actual**. V2 queda conservado como histórico/legado; no se borra ni se transforma en datos V3. No se ejecutará backfill productivo de datos personales sin una decisión posterior explícita. Los datos V2 y locales que no se migren quedan **conscientemente excluidos de V3**, no eliminados físicamente por este plan. El inventario local y los mappings productivos dejan de ser requisitos de lanzamiento.
 
-Estado operativo al 24/09/2026: **preflight técnico y flujo físico crítico en PASS; NO-GO para ejecutar cutover todavía**. En iPhone, hasta build `nico-fit-v45`, pasaron standalone, Auth persistente, offline/reopen/reconnect, sync real, maintenance, kill switch, versión mínima y safe-update con preservación de IndexedDB/Auth/cola. Siguen abiertos la recuperación total con Auth, el backup fresco de la ventana, el freeze efectivo del cliente V2 y pruebas de suspensión/concurrencia. Este documento prepara el procedimiento; no autoriza SQL productivo, freeze, flags ni deploy.
+Estado operativo al 24/09/2026: **preflight técnico y flujo físico crítico en PASS; CONDITIONAL GO para preparar la ventana de cutover**. En iPhone, hasta build `nico-fit-v45`, pasaron standalone, Auth persistente, offline/reopen/reconnect, sync real, maintenance, kill switch, versión mínima y safe-update con preservación de IndexedDB/Auth/cola. Strategy B de disaster recovery/Auth pasó dos ejecuciones end-to-end en Supabase descartable. Quedan controles operativos de ventana —backup fresco, freeze efectivo del cliente V2 y confirmaciones manuales— y pruebas móviles extendidas que deben ejecutarse o aceptarse explícitamente. Este documento no autoriza SQL productivo, freeze, flags ni deploy.
 
 ## Inventario productivo observado
 
@@ -147,7 +147,7 @@ Ante eliminación de cuenta: autenticar nuevamente al usuario, ofrecer export, c
 
 - [ ] Commit desplegado con release puente, flags apagados y versión mínima.
 - [x] Backup lógico V2 con checksum y restauración aislada aprobado.
-- [ ] Ejecutar y verificar una restauración total con Auth, o aprobar formalmente la estrategia de recreación de Auth/reset de contraseña.
+- [x] Strategy B de disaster recovery/Auth verificada end-to-end dos veces en Supabase descartable: remap, login, JWT, RLS, FKs y auditoría PASS.
 - [ ] Generar un backup fresco con checksum durante la ventana autorizada.
 - [ ] Confirmar explícitamente que V3 del usuario actual empieza sin datos personales previos; cualquier dato V3 de pruebas se revisa antes de activar, sin borrado automático.
 - [x] Decisión registrada: V2 queda histórico; datos no migrados, incluidos los sólo locales, se descartan **para V3** sin borrar la fuente.
@@ -203,15 +203,15 @@ Cada paso de escritura requiere confirmación manual nueva. No se encadenan todo
 | Uso móvil extendido | NOT TESTED | Suspensión prolongada, dos pestañas móviles, dos dispositivos y flapping prolongado. |
 | Auditoría | PASS | Retención y purga administrativa explícita verificadas en staging; sin purga automática. |
 | Backup lógico V2 | PASS | Procedimiento y restauración lógica de esquema/datos documentados y verificados. |
-| Disaster recovery con Auth | FAIL | No existe aún una restauración real verificada que recupere Auth operativamente; continúa como bloqueante declarado. |
+| Disaster recovery con Auth | PASS | Strategy B ejecutada dos veces en Supabase descartable con Auth real, JWT, remapeo atómico, RLS, aislamiento, FKs y auditoría. |
 | Freeze/version mínima de V2 real | CONDITIONAL | Diseño y scripts preparados; deben ejecutarse y verificarse en la ventana autorizada. |
 | Producción V3 | NOT TESTED | Por restricción no se aplicó SQL, no se activaron flags y no se ejecutó cutover. |
 
-Los PASS físicos no convierten automáticamente el rollout en GO: disaster recovery con Auth permanece en FAIL y los controles de la ventana productiva todavía no fueron ejecutados.
+Los bloques técnicos críticos están en PASS. El rollout queda en CONDITIONAL GO porque los controles operativos de la ventana productiva todavía no fueron ejecutados y la cobertura móvil extendida continúa sin prueba física.
 
 | Riesgo | Probabilidad | Impacto | Estado | Decisión |
 |---|---|---|---|---|
-| Disaster recovery con Auth no restaurado | Alta | Crítico | Backup lógico V2 PASS; recuperación operativa de Auth abierta | NO-GO |
+| Disaster recovery/Auth Strategy B | Baja | Crítico | Dos ejecuciones end-to-end PASS en proyecto descartable; secretos fuera de Git | GO |
 | Datos V2 sólo locales no inventariados | Media | Alto para recuperación histórica | Exclusión de V3 aceptada; export voluntario | No bloquea V3 |
 | Safe PWA update | Baja | Alto | PASS físico hasta v45; Auth/IndexedDB/cola preservados | GO |
 | Versión mínima/maintenance/kill switch | Baja | Alto | PASS físico con cambios remotos sin redeploy | GO |
@@ -223,4 +223,15 @@ Los PASS físicos no convierten automáticamente el rollout en GO: disaster reco
 | Esquema V2 inesperado | Baja | Medio | No detectado | GO |
 | Datos V2 productivos no migrados | Cierta | Historial ausente en V3 | Descarte para V3 aprobado; V2 retenido | No bloquea V3 |
 
-Recomendación actual: **NO-GO para producción**, aunque el bloque técnico móvil principal ya está en PASS. El motivo bloqueante es operativo: todavía no se validó una recuperación total que incluya Auth, falta generar y comprobar el backup fresco de la ventana y aún no se ejecutó el freeze/version mínima contra el cliente V2 real. Suspensión prolongada, dos pestañas y dos dispositivos permanecen CONDITIONAL/NOT TESTED y requieren ejecución o aceptación explícita del riesgo. La evidencia física completa está en [los resultados físicos](v3-device-validation-results.md). El inventario local, el preflight histórico V2 y los mappings productivos no bloquean este arranque limpio.
+Recomendación actual: **CONDITIONAL GO para producción**. No quedan bloqueantes técnicos conocidos: código/build, staging, rollout, PWA, flujo móvil crítico, auditoría, backup lógico y disaster recovery/Auth están en PASS. Antes de ejecutar el cutover siguen siendo obligatorios el backup fresco con checksum, el freeze/version mínima real del cliente V2, la verificación del baseline V3 vacío, responsables presentes y autorización manual de la ventana. Suspensión prolongada, dos pestañas, dos dispositivos y flapping prolongado permanecen NOT TESTED; deben ejecutarse o aceptarse explícitamente como riesgo. Producción V3 continúa NOT TESTED por diseño hasta la ventana autorizada. El inventario local, el preflight histórico V2 y los mappings productivos no bloquean este arranque limpio.
+
+### Bloqueantes restantes
+
+No quedan bloqueantes técnicos identificados. Los pendientes obligatorios son operativos:
+
+1. Generar y verificar el backup fresco con checksum inmediatamente antes del freeze.
+2. Aplicar y comprobar el freeze/version mínima contra un cliente V2 antiguo antes de habilitar escrituras V3.
+3. Confirmar baseline V3 vacío o revisar explícitamente cualquier fila de prueba.
+4. Designar responsables de DB, release y validación, definir la ventana y obtener confirmación manual.
+
+Pruebas todavía recomendadas: suspensión física prolongada, dos pestañas, dos dispositivos y flapping/backoff prolongado. Pueden aceptarse como riesgo residual porque Web Locks/lease, recuperación, backoff y aislamiento ya tienen cobertura automatizada y el flujo crítico físico pasó; esa aceptación debe quedar registrada antes de la autorización final.
