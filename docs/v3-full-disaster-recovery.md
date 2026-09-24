@@ -21,6 +21,23 @@ La revisión final no tocó producción ni `nico-fit-v3-staging`. El entorno dis
 
 La clasificación del bloque es **CONDITIONAL** y sigue bloqueando el cutover. Pasa a PASS únicamente con un proyecto Supabase descartable o stack local completo donde `scripts/v3-dr-auth-verify.mjs --recovery-link` complete creación, recuperación, login, propiedad/RLS, aislamiento y la prueba administrativa de auditoría. La ausencia de ese destino es el único recurso externo pendiente; no requiere cambios de producto.
 
+## Strategy B end-to-end — 2026-09-24
+
+La prueba se ejecutó dos veces contra el proyecto descartable `bfjcmnfnhcahoejprquf` (`nico-fit-v3-dr-test`). Las guardas del runner rechazan explícitamente producción `xaklsoqyzwowtjwcpwmb`, staging `tmydirzzlmlmtjgwqcgh` y una URL PostgreSQL cuyo ref no coincida con el URL de Auth. `.env.v3-dr.local` permaneció ignorado y ningún secreto, contraseña o JWT se imprimió o versionó.
+
+Comando reproducible:
+
+```powershell
+node --check scripts/v3-dr-strategy-b-e2e.mjs
+node --env-file=.env.v3-dr.local scripts/v3-dr-strategy-b-e2e.mjs
+```
+
+El runner aplica dos veces las migraciones V3 y grants de API usados en staging, expone `nico_fit_v3` sólo en el proyecto DR, crea dos usuarios Auth sintéticos con contraseñas aleatorias, carga una restauración sintética con UUID anterior en una tabla temporal y materializa atómicamente las filas con el UUID Auth nuevo. Después valida constraints, login real, JWT con tres segmentos, RLS del propietario, aislamiento del segundo usuario y lectura de `operational_audit`.
+
+Resultados de ambas ejecuciones: PostgreSQL PASS; migraciones idempotentes PASS; usuarios Auth PASS; remapeo atómico PASS; cero referencias al UUID anterior PASS; FKs validadas PASS; login/JWT PASS; RLS propietario PASS; acceso cruzado vacío PASS; auditoría PASS. Cada usuario propietario observó exactamente su fila sintética en catálogo, sesión, readiness, fútbol, rutina y auditoría; el segundo usuario observó cero de esas filas.
+
+Strategy B queda **PASS** para el alcance aprobado de Nico Fit V3. Persisten como obligaciones operativas generales la rotación de credenciales del proyecto recuperado, la recreación de configuración Auth/redirects y la custodia del backup; ya no son un bloqueo técnico de Auth/propiedad para el cutover.
+
 Fecha de validación: 2026-09-16. Rama: `feature/v3-full-disaster-recovery`.
 
 ## Decisión actual
