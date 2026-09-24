@@ -1,12 +1,15 @@
 {
-  "validated_at": "2026-09-16",
+  "validated_at": "2026-09-24",
   "branch": "feature/v3-full-disaster-recovery",
   "production_ref": "xaklsoqyzwowtjwcpwmb",
   "protected_staging_ref": "tmydirzzlmlmtjgwqcgh",
   "production_writes": 0,
   "staging_writes": 0,
-  "status": "NO-GO",
-  "reason": "No complete production dump or operational Auth restore has been executed in a new disposable Supabase project.",
+  "status": "CONDITIONAL",
+  "cutover_blocker": true,
+  "strategy_a": "NOT_FEASIBLE_CURRENT_RESOURCES",
+  "strategy_b": "DATABASE_PASS_AUTH_NOT_TESTED",
+  "reason": "Database restore/remap tooling is demonstrated locally, but no operational Auth restore/login has been executed in a disposable Supabase target.",
   "verified": {
     "prior_v2_logical_restore": "PASS",
     "protected_target_guards": "PASS",

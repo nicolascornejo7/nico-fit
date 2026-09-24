@@ -62,7 +62,7 @@ test('strategy B remaps every V2 owner atomically and rejects protected target',
   }finally{await db.close();}
 });
 
-test('documentation distinguishes preserved Auth from recreated Auth and remains NO-GO',async()=>{
+test('documentation distinguishes preserved Auth from recreated Auth and keeps Auth as a conditional cutover blocker',async()=>{
   const docs=await read('docs/v3-full-disaster-recovery.md');
   assert.match(docs,/Estrategia A: dump y restore completos/);
   assert.match(docs,/Estrategia B: datos y recreación de Auth/);
@@ -70,5 +70,6 @@ test('documentation distinguishes preserved Auth from recreated Auth and remains
   assert.match(docs,/UUID de usuario/);
   assert.match(docs,/Objetos que no deben copiarse ciegamente/);
   assert.match(docs,/Elementos que se recrean manualmente/);
-  assert.match(docs,/NO-GO para considerar cerrado disaster recovery/);
+  assert.match(docs,/clasificación del bloque es \*\*CONDITIONAL\*\*/);
+  assert.match(docs,/Auth operativo NOT TESTED/);
 });

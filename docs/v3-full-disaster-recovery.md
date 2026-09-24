@@ -1,5 +1,26 @@
 # Recuperación total de Supabase: V2 y Auth
 
+## Revalidación final para V3 — 2026-09-24
+
+La revisión final no tocó producción ni `nico-fit-v3-staging`. El entorno disponible continúa sin Supabase CLI, `pg_dump`, `pg_restore`, `psql`, Docker/Podman ni un tercer proyecto descartable. Tampoco hay variables `SUPABASE_DR_*` cargadas. Por ello no es seguro ni técnicamente posible ejecutar hoy una restauración real de Auth.
+
+### Inventario de recuperación
+
+- `ops/v3-dr/export-full-readonly.ps1` prepara el export de sólo lectura, el bundle separado (`roles.sql`, `schema.sql`, `data.sql`), el dump forense, hashes y conteos.
+- `ops/v3-dr/restore-full-isolated.ps1` rechaza producción y staging, valida hashes y compara esquema, conteos, RLS y relaciones.
+- `scripts/v3-dr-auth-verify.mjs` cubre login con hash/UUID preservado y el flujo alternativo `createUser → recovery link → contraseña nueva → login → lectura con RLS`.
+- `supabase/v3-dr-remap-v2-ownership.sql` demuestra en una transacción el remapeo de las seis entidades V2. V3 arranca vacío en el rollout aprobado, por lo que no hay datos V3 iniciales que remapear. Para una recuperación futura con datos V3, el procedimiento soportado es transformar `user_id` al importar en un esquema limpio, respetando el orden padre/hijo, en vez de editar a ciegas una restauración con FKs compuestas.
+- `supabase/migration-v3-schema.sql`, `migration-v3-signals.sql`, `migration-v3-routines.sql` y `migration-v3-observability.sql` contienen las dependencias de identidad: catálogo personal, sesiones, trazabilidad, readiness, fútbol, reviews, templates y auditoría. `session_exercises`, `exercise_sets`, versiones/ejercicios de rutina y reviews heredan o validan propiedad mediante sus padres.
+- `operational_audit.user_id` usa `ON DELETE RESTRICT`; antes de eliminar una cuenta se exige export y purga administrativa explícita mediante `migration-v3-audit-retention.sql`.
+
+### Resultado por estrategia
+
+**Strategy A — NOT FEASIBLE con los recursos actuales.** Supabase soporta migrar `auth` con usuarios y hashes mediante backup completo o dump/restore, pero esta prueba requiere la conexión PostgreSQL legítima del origen y un destino aislado. No se resetea la contraseña productiva ni se reutiliza staging para forzar la prueba.
+
+**Strategy B — base de datos PASS; Auth operativo NOT TESTED.** La restauración lógica y el remapeo atómico V2 están demostrados en PGlite, incluidas guardas contra refs protegidos. El contrato del runner cubre creación administrativa, recovery, login y verificación de propiedad, pero esos pasos no pueden considerarse ejecutados sin un GoTrue descartable real. Tampoco se declara PASS para RLS vía JWT ni para export/purga real de auditoría hasta correr el mismo flujo en ese destino.
+
+La clasificación del bloque es **CONDITIONAL** y sigue bloqueando el cutover. Pasa a PASS únicamente con un proyecto Supabase descartable o stack local completo donde `scripts/v3-dr-auth-verify.mjs --recovery-link` complete creación, recuperación, login, propiedad/RLS, aislamiento y la prueba administrativa de auditoría. La ausencia de ese destino es el único recurso externo pendiente; no requiere cambios de producto.
+
 Fecha de validación: 2026-09-16. Rama: `feature/v3-full-disaster-recovery`.
 
 ## Decisión actual
