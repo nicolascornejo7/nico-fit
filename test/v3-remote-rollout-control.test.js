@@ -111,6 +111,7 @@ test('flag change during an active session preserves it and keeps the safe-updat
   const indexedDB=new IDBFactory(),owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const repository=await V3LocalRepository.open({indexedDB,userId:owner,featureEnabled:true});
   const session=await repository.create('workout_sessions',{session_date:'2026-09-21',label:'Activa',status:'draft'});
+  await repository.commitLocalChanges([],{trainingState:{activeSessionId:session.id}});
   let config=row({v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true});const manager=control({fetchConfig:async()=>config});
   try{await manager.start();config=row({config_version:2,v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:false});await manager.refresh({force:true});assert.equal(isV3TrainingEnabled(),false);
     assert.equal((await repository.get('workout_sessions',session.id)).status,'draft');

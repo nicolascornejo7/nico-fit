@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test,{beforeEach,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {IDBFactory} from 'fake-indexeddb';
@@ -16,7 +16,14 @@ import {isV3RoutinesEnabled,isV3RoutinesSyncEnabled,isV3TrainingEnabled,isV3Sync
 import {remotePayloadForOperation} from '../js/v3/sync-protocol.js';
 import {v3Progression} from '../js/v3/training-progression.js';
 import {applyCoachRules} from '../js/v3/coach-rules.js';
+import {installRolloutControl} from '../js/v3/rollout-state.js';
 const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+let resetRollout;
+beforeEach(context=>{if(context.name!=='routine flags default off and enable no other V3 features'){
+ const state={updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_routines_enabled:true}};
+ resetRollout=installRolloutControl({snapshot:()=>state,refreshIfDue:async()=>state});
+}});
+afterEach(()=>{resetRollout?.();resetRollout=null;});
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 const rx={sets:3,min:8,max:12,measurement_kind:'reps',target_rir:0,rest:90,step:2.5,notes:'Prescripción original'};
 async function open(db=new IDBFactory(),userId=A){return V3LocalRepository.open({indexedDB:db,userId,featureEnabled:true});}
