@@ -2,7 +2,7 @@
 
 Estrategia aprobada el 2026-09-20: **V3 arranca desde cero para el usuario actual**. V2 queda conservado como histórico/legado; no se borra ni se transforma en datos V3. No se ejecutará backfill productivo de datos personales sin una decisión posterior explícita. Los datos V2 y locales que no se migren quedan **conscientemente excluidos de V3**, no eliminados físicamente por este plan. El inventario local y los mappings productivos dejan de ser requisitos de lanzamiento.
 
-Estado operativo: **NO-GO para ejecutar cutover todavía** por los bloqueantes de seguridad de actualización PWA, control de versiones, pruebas de dispositivo y recuperación que siguen abiertos. Este documento prepara el procedimiento; no autoriza SQL productivo, freeze, flags ni deploy.
+Estado operativo al 24/09/2026: **preflight técnico y flujo físico crítico en PASS; NO-GO para ejecutar cutover todavía**. En iPhone, hasta build `nico-fit-v45`, pasaron standalone, Auth persistente, offline/reopen/reconnect, sync real, maintenance, kill switch, versión mínima y safe-update con preservación de IndexedDB/Auth/cola. Siguen abiertos la recuperación total con Auth, el backup fresco de la ventana, el freeze efectivo del cliente V2 y pruebas de suspensión/concurrencia. Este documento prepara el procedimiento; no autoriza SQL productivo, freeze, flags ni deploy.
 
 ## Inventario productivo observado
 
@@ -78,7 +78,7 @@ El JSON de `/local-device-inventory.html` conserva una opción de respaldo local
 
 ## Activación gradual y reversible
 
-Los flags actuales son locales, por lo que no permiten rollout centralizado ni versión mínima. Antes del GO debe existir una configuración remota con build ID, versión mínima, cohorte y kill switches. Ningún cliente debe confiar en flags de otro dispositivo.
+El rollout remoto V3 está implementado y validado en staging. Expone configuración pública sin secretos, versión mínima, maintenance mode y kill switches independientes; conserva una last-known-good para uso local offline y exige revalidación remota antes de sincronizar. Los flags permanecen apagados por defecto y ninguno activa otro implícitamente.
 
 Orden obligatorio:
 
@@ -98,7 +98,7 @@ Cada paso requiere 24 horas o un ciclo de entrenamiento observado, cero pérdida
 - Definir `CLIENT_BUILD_ID` y `MIN_SUPPORTED_BUILD_ID` en configuración remota. Un cliente inferior entra en modo sólo lectura y muestra actualización requerida.
 - La protección fuerte es `cutover-freeze-v2-writes.sql`: revoca DML V2 a `anon` y `authenticated`. Una pestaña antigua conservará su borrador local, pero el servidor rechazará la escritura.
 - Publicar primero una versión puente con flags apagados, export local opcional, manejo de `409/403`, versión mínima y pantalla de actualización. Esperar adopción antes del cutover.
-- El service worker actual usa `skipWaiting()` y `clients.claim()` inmediatamente. Eso puede cambiar código durante una sesión. Antes del GO debe reemplazarse o validarse con un protocolo: detectar update, conservar sesión, pedir recarga al finalizar y bloquear sync con versiones mixtas.
+- El service worker usa activación explícita coordinada: una build waiting no fuerza reload, consulta los bloqueos locales y sólo ejecuta `skipWaiting()` después de una decisión segura. La prueba física confirmó “Después”, bloqueo durante sesión y actualización posterior sin perder Auth, IndexedDB ni cola. V16 no participa de este protocolo y se controla mediante freeze/version mínima durante el primer salto.
 - En la ventana crítica: cerrar pestañas adicionales, terminar o conservar la sesión V2 en el cliente legado, activar freeze, recargar hasta que `CLIENT_BUILD_ID` coincida y recién entonces activar V3. No trasladar automáticamente una sesión V2 activa a V3.
 - Una pestaña vieja abierta recibe rechazo de escritura V2 y no puede iniciar sync V3. Sus datos locales no se fusionan automáticamente; el export voluntario permite conservarlos fuera de V3.
 
@@ -119,16 +119,16 @@ ABORT inmediato antes de escribir V3 si falla el backup/restauración exigido, l
 
 | Caso | Estado | Evidencia requerida |
 |---|---|---|
-| Navegador Edge normal | Parcial | Deployment carga; falta ciclo autenticado V3 |
-| Standalone PWA | Pendiente | Inicio, reload, offline, update y sesión activa |
+| Navegador Edge normal | CONDITIONAL | Preview y UI verificados; el ciclo físico principal se ejecutó en iPhone. |
+| Standalone PWA | PASS | Instalación, Auth persistente, offline/reopen/reconnect, update y sesión activa. |
 | Android | Pendiente/según disponibilidad | Chrome/PWA, bloqueo 30 min, reconexión |
-| iPhone/iOS | Pendiente/según disponibilidad | Safari/Home Screen, suspensión y cuota |
+| iPhone/iOS | PASS crítico | Home Screen, Auth, offline, reaperturas, controles remotos, sync y safe-update hasta v45. |
 | Suspensión prolongada | Pendiente | 2 h y una noche; timers, lease y cola correctos |
-| Pérdida/recuperación de red | Pendiente | Insert/update/delete offline y confirmación real |
+| Pérdida/recuperación de red | PASS | Escritura offline, Auth/rollout revalidados, sync real y cola final 0. |
 | Dos dispositivos | Pendiente | Entidades distintas y misma entidad/conflicto |
 | Dos pestañas | Pendiente | Web Locks, lease y recuperación de cierre |
-| Update de SW durante sesión | Pendiente bloqueante | Snapshot y drafts intactos; versión coherente |
-| Sesión activa durante cambio de versión | Pendiente bloqueante | Continúa con snapshot N; N+1 no la modifica |
+| Update de SW durante sesión | PASS | Waiting no interrumpió la sesión; update aplicado al quedar seguro. |
+| Sesión activa durante cambio de versión | PASS | Estado preservado; drafts abandonados se descartaron explícitamente mediante tombstones. |
 
 Cada ejecución registra dispositivo/OS/navegador/build, flags, usuario de prueba, timestamps, capturas no sensibles, colas antes/después y resultado. Android/iOS no disponibles se marcan como excepción explícita; no se convierten automáticamente en PASS.
 
@@ -139,21 +139,24 @@ Cada ejecución registra dispositivo/OS/navegador/build, flags, usuario de prueb
 - Eventos operativos exitosos: 90 días.
 - Errores y eventos críticos: 180 días, sin payloads completos, tokens, notas ni valores de salud.
 - Backups de cutover: 90 días después de declarar V3 estable y cerrar reconciliaciones; luego eliminación manual registrada.
-- No existe purga automática hasta aprobar esta política y probarla en staging.
+- No existe purga automática. La política y sus funciones administrativas de preview/purge fueron validadas en staging; `anon` y `authenticated` no pueden purgar y la operación exige rol administrativo explícito.
 
 Ante eliminación de cuenta: autenticar nuevamente al usuario, ofrecer export, congelar sync, inventariar V2/V3/auditoría, borrar en transacción administrativa desde hijos hacia padres, borrar mapas/auditoría según obligación aplicable, eliminar Auth al final, borrar IndexedDB/localStorage en cada dispositivo y registrar sólo un comprobante no identificable. La solicitud explícita prevalece sobre la retención operativa. Ninguna cuenta se elimina desde el frontend con service role.
 
 ## Checklist PRE-CUTOVER
 
 - [ ] Commit desplegado con release puente, flags apagados y versión mínima.
-- [ ] Backup lógico con checksum y restauración aislada aprobada.
+- [x] Backup lógico V2 con checksum y restauración aislada aprobado.
+- [ ] Ejecutar y verificar una restauración total con Auth, o aprobar formalmente la estrategia de recreación de Auth/reset de contraseña.
+- [ ] Generar un backup fresco con checksum durante la ventana autorizada.
 - [ ] Confirmar explícitamente que V3 del usuario actual empieza sin datos personales previos; cualquier dato V3 de pruebas se revisa antes de activar, sin borrado automático.
 - [x] Decisión registrada: V2 queda histórico; datos no migrados, incluidos los sólo locales, se descartan **para V3** sin borrar la fuente.
 - [x] Cuatro mappings y doce sets documentados para una eventual migración posterior; no son condición de lanzamiento.
 - [ ] SQL de esquema, señales, observabilidad y rutinas reejecutado en clon restaurado.
-- [ ] RLS/anon/dos usuarios validados.
-- [ ] Todos los casos de dispositivo bloqueantes en PASS.
-- [ ] Política de auditoría aprobada.
+- [x] RLS/anon/dos usuarios validados en staging.
+- [x] Flujo físico crítico iPhone en PASS: standalone, Auth, offline/reconnect, sync, rollout y safe-update.
+- [ ] Completar o aceptar explícitamente las excepciones de suspensión prolongada, dos pestañas y dos dispositivos.
+- [x] Política de auditoría aprobada y validada en staging.
 - [ ] Responsable de DB, release y validación presentes.
 - [ ] Ventana y canal de comunicación definidos.
 - [ ] Confirmación manual explícita del propietario para iniciar.
@@ -188,17 +191,36 @@ Cada paso de escritura requiere confirmación manual nueva. No se encadenan todo
 
 ## Matriz Go/No-Go
 
+### Estado final por bloque
+
+| Bloque | Estado | Evidencia o condición pendiente |
+|---|---|---|
+| Código y build | PASS | Suites, sintaxis, app shell, cache versionada, manifest/iconos y ausencia de secretos versionados verificados. Build física final: v45. |
+| Supabase staging | PASS | Esquema V3, Auth, RLS, training/free workout, routines, signals, sync, conflictos, observabilidad, rollout, auditoría e idempotencia validados sin tocar producción. |
+| Rollout control | PASS | Versión mínima, maintenance, kill switch, fallback conservador y reanudación observados físicamente. |
+| PWA | PASS | Standalone, reaperturas offline, módulos/CSS cacheados y safe-update coordinado durante sesión. |
+| Uso real móvil crítico | PASS | Auth, IndexedDB, cola, offline/online, sync, updates, catálogo idempotente y descarte de drafts confirmados en iPhone. |
+| Uso móvil extendido | NOT TESTED | Suspensión prolongada, dos pestañas móviles, dos dispositivos y flapping prolongado. |
+| Auditoría | PASS | Retención y purga administrativa explícita verificadas en staging; sin purga automática. |
+| Backup lógico V2 | PASS | Procedimiento y restauración lógica de esquema/datos documentados y verificados. |
+| Disaster recovery con Auth | FAIL | No existe aún una restauración real verificada que recupere Auth operativamente; continúa como bloqueante declarado. |
+| Freeze/version mínima de V2 real | CONDITIONAL | Diseño y scripts preparados; deben ejecutarse y verificarse en la ventana autorizada. |
+| Producción V3 | NOT TESTED | Por restricción no se aplicó SQL, no se activaron flags y no se ejecutó cutover. |
+
+Los PASS físicos no convierten automáticamente el rollout en GO: disaster recovery con Auth permanece en FAIL y los controles de la ventana productiva todavía no fueron ejecutados.
+
 | Riesgo | Probabilidad | Impacto | Estado | Decisión |
 |---|---|---|---|---|
-| Sin backup administrado/restaurado | Alta | Crítico | Abierto | NO-GO |
+| Disaster recovery con Auth no restaurado | Alta | Crítico | Backup lógico V2 PASS; recuperación operativa de Auth abierta | NO-GO |
 | Datos V2 sólo locales no inventariados | Media | Alto para recuperación histórica | Exclusión de V3 aceptada; export voluntario | No bloquea V3 |
-| Service worker actualiza inmediatamente | Media | Alto | Abierto | NO-GO |
-| Versión mínima/rollout remoto no implementado | Alta | Alto | Abierto | NO-GO |
+| Safe PWA update | Baja | Alto | PASS físico hasta v45; Auth/IndexedDB/cola preservados | GO |
+| Versión mínima/maintenance/kill switch | Baja | Alto | PASS físico con cambios remotos sin redeploy | GO |
 | Cuatro órdenes de ejercicio V2 | Baja | Medio si se migra luego | Mappings aprobados y archivados | No requeridos para V3 desde cero |
-| Colisión/conflicto V3 | Baja | Alto | UI y auditoría existen | CONDITIONAL GO tras prueba física |
-| PWA/Android/iOS/suspensión no probados | Media | Alto | Abierto | NO-GO |
-| Retención de auditoría no aprobada | Media | Medio | Propuesta | CONDITIONAL GO |
+| Idempotencia/conflicto de catálogo V3 | Baja | Alto | Fix validado; sync físico posterior con cola 0 | GO |
+| Drafts abandonados | Baja | Medio | No se auto-reactivan; descarte explícito/tombstones PASS | GO |
+| Suspensión prolongada/dos pestañas/dos dispositivos | Media | Alto | NOT TESTED físicamente | CONDITIONAL |
+| Retención de auditoría | Baja | Medio | Política y tooling administrativo validados en staging | GO |
 | Esquema V2 inesperado | Baja | Medio | No detectado | GO |
 | Datos V2 productivos no migrados | Cierta | Historial ausente en V3 | Descarte para V3 aprobado; V2 retenido | No bloquea V3 |
 
-Recomendación actual: **NO-GO para cutover**. Puede pasar a **CONDITIONAL GO** cuando recuperación/backup exigidos, release puente, versión mínima, actualización segura del service worker y pruebas físicas estén completos. **GO** exige verificar V3 vacío para el usuario actual, ninguna importación ni doble escritura accidental, RLS y sync correctos, rollback probado y confirmación manual del propietario, operador de base y responsable de release. El inventario local, el preflight de V2 y los mappings productivos **no son condiciones de GO** para este arranque limpio.
+Recomendación actual: **NO-GO para producción**, aunque el bloque técnico móvil principal ya está en PASS. El motivo bloqueante es operativo: todavía no se validó una recuperación total que incluya Auth, falta generar y comprobar el backup fresco de la ventana y aún no se ejecutó el freeze/version mínima contra el cliente V2 real. Suspensión prolongada, dos pestañas y dos dispositivos permanecen CONDITIONAL/NOT TESTED y requieren ejecución o aceptación explícita del riesgo. La evidencia física completa está en [los resultados físicos](v3-device-validation-results.md). El inventario local, el preflight histórico V2 y los mappings productivos no bloquean este arranque limpio.

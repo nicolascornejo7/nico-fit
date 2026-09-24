@@ -10,7 +10,7 @@ import {mayStartNewWork} from '../js/pwa-update-gate.js';
 import {collectPwaUpdateSafety} from '../js/pwa-update-safety.js';
 import {V3RolloutControl,ROLLOUT_CACHE_KEY,fetchRolloutConfig} from '../js/v3/rollout-control.js';
 import {EMPTY_FLAGS,resolveRollout,validateRolloutConfig} from '../js/v3/rollout-policy.js';
-import {rolloutSnapshot} from '../js/v3/rollout-state.js';
+import {rolloutSnapshot,rolloutAllowsLocalTraining} from '../js/v3/rollout-state.js';
 import {isV3TrainingEnabled,isV3SyncEnabled,isV3CoachEnabled,isV3SignalsSyncEnabled,isV3RoutinesSyncEnabled} from '../js/v3/feature-flags.js';
 
 const row=(patch={})=>({singleton_id:true,config_version:1,minimum_client_version:'nico-fit-v18',maintenance_mode:false,...EMPTY_FLAGS,updated_at:'2026-09-21T00:00:00Z',...patch});
@@ -58,18 +58,18 @@ test('valid remote read populates cache and effective flags; missing and invalid
   const invalid=control({fetchConfig:async()=>row({v3_sync_enabled:'yes'})});try{await invalid.start();assert.equal(invalid.snapshot().source,'fallback');}finally{invalid.stop();}
 });
 
-test('network failure or timeout uses only fresh cache; expired cache falls back off',async()=>{
+test('network failure preserves last-known-good local flags but blocks remote writes',async()=>{
   let now=100000,reads=0;const storage=memory();
   const first=control({storage,now:()=>now,ttlMs:1000,fetchConfig:async()=>{reads++;return row({v3_enabled:true,v3_sync_enabled:true});}});await first.start();first.stop();
-  now+=500;const fresh=control({storage,now:()=>now,ttlMs:1000,fetchConfig:async()=>{throw new Error('offline');}});try{await fresh.start();assert.equal(fresh.snapshot().source,'cache');assert.equal(fresh.snapshot().flags.v3_sync_enabled,true);assert.equal(fresh.snapshot().cacheAgeMs,500);}finally{fresh.stop();}
-  now+=501;const expired=control({storage,now:()=>now,ttlMs:1000,fetchConfig:async()=>{throw new Error('timeout');}});try{await expired.start();assert.equal(expired.snapshot().source,'fallback');assert.equal(expired.snapshot().flags.v3_sync_enabled,false);}finally{expired.stop();}
+  now+=500;const fresh=control({storage,now:()=>now,ttlMs:1000,fetchConfig:async()=>{throw new Error('offline');}});try{await fresh.start();assert.equal(fresh.snapshot().source,'stale-offline');assert.equal(fresh.snapshot().flags.v3_sync_enabled,true);assert.equal(fresh.snapshot().remoteWritesAllowed,false);assert.equal(fresh.snapshot().cacheAgeMs,500);}finally{fresh.stop();}
+  now+=501;const expired=control({storage,now:()=>now,ttlMs:1000,fetchConfig:async()=>{throw new Error('timeout');}});try{await expired.start();assert.equal(expired.snapshot().source,'stale-offline');assert.equal(expired.snapshot().flags.v3_sync_enabled,true);assert.equal(expired.snapshot().remoteWritesAllowed,false);}finally{expired.stop();}
   assert.equal(reads,1);
 });
 
 test('an expired cache keeps an already-known minimum build restriction',async()=>{
   let now=100000;const storage=memory();const first=control({storage,now:()=>now,ttlMs:1000,buildId:'nico-fit-v17',fetchConfig:async()=>row()});await first.start();first.stop();
   now+=1001;const expired=control({storage,now:()=>now,ttlMs:1000,buildId:'nico-fit-v17',fetchConfig:async()=>{throw new Error('offline');}});
-  try{await expired.start();assert.equal(expired.snapshot().source,'fallback');assert.equal(expired.snapshot().updateRequired,true);assert.deepEqual(expired.snapshot().flags,EMPTY_FLAGS);}finally{expired.stop();}
+  try{await expired.start();assert.equal(expired.snapshot().source,'stale-offline');assert.equal(expired.snapshot().updateRequired,true);assert.deepEqual(expired.snapshot().flags,EMPTY_FLAGS);}finally{expired.stop();}
 });
 
 test('a nonresponding config request aborts at its timeout',async()=>{
@@ -86,6 +86,11 @@ test('routine and signal flags do not implicitly enable their separate sync choi
 test('maintenance pauses remote work while preserving explicit local flags',()=>{
   const state=resolveRollout(validateRolloutConfig(row({v3_enabled:true,v3_storage_enabled:true,v3_sync_enabled:true,maintenance_mode:true})),{buildId:'nico-fit-v18'});
   assert.equal(state.flags.v3_storage_enabled,true);assert.equal(state.remoteWritesAllowed,false);assert.match(state.reason,/Mantenimiento/);
+});
+
+test('maintenance does not block local V3 training access',async()=>{
+  const manager=control({fetchConfig:async()=>row({v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_sync_enabled:true,maintenance_mode:true})});
+  try{await manager.start();assert.equal(rolloutAllowsLocalTraining(),true);assert.equal(rolloutSnapshot().remoteWritesAllowed,false);}finally{manager.stop();}
 });
 
 test('minimum build blocks new local records without deleting the existing queue',async()=>{
@@ -141,7 +146,7 @@ test('kill switch keeps pending queue and resumes without duplicate after a remo
 test('two tabs share only the public cache and the latest version is observable',async()=>{
   let now=200000,config=row({v3_enabled:true,v3_observability_enabled:true});const storage=memory();
   const a=control({storage,now:()=>now,fetchConfig:async()=>config}),b=control({storage,now:()=>now,fetchConfig:async()=>{throw new Error('offline');}});
-  try{await a.start();await b.start();assert.equal(b.snapshot().source,'cache');assert.equal(rolloutSnapshot().configVersion,1);
+  try{await a.start();await b.start();assert.equal(b.snapshot().source,'stale-offline');assert.equal(b.snapshot().remoteWritesAllowed,false);assert.equal(rolloutSnapshot().configVersion,1);
     now+=500;config=row({config_version:2,v3_enabled:true,v3_observability_enabled:false});await a.refresh({force:true});b.consumeCache();assert.equal(b.snapshot().configVersion,2);assert.equal(b.snapshot().flags.v3_observability_enabled,false);
   }finally{b.stop();a.stop();}
 });

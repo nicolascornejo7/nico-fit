@@ -11,6 +11,8 @@ import {hasWorkoutInput,validateFootball,validateMatch,validateReadiness,validat
 import {mayStartNewWork} from './pwa-update-gate.js';
 import {restorePwaFormDrafts,clearPwaFormDrafts} from './pwa-form-drafts.js';
 import {rolloutReady} from './v3/rollout-boot.js';
+import {rolloutControl} from './v3/rollout-boot.js';
+import {reconnectV3Auth} from './v3/auth-reconnect.js';
 import {rolloutSnapshot} from './v3/rollout-state.js';
 
 await rolloutReady;
@@ -144,5 +146,20 @@ $('loginBtn').onclick=async()=>{try{setAuthMessage('Iniciando sesión…');await
 $('logoutBtn').onclick=async()=>{await sync.signOut();renderAuth();};$('syncNowBtn').onclick=async()=>{try{await sync.syncAll();renderAll();}catch(error){setAuthMessage(error.message,true);}};
 
 renderAll(false);
-try{const user=await sync.init();renderAuth();if(user){await sync.syncAll();renderAll();}}catch(error){console.warn(error);setAuthMessage('Supabase no está disponible. La app sigue funcionando en modo local.',true);renderAuth();}
-window.addEventListener('online',()=>{renderAuth();sync.syncAll().then(()=>renderAll()).catch(()=>{});});window.addEventListener('offline',renderAuth);document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();}});setInterval(()=>{if(localDateKey()!==lastRenderedDate)renderAll();},60000);
+let reconnectingAuth=null;
+async function recoverOnlineAuth(){
+  if(navigator.onLine===false)return;
+  if(reconnectingAuth)return reconnectingAuth;
+  reconnectingAuth=(async()=>{
+    try{
+      const result=await reconnectV3Auth({sync,rollout:rolloutControl});
+      if(result.status==='offline'){setAuthMessage('Esperando conexión para validar Auth y configuración. La sesión V3 local se conserva.');return;}
+      if(result.status==='login_required'){setAuthMessage('La sesión expiró. Iniciá sesión nuevamente.');renderAll(false);return;}
+      setAuthMessage('Sesión recuperada.');renderAll(false);
+      await sync.syncAll();renderAll(false);
+    }catch(error){console.warn(error);setAuthMessage('No se pudo validar Auth. La sesión V3 local se conserva.',true);renderAuth();}
+  })();
+  try{return await reconnectingAuth;}finally{reconnectingAuth=null;}
+}
+try{const user=rolloutSnapshot()?.flags.v3_enabled?(await reconnectV3Auth({sync,rollout:rolloutControl})).user:await sync.init();renderAuth();if(user){await sync.syncAll();renderAll();}}catch(error){console.warn(error);setAuthMessage('Supabase no está disponible. La app sigue funcionando en modo local.',true);renderAuth();if(navigator.onLine&&rolloutSnapshot()?.flags.v3_enabled)await recoverOnlineAuth();}
+window.addEventListener('online',()=>{if(rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});else{renderAuth();sync.syncAll().then(()=>renderAll()).catch(()=>{});}});window.addEventListener('offline',renderAuth);document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();if(navigator.onLine&&!sync.user&&rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});}});setInterval(()=>{if(localDateKey()!==lastRenderedDate)renderAll();},60000);

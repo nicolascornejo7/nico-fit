@@ -1,48 +1,46 @@
 # Resultado de validación física V3 standalone
 
-Fecha de intento: 21/09/2026 (ART)  
-Rama: `feature/v3-device-validation`  
-Build candidata: no instalada en un teléfono durante esta ejecución.
+Fecha de cierre: 24/09/2026 (ART)
 
-## Entorno disponible
+Rama: `feature/v3-final-preflight`
 
-No hubo celular físico, emulador móvil ni sesión de navegador móvil disponible para control durante esta ejecución. La única superficie disponible fue Edge de escritorio con dos pestañas de YouTube; no representa una PWA standalone de teléfono y no se utilizó como sustituto.
+Build final observada: `nico-fit-v45`
 
-No se abrió staging, no se cambiaron flags, no se iniciaron sesiones de prueba y no se transmitieron credenciales.
+Origen estable: `https://nico-fit-v3-device-validation-cornejo1.vercel.app`
 
-## Registro de casos
+Entorno remoto: `nico-fit-v3-staging`; producción no fue utilizada.
 
-| ID | Caso | Estado | Evidencia / motivo |
+La validación se ejecutó físicamente en iPhone con PWA standalone y usuario autenticado. Los resultados siguientes sólo se marcan PASS cuando fueron observados en el dispositivo; los escenarios no ejecutados permanecen como NOT TESTED.
+
+| ID | Caso | Estado | Evidencia física |
 |---|---|---|---|
-| D01 | Instalación y ejecución standalone | NOT TESTED | No había teléfono ni navegador móvil disponible. |
-| D02 | Login standalone | NOT TESTED | Requiere usuario de prueba en dispositivo físico. |
-| D03 | Inicio de sesión de entrenamiento V3 | NOT TESTED | Requiere PWA V3 instalada en dispositivo físico. |
-| D04 | Carga de series y valores tipados | NOT TESTED | Requiere sesión V3 en teléfono. |
-| D05 | Reload con sesión activa | NOT TESTED | Requiere PWA standalone en teléfono. |
-| D06 | Bloqueo de pantalla 10–15 minutos | NOT TESTED | No hay pantalla móvil que bloquear. |
-| D07 | Cierre forzado | NOT TESTED | No hay proceso móvil que forzar a cerrar. |
-| D08 | Modo avión y registro offline | NOT TESTED | No hay radio/red móvil controlable. |
-| D09 | Reapertura offline | NOT TESTED | Depende de D08 y de dispositivo físico. |
-| D10 | Recuperación de red y sync | NOT TESTED | No se usa staging en este turno. |
-| D11 | Flapping de red / backoff | NOT TESTED | No hay red móvil ni sesión de prueba. |
-| D12 | Finalización pendiente y reintento | NOT TESTED | Requiere sesión V3 física y red controlada. |
-| D13 | Actualización PWA sin sesión activa | NOT TESTED | Requiere dos builds accesibles en una PWA instalada. |
-| D14 | Actualización PWA con sesión activa | NOT TESTED | Requiere sesión activa en PWA instalada. |
-| D15 | Aplicar actualización tras estado seguro | NOT TESTED | Depende de D13 y D14. |
-| D16 | Minimum client version | NOT TESTED | Requiere cambio temporal de configuración en staging, excluido en este turno. |
-| D17 | Maintenance mode | NOT TESTED | Requiere cambio temporal de configuración en staging, excluido en este turno. |
-| D18 | Kill switch de sync | NOT TESTED | Requiere cambio temporal de configuración en staging, excluido en este turno. |
-| D19 | Dos pestañas/ventanas móvil | NOT TESTED | No hay navegador móvil disponible. |
-| D20 | Suspensión al cambiar de aplicación | NOT TESTED | No hay sistema operativo móvil disponible. |
+| D01 | Instalación y ejecución standalone | PASS | PWA instalada y ejecutada desde pantalla de inicio. |
+| D02 | Auth persistente | PASS | La misma identidad se recuperó tras cierre, reapertura, offline y reconexión. |
+| D03 | Inicio y uso de entrenamiento V3 | PASS | Entrenar V3 disponible online y mediante last-known-good offline. |
+| D04 | Carga y persistencia local | PASS | Series y operaciones locales sobrevivieron cierres y reaperturas. |
+| D05 | Reload/reopen con sesión activa | PASS | Estado activo restaurado durante las pruebas válidas; drafts huérfanos ya no se auto-reactivan. |
+| D06 | Suspensión prolongada 10–15 minutos o más | NOT TESTED | No se registró una ejecución física cronometrada de suspensión prolongada. |
+| D07 | Cierre forzado y reapertura | PASS | IndexedDB, Auth, sesión local y cola permanecieron disponibles. |
+| D08 | Modo avión y escritura offline | PASS | Se creó una operación offline y quedó pending sin pérdida. |
+| D09 | Dos reaperturas offline consecutivas | PASS | Shell, CSS, módulos, identidad local y Entrenar V3 cargaron correctamente. |
+| D10 | Offline → online → sync real | PASS | Auth y rollout se revalidaron antes del sync; `pending` → `syncing` → `synced`; cola final `0`. |
+| D11 | Idempotencia de `exercise_catalog` | PASS | Dos stores con IDs determinísticos y metadata temporal distinta convergieron sin conflictos; la validación física posterior terminó con cola `0`. |
+| D12 | Maintenance mode | PASS | El aviso permaneció visible; training/storage local siguieron utilizables; sync remoto quedó bloqueado y la cola se conservó. |
+| D13 | Reanudación post-maintenance | PASS | Al volver `maintenance_mode=false`, Auth/rollout se revalidaron y las operaciones pendientes pudieron continuar. |
+| D14 | Kill switch `v3_sync_enabled` | PASS | Con sync apagado se preservó la cola; al reactivarlo, el flujo quedó nuevamente disponible. |
+| D15 | Minimum client version | PASS | Un build inferior quedó bloqueado y el build mínimo admitido recuperó el acceso esperado. |
+| D16 | Safe update durante sesión activa | PASS | La actualización waiting no forzó reload; “Después” permitió continuar y el estado inseguro bloqueó “Actualizar ahora”. |
+| D17 | Aplicar update al quedar seguro | PASS | Tras finalizar o descartar correctamente la sesión, el update pudo aplicarse sin borrar datos. |
+| D18 | Preservación entre builds | PASS | Auth, IndexedDB, tombstones y cola sobrevivieron los cambios de build hasta v45. |
+| D19 | Sync posterior al update | PASS | La cola se procesó después de revalidar Auth/rollout y terminó en `0`. |
+| D20 | Drafts huérfanos | PASS | No se auto-reactivaron; el diagnóstico distinguió checkpoint activo, huérfanos y tombstones. |
+| D21 | Descarte explícito de drafts abandonados | PASS | Tres drafts reales se descartaron mediante confirmación y soft delete: `activeSessionId=null`, `draft=0`, `discarded=3`, ningún timer activo. |
+| D22 | Dos pestañas móviles simultáneas | NOT TESTED | No se ejecutó contención física con dos contextos móviles. |
+| D23 | Dos dispositivos simultáneos | NOT TESTED | No se ejecutó una prueba física concurrente iPhone + segundo dispositivo. |
+| D24 | Flapping prolongado de red/backoff | NOT TESTED | Se probó pérdida y recuperación, pero no ciclos repetidos prolongados. |
 
-## Bugs encontrados
+El resultado físico del flujo crítico es **PASS**. La PWA standalone conservó Auth y datos locales, funcionó offline, revalidó controles remotos antes del sync, respetó maintenance/kill switch/minimum version y aplicó actualizaciones coordinadas sin perder IndexedDB ni cola.
 
-Ninguno. No se ejecutó ningún caso funcional, por lo que esta ausencia no constituye una validación.
+Los tombstones de las tres sesiones abandonadas permanecen como operaciones válidas de soft delete. No cuentan como sesiones activas, no ejecutan cronómetros y no bloquean safe-update.
 
-## Casos no reproducibles y riesgo
-
-Los veinte casos requieren un teléfono físico y, para D10–D18, una ventana controlada de staging. La plataforma no expuso un celular ni un navegador remoto móvil, y el alcance prohíbe abrir staging. Los riesgos de suspensión del sistema operativo, standalone PWA, modo avión, actualización de service worker, concurrencia móvil y controles de rollout continúan abiertos.
-
-## Veredicto
-
-**NO-GO para cerrar la validación física.** No hay evidencia de ejecución en celular real. Para continuar, se necesita un teléfono con la PWA V3 instalada, un usuario de prueba y una ventana staging autorizada para los casos de configuración remota. Usar [el checklist](v3-device-validation-checklist.md) y reemplazar cada `NOT TESTED` por `PASS` o `FAIL` con evidencia mínima reproducible.
+La cobertura física global queda **CONDITIONAL** por suspensión prolongada, dos pestañas, dos dispositivos y flapping prolongado. Esos casos no invalidan los PASS anteriores y no deben presentarse como ejecutados.

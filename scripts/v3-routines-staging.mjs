@@ -17,7 +17,7 @@ const env=process.env,ref='tmydirzzlmlmtjgwqcgh',url=`https://${ref}.supabase.co
 assert.equal(env.SUPABASE_STAGING_PROJECT_REF,ref,'Only nico-fit-v3-staging is allowed.');
 assert.equal(env.SUPABASE_STAGING_URL,url,'Exact staging URL required.');
 const key=env.SUPABASE_STAGING_PUBLISHABLE_KEY;assert.ok(key&&!key.startsWith('sb_secret_'),'Publishable key required.');if(key.split('.').length===3)assert.equal(JSON.parse(Buffer.from(key.split('.')[1],'base64url')).role,'anon');
-const options={auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:(input,init={})=>fetch(input,{...init,signal:AbortSignal.timeout(20000)})}};
+const options={auth:{persistSession:false,autoRefreshToken:true,detectSessionInUrl:false},global:{fetch:(input,init={})=>fetch(input,{...init,signal:AbortSignal.timeout(20000)})}};
 const clients=[createClient(url,key,options),createClient(url,key,options)],anon=createClient(url,key,options),repositories=[];
 const runId=randomUUID(),tag=runId.slice(0,8),report={project:'nico-fit-v3-staging',ref,runId,flagsActivatedByDefault:false,steps:[]};
 const ok=result=>{if(result.error)throw Object.assign(new Error(result.error.message),result.error,{status:result.status});return result.data;};

@@ -36,6 +36,12 @@ export function remotePayloadForOperation(operation,userId){
 export function remoteConfirmsOperation(operation,remoteRecord,userId){
   if(!remoteRecord||remoteRecord.id!==operation.record_id)return false;
   const expected=remotePayloadForOperation(operation,userId);
+  if(operation.entity==='exercise_catalog'&&operation.type==='insert'){
+    if(remoteRecord.deleted_at)return false;
+    // Base catalog IDs are deterministic across devices. Creation timestamps
+    // and the current server version are not functional exercise identity.
+    return Object.entries(expected).filter(([key])=>!['created_at','version'].includes(key)).every(([key,value])=>sameValue(remoteRecord[key],value));
+  }
   return Object.entries(expected).every(([key,value])=>sameValue(remoteRecord[key],value));
 }
 

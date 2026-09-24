@@ -24,11 +24,11 @@ export function v2UpdateReasons(storage){
   return reasons;
 }
 
-async function v3UpdateReasons(indexedDB,storage,userId,now){
+async function v3UpdateReasons(indexedDB,storage,userId,now,blockers,observations){
   const reasons=[];let names=[];
-  if(typeof indexedDB?.databases==='function')names=(await indexedDB.databases()).filter(info=>info.name?.startsWith(DB_PREFIX)).map(info=>info.name);
-  else if(userId)names=[`${DB_PREFIX}${encodeURIComponent(userId)}`];
-  else if(storage.getItem(V3_LOCAL_FLAG)==='true')return ['No se puede verificar la sesión V3 de este navegador. Cerrá la vista V3 o recargá antes de actualizar.'];
+  if(userId)names=[`${DB_PREFIX}${encodeURIComponent(userId)}`];
+  else if(typeof indexedDB?.databases==='function')names=(await indexedDB.databases()).filter(info=>info.name?.startsWith(DB_PREFIX)).map(info=>info.name);
+  else if(storage.getItem(V3_LOCAL_FLAG)==='true'){blockers.v3VerificationError=true;return ['No se puede verificar la sesión V3 de este navegador. Cerrá la vista V3 o recargá antes de actualizar.'];}
   for(const name of names){
     const database=await existingDatabase(indexedDB,name);if(!database)continue;
     try{
@@ -40,21 +40,33 @@ async function v3UpdateReasons(indexedDB,storage,userId,now){
       const rows=Object.fromEntries(await Promise.all(Object.entries(reads).map(async([store,promise])=>[store,await promise])));
       await finished;
       const owner=decodeURIComponent(name.slice(DB_PREFIX.length));
-      if((rows.workout_sessions||[]).some(row=>row.owner_id===owner&&!row.deleted_at&&row.status==='draft'))reasons.push('Hay una sesión V3 activa. Finalizala antes de actualizar.');
-      if((rows.sync_metadata||[]).some(row=>row.owner_id===owner&&row.key==='training:state'&&row.value?.activeSessionId))reasons.push('Hay un borrador V3 activo. Conservalo y terminá la sesión antes de actualizar.');
-      if((rows.pending_operations||[]).some(row=>row.owner_id===owner&&row.status==='syncing'))reasons.push('Hay una operación V3 sincronizándose. Esperá su resultado antes de actualizar.');
-      if((rows.sync_leases||[]).some(row=>row.owner_id===owner&&row.expires_at>now))reasons.push('Otra pestaña mantiene una operación V3 crítica en curso.');
-      if((rows.sync_metadata||[]).some(row=>row.owner_id===owner&&String(row.key).startsWith('diagnostic:attempt:')&&row.value?.status==='running'))reasons.push('Hay un intento de sync V3 en curso.');
+      const sessions=(rows.workout_sessions||[]).filter(row=>row.owner_id===owner&&!row.deleted_at&&row.status==='draft');
+      const sessionById=new Map(sessions.map(row=>[row.id,row]));
+      const checkpoints=(rows.sync_metadata||[]).filter(row=>row.owner_id===owner&&row.key==='training:state'&&row.value?.activeSessionId);
+      const drafts=checkpoints.filter(row=>sessionById.has(row.value.activeSessionId));
+      const activeIds=new Set(drafts.map(row=>row.value.activeSessionId));
+      const syncing=(rows.pending_operations||[]).filter(row=>row.owner_id===owner&&row.status==='syncing');
+      const leases=(rows.sync_leases||[]).filter(row=>row.owner_id===owner&&row.expires_at>now);
+      const attempts=(rows.sync_metadata||[]).filter(row=>row.owner_id===owner&&String(row.key).startsWith('diagnostic:attempt:')&&row.value?.status==='running');
+      blockers.activeSessionCount+=activeIds.size;blockers.activeDraftCount+=drafts.length;blockers.syncingOperationCount+=syncing.length;blockers.activeLeaseCount+=leases.length;blockers.runningSyncAttemptCount+=attempts.length;
+      observations.pendingLocalWriteCount+=(rows.pending_operations||[]).filter(row=>row.owner_id===owner&&row.status==='pending').length;
+      observations.orphanDraftSessionCount+=sessions.filter(row=>!activeIds.has(row.id)).length;
+      observations.staleTrainingStateCount+=checkpoints.length-drafts.length;
+      if(activeIds.size)reasons.push('Hay una sesión V3 activa. Finalizala antes de actualizar.');
+      if(drafts.length)reasons.push('Hay un borrador V3 activo. Conservalo y terminá la sesión antes de actualizar.');
+      if(syncing.length)reasons.push('Hay una operación V3 sincronizándose. Esperá su resultado antes de actualizar.');
+      if(leases.length)reasons.push('Otra pestaña mantiene una operación V3 crítica en curso.');
+      if(attempts.length)reasons.push('Hay un intento de sync V3 en curso.');
     }finally{database.close();}
   }
   return reasons;
 }
 
 export async function collectPwaUpdateSafety({storage=globalThis.localStorage,indexedDB=globalThis.indexedDB,userId=null,critical=false,dirty=false,now=Date.now()}={}){
-  const reasons=[];
+  const reasons=[],blockers={criticalOperation:!!critical,dirtyForm:!!dirty,activeSessionCount:0,activeDraftCount:0,syncingOperationCount:0,activeLeaseCount:0,runningSyncAttemptCount:0,v3VerificationError:false},observations={pendingLocalWriteCount:0,orphanDraftSessionCount:0,staleTrainingStateCount:0};
   if(critical)reasons.push('Hay una operación local en curso. Esperá a que termine.');
   if(dirty)reasons.push('Hay cambios sin guardar en un formulario. Guardalos antes de actualizar.');
   try{reasons.push(...v2UpdateReasons(storage));}catch{reasons.push('No se pudo comprobar la sesión local V2.');}
-  try{reasons.push(...await v3UpdateReasons(indexedDB,storage,userId,now));}catch{reasons.push('No se pudo comprobar IndexedDB V3.');}
-  return {safe:reasons.length===0,reasons:[...new Set(reasons)]};
+  try{reasons.push(...await v3UpdateReasons(indexedDB,storage,userId,now,blockers,observations));}catch{blockers.v3VerificationError=true;reasons.push('No se pudo comprobar IndexedDB V3.');}
+  return {safe:reasons.length===0,reasons:[...new Set(reasons)],blockers,observations};
 }

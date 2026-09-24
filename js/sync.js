@@ -35,8 +35,31 @@ export class SyncService{
     });
     return this.user;
   }
-  async signIn(email,password){const {error}=await this.client.auth.signInWithPassword({email,password});if(error)throw error;}
-  async signUp(email,password){const {data,error}=await this.client.auth.signUp({email,password,options:{emailRedirectTo:authRedirectOrigin()}});if(error)throw error;return data;}
+  async reconnectAuth({config,createClient}={}){
+    if(!config?.url||!config?.publishableKey||typeof createClient!=='function')throw new Error('Auth no está configurado.');
+    const client=this.client||createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    let session;
+    try{
+      const result=await client.auth.getSession();
+      if(result.error)throw result.error;
+      session=result.data?.session||null;
+      if(session){
+        const verified=await client.auth.getUser();
+        if(verified.error)throw verified.error;
+        if(!verified.data?.user?.id||verified.data.user.id!==session.user?.id)throw new Error('La identidad Auth no coincide con la sesión local.');
+        if(!this.client){this.client=client;client.auth.onAuthStateChange((_event,next)=>{this.user=next?.user||null;this.onAuth?.(this.user);});}
+        this.user=verified.data.user;this.onAuth?.(this.user);
+        return {status:'authenticated',user:this.user};
+      }
+    }catch(error){
+      if(![400,401,403].includes(Number(error?.status))&&!['AuthSessionMissingError','invalid_grant'].includes(error?.name)&&!['refresh_token_not_found','refresh_token_already_used'].includes(error?.code))throw error;
+    }
+    if(!this.client){this.client=client;client.auth.onAuthStateChange((_event,next)=>{this.user=next?.user||null;this.onAuth?.(this.user);});}
+    this.user=null;this.onAuth?.(null);
+    return {status:'login_required',user:null};
+  }
+  async signIn(email,password){if(!this.client?.auth)throw new Error('Sin conexión con Auth. Si ya iniciaste sesión, Entrenar V3 sigue disponible offline.');const {error}=await this.client.auth.signInWithPassword({email,password});if(error)throw error;}
+  async signUp(email,password){if(!this.client?.auth)throw new Error('Sin conexión con Auth. Reintentá el registro cuando vuelva la red.');const {data,error}=await this.client.auth.signUp({email,password,options:{emailRedirectTo:authRedirectOrigin()}});if(error)throw error;return data;}
   async signOut(){await this.client?.auth.signOut();this.user=null;}
   async safeSelect(table,order='date'){
     const rows=[],pageSize=1000;
