@@ -78,9 +78,9 @@ test('a nonresponding config request aborts at its timeout',async()=>{
   assert.equal(aborted,true);
 });
 
-test('routine and signal flags do not implicitly enable their separate sync choices',async()=>{
+test('fresh remote routine and signal flags authorize their matching sync choices',async()=>{
   const manager=control({fetchConfig:async()=>row({v3_enabled:true,v3_sync_enabled:true,v3_signals_enabled:true,v3_routines_enabled:true})});
-  try{await manager.start();assert.equal(isV3SignalsSyncEnabled(memory()),false);assert.equal(isV3RoutinesSyncEnabled(memory()),false);}finally{manager.stop();}
+  try{await manager.start();assert.equal(isV3SignalsSyncEnabled(memory()),true);assert.equal(isV3RoutinesSyncEnabled(memory()),true);}finally{manager.stop();}
 });
 
 test('maintenance pauses remote work while preserving explicit local flags',()=>{

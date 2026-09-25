@@ -2,6 +2,12 @@ let control=null;
 export function installRolloutControl(value){control=value;return ()=>{if(control===value)control=null;};}
 export function rolloutSnapshot(){return control?.snapshot()||null;}
 export function rolloutFlag(name){const state=rolloutSnapshot();return state?!!state.flags[name]:null;}
+export function rolloutRemoteSyncFlag(name){
+  const state=rolloutSnapshot();
+  if(!state)return null;
+  if(state.source!=='remote'||!state.remoteWritesAllowed)return false;
+  return !!state.flags[name];
+}
 export function rolloutBlocksNewWork(){return !!rolloutSnapshot()?.updateRequired;}
 // Maintenance pauses only remote operations. Local V3 training remains usable
 // while the minimum-client guard and explicit local feature flags still apply.

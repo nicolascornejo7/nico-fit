@@ -8,14 +8,14 @@ export const V3_AUDIT_FLAG='v3.audit.enabled';
 export const V3_ROUTINES_FLAG='v3.routines.enabled';
 export const V3_ROUTINES_SYNC_FLAG='v3.routines.sync.enabled';
 export function isV3RoutinesEnabled(storage=globalThis.localStorage){return enabled('v3_routines_enabled',V3_ROUTINES_FLAG,storage);}
-export function isV3RoutinesSyncEnabled(storage=globalThis.localStorage){const remote=rolloutFlag('v3_routines_enabled');return remote===false?false:localEnabled(V3_ROUTINES_SYNC_FLAG,storage);}
+export function isV3RoutinesSyncEnabled(storage=globalThis.localStorage){return remoteSyncEnabled('v3_routines_enabled',V3_ROUTINES_SYNC_FLAG,storage);}
 export function isV3ObservabilityEnabled(storage=globalThis.localStorage){return enabled('v3_observability_enabled',V3_OBSERVABILITY_FLAG,storage);}
 export function isV3AuditEnabled(storage=globalThis.localStorage){try{return storage?.getItem(V3_AUDIT_FLAG)==='true';}catch{return false;}}
 export function isV3ConflictsEnabled(storage=globalThis.localStorage){return enabled('v3_conflicts_enabled',V3_CONFLICT_UI_FLAG,storage);}
 export const V3_BRIDGE_FLAG='v3.signals.enabled';
 export const V3_BRIDGE_SYNC_FLAG='v3.signals.sync.enabled';
 export function isV3SignalsEnabled(storage=globalThis.localStorage){return enabled('v3_signals_enabled',V3_BRIDGE_FLAG,storage);}
-export function isV3SignalsSyncEnabled(storage=globalThis.localStorage){const remote=rolloutFlag('v3_signals_enabled');return remote===false?false:localEnabled(V3_BRIDGE_SYNC_FLAG,storage);}
+export function isV3SignalsSyncEnabled(storage=globalThis.localStorage){return remoteSyncEnabled('v3_signals_enabled',V3_BRIDGE_SYNC_FLAG,storage);}
 export function isV3CoachEnabled(storage=globalThis.localStorage){
   return enabled('v3_coach_enabled',V3_COACH_FLAG,storage);
 }
@@ -56,6 +56,7 @@ export function setV3SyncEnabled(enabled,storage=globalThis.localStorage){
   else storage.removeItem(V3_SYNC_FLAG);
   return !!enabled;
 }
-import {rolloutFlag} from './rollout-state.js';
+import {rolloutFlag,rolloutRemoteSyncFlag} from './rollout-state.js';
 const localEnabled=(name,storage)=>{try{return storage?.getItem(name)==='true';}catch{return false;}};
 const enabled=(remoteName,localName,storage)=>{const remote=rolloutFlag(remoteName);return remote!==null?remote:localEnabled(localName,storage);};
+const remoteSyncEnabled=(remoteName,localName,storage)=>{const remote=rolloutRemoteSyncFlag(remoteName);return remote!==null?remote:localEnabled(localName,storage);};

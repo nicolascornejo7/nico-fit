@@ -11,6 +11,7 @@ import {ENTITY_STORES,databaseNameForUser,requestResult,transactionDone} from '.
 import {isV3SignalsEnabled,isV3SignalsSyncEnabled} from '../js/v3/feature-flags.js';
 import {V3CoachService} from '../js/v3/coach-service.js';
 import {validateSignal} from '../js/v3/signals-validation.js';
+import {installRolloutControl} from '../js/v3/rollout-state.js';
 
 const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',date='2026-09-15';
 const readiness={local_date:date,sleep:5,energy:5,freshness:5,pain:0};
@@ -36,6 +37,17 @@ test('V2 import is atomic and idempotent with ambiguous reviews preserved in tra
 test('ambiguous duplicate values, unknown football type and tombstones are not inferred',async()=>{const signals=await open();const report=await importV2Signals(signals,{readiness:[{date,sleep:1},{date,sleep:5}],football:[{date,type:'unknown'}],matches:[{date,energy:4,legs:4,performance:4}],tombstones:[{entity:'matches',recordKey:date}]});assert.equal(report.pending_review,2);assert.equal(report.skipped,1);assert.equal((await signals.list('daily_readiness')).length,0);signals.repository.close();});
 test('bridge enabled Coach uses V3 signals exclusively and exposes conflicts',async()=>{const signals=await open();await signals.save('daily_readiness',readiness);await signals.save('football_sessions',football);const old=globalThis.localStorage;globalThis.localStorage={getItem:key=>key==='v3.signals.enabled'?'true':null};try{const service=new V3CoachService({engine:{repository:signals.repository,history:async()=>[]},featureEnabled:true,now:()=>new Date(`${date}T12:00:00`)});let result=await service.today(null);assert.equal(result.signals.readinessScore,100);assert.equal(result.signals.intenseFootball,true);const row=(await signals.list('daily_readiness'))[0];await signals.repository.recordConflict({entity:'daily_readiness',recordId:row.id,operationIds:[],localPayload:row,remotePayload:{...row,pain:4},reason:'test'});result=await service.today(null);assert.equal(result.recommendation.readinessScore,null);assert.ok(result.recommendation.warnings.some(value=>value.includes('Conflictos')));}finally{globalThis.localStorage=old;signals.repository.close();}});
 test('bridge and remote flags default off; existing sync never claims or queries new entities',async()=>{assert.equal(isV3SignalsEnabled({getItem:()=>null}),false);assert.equal(isV3SignalsSyncEnabled({getItem:()=>null}),false);const signals=await open(),remote=new Remote();await signals.save('daily_readiness',readiness);await sync(signals,remote,{signalsSyncEnabled:false}).syncOnce();assert.equal(remote.tables.daily_readiness.size,0);assert.ok(!remote.calls.includes('daily_readiness'));signals.repository.close();});
+test('fresh remote signal rollout is authoritative and stale rollout fails closed',()=>{
+  const storage={getItem:key=>key==='v3.signals.sync.enabled'?'true':null};let reset;
+  const install=state=>{reset?.();reset=installRolloutControl({snapshot:()=>state,refreshIfDue:async()=>state});};
+  try{
+    install({source:'remote',remoteWritesAllowed:true,flags:{v3_signals_enabled:true}});assert.equal(isV3SignalsSyncEnabled({getItem:()=>null}),true);
+    install({source:'remote',remoteWritesAllowed:true,flags:{v3_signals_enabled:false}});assert.equal(isV3SignalsSyncEnabled(storage),false);
+    install({source:'stale-offline',remoteWritesAllowed:false,flags:{v3_signals_enabled:true}});assert.equal(isV3SignalsSyncEnabled(storage),false);
+    install({source:'fallback',remoteWritesAllowed:false,flags:{v3_signals_enabled:true}});assert.equal(isV3SignalsSyncEnabled(storage),false);
+  }finally{reset?.();}
+  assert.equal(isV3SignalsSyncEnabled(storage),true);
+});
 test('validation rejects invalid inputs and calculated load cannot be supplied',()=>{assert.throws(()=>validateSignal('daily_readiness',{...readiness,sleep:0}));assert.throws(()=>validateSignal('football_sessions',{...football,minutes_played:91}));assert.equal(validateSignal('football_sessions',{...football,calculated_load:999}).calculated_load,810);});
 
 test('IndexedDB version 2 upgrades add signals without losing workout data',async()=>{const db=new IDBFactory(),request=db.open(databaseNameForUser(A),2);request.onupgradeneeded=()=>request.result.createObjectStore('workout_sessions',{keyPath:'id'});const database=await requestResult(request),transaction=database.transaction('workout_sessions','readwrite');const done=transactionDone(transaction);transaction.objectStore('workout_sessions').put({id:'legacy',owner_id:A,session_date:date,status:'completed'});await done;database.close();const signals=await open(db);assert.ok(signals.repository.database.version>=3);assert.equal((await signals.repository.get('workout_sessions','legacy')).id,'legacy');assert.equal((await signals.list('daily_readiness')).length,0);signals.repository.close();});
