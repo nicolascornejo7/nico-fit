@@ -44,7 +44,7 @@ export class V3TrainingUI{
   async render(){
     const snapshot=await this.engine.snapshot(),state=this.engine.getState();if(this.destroyed)return;
     this.root.replaceChildren();const shell=el('div','','v3-training-shell');this.root.append(shell);
-    const head=el('div','','section-head');this.heading=el('h2','Entrenamiento V3 · prueba local');this.heading.tabIndex=-1;head.append(this.heading,button('Volver a V2',()=>this.onClose()));shell.append(head);
+    const head=el('div','','section-head');this.heading=el('h2','Entrenamiento V3');this.heading.tabIndex=-1;head.append(this.heading,button('Volver a V2',()=>this.onClose()));shell.append(head);
     shell.append(el('p','Guardado local por usuario. Esta pantalla no activa sincronización remota.','muted'));
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
     await this.renderSync(shell);
