@@ -1,6 +1,8 @@
 import {PwaUpdateCoordinator} from './pwa-update-coordinator.js';
 import {collectPwaUpdateSafety} from './pwa-update-safety.js';
 import {trackPwaFormDrafts,hasPwaFormDrafts,clearPwaFormDrafts} from './pwa-form-drafts.js';
+import {appBuildId} from './pwa-version.js';
+import {buildPwaUpdateDiagnostic} from './pwa-update-diagnostic.js';
 
 trackPwaFormDrafts();
 document.addEventListener('nico-fit:pwa-draft-saved',event=>clearPwaFormDrafts(event.detail?.fields||[]));
@@ -19,11 +21,15 @@ const actions=element('div','','pwa-update-actions');
 const reminder=element('button','Actualización pendiente','pwa-update-reminder');reminder.type='button';reminder.hidden=true;
 const update=element('button','Actualizar ahora');update.type='button';update.className='primary';
 const later=element('button','Después');later.type='button';later.className='ghost';
-actions.append(update,later);panel.append(title,description,actions);document.body.append(panel,reminder);
+const diagnostic=element('details','','pwa-update-diagnostic'),diagnosticTitle=element('summary','Diagnóstico de bloqueo');
+const diagnosticText=element('textarea');diagnosticText.readOnly=true;diagnosticText.rows=10;diagnosticText.setAttribute('aria-label','Snapshot de seguridad de actualización');
+const copyDiagnostic=element('button','Copiar diagnóstico','ghost');copyDiagnostic.type='button';
+diagnostic.append(diagnosticTitle,diagnosticText,copyDiagnostic);actions.append(update,later);panel.append(title,description,diagnostic,actions);document.body.append(panel,reminder);
 
 let coordinator;
 function render(state){
   if(!state)return;
+  diagnosticText.value=JSON.stringify(buildPwaUpdateDiagnostic(state,{buildId:appBuildId()}),null,2);
   reminder.hidden=!(state.pending&&state.deferred&&!state.stale);
   panel.hidden=!(state.pending||state.stale)||state.deferred&&!state.stale;
   if(panel.hidden)return;
@@ -33,6 +39,10 @@ function render(state){
   update.setAttribute('aria-describedby','pwaUpdateDescription');description.id='pwaUpdateDescription';
   update.textContent=state.stale&&!state.pending?'Recargar versión actual':'Actualizar ahora';
 }
+copyDiagnostic.addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText(diagnosticText.value);copyDiagnostic.textContent='Copiado';}
+  catch{diagnostic.open=true;diagnosticText.focus();diagnosticText.select();copyDiagnostic.textContent='Seleccionado';}
+});
 update.addEventListener('click',async()=>{
   update.disabled=true;description.textContent='Verificando sesiones y otras pestañas…';
   const result=await coordinator.apply();

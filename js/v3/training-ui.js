@@ -3,13 +3,17 @@ import {isV3CoachEnabled} from './feature-flags.js';
 import {localDateKey} from '../plan.js';
 import {routineIdentityCard,routineListView} from './routine-presentation.js';
 import {mayStartNewWork} from '../pwa-update-gate.js';
+import {buildV3SyncDiagnostic} from './sync-diagnostic.js';
+import {buildV3SessionDiagnostic} from './session-diagnostic.js';
+import {appBuildId} from '../pwa-version.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
 const field=(parent,label,{value='',type='number',min,max,step='1'}={})=>{
   const wrapper=el('label',label,'field-label'),input=el(type==='textarea'?'textarea':'input');
   if(type!=='textarea')input.type=type;input.value=value??'';
-  if(type==='number'){input.step=step;if(min!=null)input.min=String(min);if(max!=null)input.max=String(max);}
+  if(min!=null)input.min=String(min);if(max!=null)input.max=String(max);
+  if(type==='number')input.step=step;
   wrapper.append(input);parent.append(wrapper);return input;
 };
 const select=(parent,label,options,value)=>{
@@ -19,12 +23,13 @@ const select=(parent,label,options,value)=>{
   wrapper.append(node);parent.append(wrapper);return node;
 };
 const duration=seconds=>`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
+const confirmDiscard=label=>globalThis.confirm?.(`¿Descartar “${label}”? Se conservará una marca de borrado local para sincronizarla cuando corresponda.`)===true;
 
 export class V3TrainingUI{
-  constructor({root,engine,onClose}){this.root=root;this.engine=engine;this.onClose=onClose;this.destroyed=false;this.busy=false;this.lastCompleted=null;}
+  constructor({root,engine,onClose,syncNow=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
 
-  async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);}
-  destroy(){this.destroyed=true;clearInterval(this.timer);this.root.replaceChildren();}
+  async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);globalThis.window?.addEventListener('online',this.onOnline);}
+  destroy(){this.destroyed=true;clearInterval(this.timer);globalThis.window?.removeEventListener('online',this.onOnline);this.root.replaceChildren();}
 
   async run(task){
     if(this.busy||this.destroyed)return;
@@ -42,6 +47,7 @@ export class V3TrainingUI{
     const head=el('div','','section-head');this.heading=el('h2','Entrenamiento V3 · prueba local');this.heading.tabIndex=-1;head.append(this.heading,button('Volver a V2',()=>this.onClose()));shell.append(head);
     shell.append(el('p','Guardado local por usuario. Esta pantalla no activa sincronización remota.','muted'));
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
+    await this.renderSync(shell);
     this.conflict=el('p','','advice v3-conflict');this.conflict.setAttribute('role','status');this.conflict.setAttribute('aria-live','polite');shell.append(this.conflict);
     this.coachSlot=null;
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
@@ -70,11 +76,58 @@ export class V3TrainingUI{
     const routine=select(card,'Rutina',[[0,'Personalizada'],[2,'Martes · fuerza'],[4,'Jueves · prevención'],[5,'Viernes · prepartido']],[2,4,5].includes(new Date().getDay())?new Date().getDay():0);
     const name=field(card,'Nombre opcional',{type:'text'});
     card.append(button('Crear sesión V3',()=>this.run(()=>this.engine.createSession({label:name.value.trim()||undefined,dayIndex:Number(routine.value),useRoutine:routine.value!=='0'})),'primary'));
-    const free=el('section','','card');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Sin rutina fija. Elegí ejercicios del catálogo y registrá sólo lo que realmente hagas.','muted'));
+    const free=el('section','','card');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Disponible cualquier día. Elegí ejercicios del catálogo y registrá sólo lo que realmente hagas.','muted'));
+    const today=localDateKey(this.engine.now()),freeDate=field(free,'Fecha de la sesión',{type:'date',value:today,max:today});
     const freeName=field(free,'Nombre opcional de sesión libre',{type:'text'});
-    free.append(button('Iniciar Musculación libre',()=>this.run(()=>this.engine.createFreeWorkout({label:freeName.value.trim()||undefined})),'primary'));
+    free.append(button('Registrar musculación libre',()=>this.run(()=>this.engine.createFreeWorkout({label:freeName.value.trim()||undefined,date:freeDate.value})),'ghost'));
     const drafts=(await this.engine.repository.listSessions({status:'draft'})).filter(item=>item.started_at&&!item.reconstructed);
-    for(const session of drafts)card.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))));
+    for(const session of drafts){const actions=el('div','','v3-actions');actions.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))),button(`Descartar ${session.session_date} · ${session.label}`,()=>{if(confirmDiscard(session.label))return this.run(()=>this.engine.discardSession(session.id));},'danger-btn'));card.append(actions);}
+  }
+
+  async renderSync(shell){
+    const operational=await this.engine.repository.operationalSnapshot(),counts=operational.counts;
+    const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado';
+    const row=el('section','','card v3-sync-status');row.append(el('h3','Sincronización V3'),el('p',`Estado: ${state}. Cola: ${operational.queue.operations}.`,'muted'));
+    const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;this.finishDiagnosticButton=button('Diagnóstico de finalización',()=>this.showFinishDiagnostic());this.finishDiagnosticButton.disabled=!this.lastFinishDiagnostic;row.append(action,button('Exportar diagnóstico de sync',()=>this.exportDiagnostic()),button('Diagnóstico de sesiones',()=>this.exportSessionDiagnostic()),this.finishDiagnosticButton);shell.append(row);
+  }
+
+  async exportDiagnostic(){
+    if(this.destroyed)return;
+    const operations=await this.engine.repository.listOperations(),conflicts=await this.engine.repository.listConflicts({status:null});
+    const text=JSON.stringify(buildV3SyncDiagnostic({operations,conflicts,buildId:appBuildId()}),null,2);
+    const modal=el('section','','card v3-sync-diagnostic');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Diagnóstico local de sincronización');
+    modal.append(el('h3','Diagnóstico local de sincronización'),el('p','Sólo incluye estados resumidos. No ejecuta sync ni modifica datos locales.','muted'));
+    const area=document.createElement('textarea');area.readOnly=true;area.value=text;area.setAttribute('aria-label','JSON de diagnóstico');area.rows=12;modal.append(area);
+    const actions=el('div','','v3-actions'),copy=button('Copiar JSON',async()=>{try{await navigator.clipboard.writeText(text);this.message.textContent='Diagnóstico copiado.';}catch{area.focus();area.select();this.message.textContent='Seleccioná el texto y copialo manualmente.';}}),download=button('Descargar JSON',()=>{const url=URL.createObjectURL(new Blob([text],{type:'application/json'})),anchor=document.createElement('a');anchor.href=url;anchor.download='nico-fit-v3-sync-diagnostic.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),0);}),close=button('Cerrar',()=>{modal.remove();this.heading?.focus();});actions.append(copy,download,close);modal.append(actions);this.root.querySelector('.v3-training-shell')?.append(modal);area.focus();area.select();
+  }
+
+  async exportSessionDiagnostic(){
+    if(this.destroyed)return;
+    const [sessions,trainingState]=await Promise.all([this.engine.repository.listSessions({includeDeleted:true}),this.engine.repository.getTrainingState()]);
+    const text=JSON.stringify(buildV3SessionDiagnostic({sessions,trainingState,uiState:this.engine.getState(),buildId:appBuildId()}),null,2);
+    const modal=el('section','','card v3-sync-diagnostic');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Diagnóstico local de sesiones');
+    modal.append(el('h3','Diagnóstico local de sesiones'),el('p','Lectura local: no sincroniza, finaliza ni modifica sesiones o checkpoints.','muted'));
+    const area=document.createElement('textarea');area.readOnly=true;area.value=text;area.setAttribute('aria-label','JSON de diagnóstico de sesiones');area.rows=16;modal.append(area);
+    const actions=el('div','','v3-actions'),copy=button('Copiar JSON',async()=>{try{await navigator.clipboard.writeText(text);this.message.textContent='Diagnóstico de sesiones copiado.';}catch{area.focus();area.select();this.message.textContent='Seleccioná el texto y copialo manualmente.';}}),close=button('Cerrar',()=>{modal.remove();this.heading?.focus();});actions.append(copy,close);modal.append(actions);this.root.querySelector('.v3-training-shell')?.append(modal);area.focus();area.select();
+  }
+
+  showFinishDiagnostic(){
+    if(this.destroyed||!this.lastFinishDiagnostic)return;
+    const text=JSON.stringify(this.lastFinishDiagnostic,null,2),modal=el('section','','card v3-sync-diagnostic');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Diagnóstico del último intento de finalización');
+    modal.append(el('h3','Diagnóstico de finalización'),el('p','Resultado sanitizado del último intento. No modifica ni reintenta la sesión.','muted'));
+    const area=document.createElement('textarea');area.readOnly=true;area.value=text;area.setAttribute('aria-label','JSON de diagnóstico de finalización');area.rows=18;modal.append(area);
+    const actions=el('div','','v3-actions'),copy=button('Copiar JSON',async()=>{try{await navigator.clipboard.writeText(text);this.message.textContent='Diagnóstico de finalización copiado.';}catch{area.focus();area.select();this.message.textContent='Seleccioná el texto y copialo manualmente.';}}),close=button('Cerrar',()=>{modal.remove();this.heading?.focus();});actions.append(copy,close);modal.append(actions);this.root.querySelector('.v3-training-shell')?.append(modal);area.focus();area.select();
+  }
+
+  async requestSync({automatic=false}={}){
+    if(this.destroyed||this.syncing||!this.syncNow||globalThis.navigator?.onLine===false)return {skipped:'offline'};
+    this.syncing=true;await this.render();this.message.textContent='Sincronizando…';
+    try{
+      const result=await this.syncNow();
+      if(!this.destroyed)this.message.textContent=result.skipped==='offline'?'Offline: la cola local se conserva.':result.skipped==='rollout_blocked'?'Sync pausado por configuración remota.':result.skipped==='disabled'?'Sync V3 desactivado.':result.conflicts?'Hay conflictos que requieren revisión.':'Sincronización confirmada.';
+      return result;
+    }catch(error){if(!this.destroyed)this.message.textContent=`Error de sync: ${error.message}`;if(!automatic)throw error;return {failed:true};}
+    finally{this.syncing=false;if(!this.destroyed)await this.render();}
   }
 
   async renderExercises(shell,snapshot,state){
@@ -92,7 +145,7 @@ export class V3TrainingUI{
     const catalog=await this.engine.catalog();
     const card=el('section','','card');shell.append(card);card.append(el('h3','Agregar ejercicio'));
     if(catalog.length){
-      const choice=select(card,'Ejercicio del catálogo',catalog.map(ex=>[ex.id,`${ex.canonical_name} · ${ex.measurement_kind}`]));
+      const choice=select(card,'Ejercicio del catálogo',catalog.map(ex=>[ex.id,`${ex.metadata?.category?`${ex.metadata.category} · `:''}${ex.canonical_name} · ${ex.measurement_kind}`]));
       const target=field(card,'Series objetivo',{value:3,min:1,max:100}),minimum=field(card,'Mínimo (reps o segundos)',{min:1}),maximum=field(card,'Máximo (reps o segundos)',{min:1}),step=field(card,'Incremento de carga (kg)',{value:0,min:0,max:100,step:'.5'});
       card.append(button('Agregar a la sesión',()=>this.run(()=>this.engine.addExercise(choice.value,{sets:target.value,min:minimum.value,max:maximum.value,step:step.value})),'primary'));
     }
@@ -131,7 +184,10 @@ export class V3TrainingUI{
     for(const [id,metric] of Object.entries(metrics.perExercise))card.append(el('p',`${metric.name}: máximo ${metric.maxLoad??'—'} kg · 1RM estimado ${metric.estimated1RM?.toFixed(1)??'—'} kg · PR histórico estimado ${prs[id]?.toFixed(1)??'—'} kg`));
     const rpe=field(card,'RPE global (1–10)',{value:state.summaryDraft?.rpe,min:1,max:10,step:'.1'}),notes=field(card,'Notas',{value:state.summaryDraft?.notes,type:'textarea'});
     card.addEventListener('input',()=>this.engine.saveSummaryDraft({rpe:rpe.value,notes:notes.value}).catch(error=>{if(!this.destroyed)this.message.textContent=error.message;}));
-    card.append(button('Finalizar y guardar localmente',()=>this.run(async()=>{this.lastCompleted=await this.engine.finishSession({rpe:rpe.value,notes:notes.value});}),'primary'));
+    card.append(button('Finalizar y guardar localmente',()=>this.run(async()=>{
+      this.lastCompleted=await this.engine.finishSession({rpe:rpe.value,notes:notes.value},{onDiagnostic:value=>{this.lastFinishDiagnostic=value;if(this.finishDiagnosticButton)this.finishDiagnosticButton.disabled=false;}});
+      document.dispatchEvent(new CustomEvent('nico-fit:pwa-safety-changed'));
+    }),'primary'),button('Descartar sesión',()=>{if(confirmDiscard(snapshot.session.label))return this.run(async()=>{await this.engine.discardSession(snapshot.session.id);document.dispatchEvent(new CustomEvent('nico-fit:pwa-safety-changed'));});},'danger-btn'));
   }
 
   setConflict(snapshot){

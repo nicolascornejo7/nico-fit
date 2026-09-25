@@ -5,7 +5,8 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {requiredText,optionalNumber,validatePrescription,validateSet} from './training-validation.js';
 import {sessionMetrics,estimatedPRs} from './training-metrics.js';
 import {v3Progression} from './training-progression.js';
-import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
+import {rolloutFlag,rolloutBlocksNewWork,rolloutAllowsLocalTraining} from './rollout-state.js';
+import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -43,27 +44,33 @@ export class V3TrainingEngine{
   }
 
   async history(){const sessions=await this.repository.listSessions();return Promise.all(sessions.map(session=>this.snapshot(session.id)));}
-  async catalog(){return (await this.repository.listRecords('exercise_catalog')).sort((a,b)=>a.canonical_name.localeCompare(b.canonical_name));}
+  async #catalogRows(){return (await this.repository.listRecords('exercise_catalog')).sort((a,b)=>a.canonical_name.localeCompare(b.canonical_name));}
+  async #ensureBaseCatalog(){
+    const existing=await this.repository.listRecords('exercise_catalog',{includeDeleted:true}),known=new Set(existing.map(row=>row.stable_key));
+    const missing=BASE_EXERCISES.filter(item=>!known.has(item.stable_key));
+    if(!missing.length)return;
+    const changes=await Promise.all(missing.map(async item=>insert('exercise_catalog',await baseCatalogId(this.repository.userId,item.stable_key),item)));
+    await this.repository.commitLocalChanges(changes);
+  }
+  catalog(){return this.#run(async()=>{await this.#ensureBaseCatalog();return this.#catalogRows();});}
 
   recover(){return this.#run(async()=>{
     const saved=await this.repository.getTrainingState();
     let snapshot=saved?.activeSessionId?await this.snapshot(saved.activeSessionId):null;
-    if(!snapshot||snapshot.session.deleted_at||snapshot.session.status!=='draft'){
-      const sessions=(await this.repository.listSessions({status:'draft'})).filter(item=>item.started_at&&!item.reconstructed);
-      sessions.sort((a,b)=>b.started_at.localeCompare(a.started_at));snapshot=sessions[0]?await this.snapshot(sessions[0].id):null;
-    }
+    if(!snapshot||snapshot.session.deleted_at||snapshot.session.status!=='draft')snapshot=null;
     this.state=snapshot?{activeSessionId:snapshot.session.id,currentExerciseId:snapshot.exercises[0]?.id||null,view:'active',drafts:{},summaryDraft:{},...(saved?.activeSessionId===snapshot.session.id?saved:{})}:null;
     if(this.state&&!snapshot.exercises.some(ex=>ex.id===this.state.currentExerciseId))this.state.currentExerciseId=snapshot.exercises[0]?.id||null;
     await this.repository.commitLocalChanges([],{trainingState:this.state});return snapshot;
   });}
 
   createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine'}={}){return this.#run(async()=>{
-    if(rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
+    if(!rolloutAllowsLocalTraining()||rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
     if(!['routine','free_workout'].includes(sessionType))throw new Error('Tipo de sesión inválido.');
     if(sessionType==='free_workout'&&(useRoutine||routineVersionId))throw new Error('La musculación libre no usa una rutina.');
     const now=this.now(),sessionDate=date??localDateKey(now);
     if(dayIndex!=null&&(!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>6))throw new Error('Día de rutina inválido.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)||localDateKey(new Date(`${sessionDate}T12:00:00`))!==sessionDate)throw new Error('Fecha inválida.');
+    if(sessionDate>localDateKey(now))throw new Error('No podés registrar una sesión en una fecha futura.');
     const routine=routineForDay(dayIndex??new Date(`${sessionDate}T12:00:00`).getDay()),id=this.crypto.randomUUID();
     if(routineVersionId&&!this.routines)throw new Error('Habilitá explícitamente rutinas V3 para elegir una versión.');
     let concrete=null;
@@ -71,9 +78,10 @@ export class V3TrainingEngine{
       if(routineVersionId)concrete=await this.routines.version(routineVersionId,{forTraining:true});
       else{const defaults=await this.routines.seedDefaults(),selected=defaults.find(item=>item.version.day_index===routine.dayIndex);concrete=await this.routines.version(selected.version.id,{forTraining:true});}
     }
+    if(sessionType==='free_workout')await this.#ensureBaseCatalog();
     const session={session_date:sessionDate,label:requiredText(label??concrete?.snapshot.name??(sessionType==='free_workout'?'Musculación libre':routine.label),'Nombre de sesión'),session_type:sessionType,status:'draft',started_at:now.toISOString(),ended_at:null,duration_seconds:null,rpe:null,notes:''};
     if(concrete)Object.assign(session,{routine_id:concrete.template.id,routine_version:concrete.version.version_number,routine_version_id:concrete.version.id,routine_snapshot:clone(concrete.snapshot)});
-    const changes=[insert('workout_sessions',id,session)],catalog=await this.catalog();
+    const changes=[insert('workout_sessions',id,session)],catalog=await this.#catalogRows();
     const exerciseIds=[];
     const items=concrete?concrete.snapshot.exercises.map(ex=>({catalog_id:ex.exercise_catalog_id,canonical_name:ex.exercise_name_snapshot,prescription:ex.prescription_snapshot})):(useRoutine?routine.exercises:[]);
     for(const [position,item] of items.entries()){
@@ -181,14 +189,36 @@ export class V3TrainingEngine{
 
   hasPendingDrafts(){return Object.values(this.state?.drafts||{}).some(draft=>draft.is_completed||['load_kg','reps','duration_seconds','rir'].some(key=>draft[key]!=null&&draft[key]!==''));}
 
-  finishSession({rpe,notes=''}={}){return this.#run(async()=>{
-    if(this.hasPendingDrafts())throw new Error('Guardá o descartá los borradores de series antes de finalizar.');
-    const snapshot=await this.#editable(),value=optionalNumber(rpe,'RPE',{min:1,max:10});if(value==null)throw new Error('RPE requerido.');
-    if(typeof notes!=='string'||notes.length>10000)throw new Error('Notas inválidas.');
-    if(!sessionMetrics(snapshot).completedSets)throw new Error('Completá al menos una serie antes de finalizar.');
-    const end=this.now(),duration=Math.floor((end-Date.parse(snapshot.session.started_at))/1000);if(duration<0)throw new Error('La fecha de finalización es anterior al inicio.');
-    await this.repository.commitLocalChanges([update('workout_sessions',snapshot.session,{status:'completed',ended_at:end.toISOString(),duration_seconds:duration,rpe:value,notes})],{trainingState:null,guards:[this.#guard(snapshot.session)]});
-    this.state=null;return this.snapshot(snapshot.session.id);
+  discardSession(id=this.state?.activeSessionId){return this.#run(async()=>{
+    const session=await this.repository.get('workout_sessions',id);if(!session||session.deleted_at||session.status!=='draft')throw new Error('Sólo podés descartar una sesión activa o abandonada.');
+    const persisted=await this.repository.getTrainingState(),clearsActive=this.state?.activeSessionId===id||persisted?.activeSessionId===id;
+    await this.repository.commitLocalChanges([remove('workout_sessions',session)],{trainingState:clearsActive?null:persisted,guards:[this.#guard(session)]});
+    if(clearsActive)this.state=null;
+    return this.repository.get('workout_sessions',id);
+  });}
+
+  finishSession({rpe,notes=''}={},options={}){return this.#run(async()=>{
+    const events=[],emit=event=>events.push({...event,at:this.now().toISOString()}),sessionId=this.state?.activeSessionId??null;
+    const finish=async(success,error=null)=>{
+      let persistedSession=null,persistedTrainingState=null;
+      try{persistedSession=sessionId?await this.repository.get('workout_sessions',sessionId):null;persistedTrainingState=await this.repository.getTrainingState();}catch(readError){emit({stage:'post_read_failed',errorName:readError?.name||'Error',errorMessage:readError?.message||String(readError),errorCode:readError?.code??null});}
+      const failedValidation=[...events].reverse().find(event=>event.stage.startsWith('validation_')&&event.passed===false);
+      const failureStage=success?null:events.some(event=>event.stage==='transaction_aborted')?'transaction_aborted':failedValidation?.stage??'javascript_exception';
+      const result={schemaVersion:1,sessionId,enteredFinishSession:true,success,preState:events.find(event=>event.stage==='pre_state')?.sessionStatus??null,trainingStateActiveSessionId:events.find(event=>event.stage==='pre_state')?.trainingStateActiveSessionId??null,sessionIdMatchesTrainingState:events.find(event=>event.stage==='pre_state')?.sessionIdMatchesTrainingState??false,validations:events.filter(event=>event.stage.startsWith('validation_')).map(event=>({name:event.stage.slice(11),passed:event.passed})),transaction:{opened:events.some(event=>event.stage==='transaction_opened'),stores:events.find(event=>event.stage==='transaction_opened')?.stores??[],workoutSessionUpdateWritten:events.some(event=>event.stage==='workout_session_update_written'),trainingStateCleanupWritten:events.some(event=>event.stage==='training_state_cleanup_written'),committed:events.some(event=>event.stage==='transaction_committed'),aborted:events.some(event=>event.stage==='transaction_aborted')},failureStage,error:error?{name:error?.name||'Error',message:error?.message||String(error),code:error?.code??null}:null,after:{sessionStatus:persistedSession?.status??null,endedAt:persistedSession?.ended_at??null,durationSeconds:persistedSession?.duration_seconds??null,trainingStateActiveSessionId:persistedTrainingState?.activeSessionId??null},events};
+      options.onDiagnostic?.(clone(result));return result;
+    };
+    try{
+      emit({stage:'finish_entered'});const trainingState=await this.repository.getTrainingState(),prior=sessionId?await this.repository.get('workout_sessions',sessionId):null;
+      emit({stage:'pre_state',sessionStatus:prior?.status??null,trainingStateActiveSessionId:trainingState?.activeSessionId??null,sessionIdMatchesTrainingState:!!sessionId&&sessionId===trainingState?.activeSessionId});
+      if(!prior){emit({stage:'validation_session_found',passed:false});throw new Error('Active V3 session was not found.');}emit({stage:'validation_session_found',passed:true});
+      if(this.hasPendingDrafts()){emit({stage:'validation_no_pending_drafts',passed:false});throw new Error('Guardá o descartá los borradores de series antes de finalizar.');}emit({stage:'validation_no_pending_drafts',passed:true});
+      const snapshot=await this.#editable(),value=optionalNumber(rpe,'RPE',{min:1,max:10});if(value==null){emit({stage:'validation_rpe',passed:false});throw new Error('RPE requerido.');}emit({stage:'validation_rpe',passed:true});
+      if(typeof notes!=='string'||notes.length>10000){emit({stage:'validation_notes',passed:false});throw new Error('Notas inválidas.');}emit({stage:'validation_notes',passed:true});
+      if(!sessionMetrics(snapshot).completedSets){emit({stage:'validation_completed_sets',passed:false});throw new Error('Completá al menos una serie antes de finalizar o descartá la sesión.');}emit({stage:'validation_completed_sets',passed:true});
+      const end=this.now(),duration=Math.floor((end-Date.parse(snapshot.session.started_at))/1000);if(duration<0){emit({stage:'validation_duration',passed:false});throw new Error('La fecha de finalización es anterior al inicio.');}emit({stage:'validation_duration',passed:true});
+      await this.repository.commitLocalChanges([update('workout_sessions',snapshot.session,{status:'completed',ended_at:end.toISOString(),duration_seconds:duration,rpe:value,notes})],{trainingState:null,guards:[this.#guard(snapshot.session)],diagnostic:emit});
+      this.state=null;const result=await this.snapshot(snapshot.session.id);await finish(true);return result;
+    }catch(error){emit({stage:'finish_failed',errorName:error?.name||'Error',errorMessage:error?.message||String(error),errorCode:error?.code??null});await finish(false,error);throw error;}
   });}
 
   async metrics(id=this.state?.activeSessionId){const snapshot=await this.snapshot(id);return snapshot?sessionMetrics(snapshot,{now:this.now().getTime()}):null;}

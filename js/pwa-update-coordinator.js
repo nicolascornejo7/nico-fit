@@ -32,6 +32,7 @@ export class PwaUpdateCoordinator{
     this.handleUpdateFound=()=>{const installing=this.registration.installing;if(installing){installing.addEventListener('statechange',this.handleInstalling);this.installing=installing;}this.refresh().catch(()=>{});};
     this.handleInstalling=()=>this.refresh().catch(()=>{});
     this.handleFocus=()=>this.refresh().catch(()=>{});
+    this.handleSafetyChanged=()=>this.refresh().catch(()=>{});
   }
 
   async start(){
@@ -40,6 +41,7 @@ export class PwaUpdateCoordinator{
     this.windowLike?.addEventListener?.('storage',this.handleFocus);
     this.windowLike?.addEventListener?.('focus',this.handleFocus);
     this.documentLike?.addEventListener?.('visibilitychange',this.handleFocus);
+    this.documentLike?.addEventListener?.('nico-fit:pwa-safety-changed',this.handleSafetyChanged);
     this.poll=setInterval(()=>this.refresh().catch(()=>{}),this.pollMs);
     await this.refresh();
     if(this.serviceWorker.controller)request(this.serviceWorker.controller,'NICO_FIT_CLEANUP',{Channel:this.Channel,timeoutMs:3500}).catch(()=>{});
@@ -58,7 +60,7 @@ export class PwaUpdateCoordinator{
     const reasons=[...safety.reasons];
     if(version.mismatch)reasons.push('La página y el service worker son de versiones distintas. Cerrá otras pestañas y recargá cuando sea seguro.');
     if(this.error)reasons.push(this.error);
-    this.state={pending,stale,deferred:this.deferred,prepared:this.prepared,canUpdate:(pending||stale)&&safety.safe&&(!version.mismatch||stale&&!pending)&&!this.prepared,reasons,version};
+    this.state={pending,stale,deferred:this.deferred,prepared:this.prepared,canUpdate:(pending||stale)&&safety.safe&&(!version.mismatch||stale&&!pending)&&!this.prepared,reasons,version,safety};
     this.onState(this.state);return this.state;
   }
 
@@ -107,5 +109,6 @@ export class PwaUpdateCoordinator{
     this.windowLike?.removeEventListener?.('storage',this.handleFocus);
     this.windowLike?.removeEventListener?.('focus',this.handleFocus);
     this.documentLike?.removeEventListener?.('visibilitychange',this.handleFocus);
+    this.documentLike?.removeEventListener?.('nico-fit:pwa-safety-changed',this.handleSafetyChanged);
   }
 }

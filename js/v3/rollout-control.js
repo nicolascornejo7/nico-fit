@@ -1,5 +1,6 @@
 import {resolveRollout,validateRolloutConfig} from './rollout-policy.js';
 import {installRolloutControl} from './rollout-state.js';
+import {fetchPublicConfig} from './public-config.js';
 
 export const ROLLOUT_CACHE_KEY='nicoFit.rollout.config.v1';
 export const DEFAULT_TTL_MS=60000;
@@ -9,8 +10,7 @@ const readCache=(storage,key,now,ttl)=>{try{const row=JSON.parse(storage?.getIte
 export async function fetchRolloutConfig({fetchImpl=globalThis.fetch,timeoutMs=5000}={}){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
-    const cfg=await fetchImpl('/api/config',{cache:'no-store',signal:controller.signal});if(!cfg.ok)throw new Error('Config pública no disponible.');
-    const {url,publishableKey}=await cfg.json();if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)||typeof publishableKey!=='string'||!publishableKey)throw new Error('Endpoint de rollout inválido.');
+    const {url,publishableKey}=await fetchPublicConfig({fetchImpl,signal:controller.signal});
     const response=await fetchImpl(`${url}/rest/v1/rollout_config?select=*&singleton_id=eq.true`,{cache:'no-store',signal:controller.signal,headers:{apikey:publishableKey,Authorization:`Bearer ${publishableKey}`,'Accept-Profile':'nico_fit_v3'}});
     if(!response.ok)throw new Error('No se pudo leer el rollout remoto.');
     const rows=await response.json();if(!Array.isArray(rows)||rows.length!==1)throw new Error('Config de rollout ausente.');
@@ -29,9 +29,8 @@ export class V3RolloutControl{
   consumeCache(){const cached=readCache(this.storage,ROLLOUT_CACHE_KEY,this.now(),this.ttlMs);if(!cached)return false;
     if(this.config&&cached.config.config_version<this.config.config_version)return false;
     this.fallbackMinimum=cached.config.minimum_client_version;
-    if(!cached.fresh){this.config=null;this.lastValidAt=cached.fetchedAt;this.source='fallback';this.emit();return false;}
     if(this.lastValidAt&&Date.parse(cached.fetchedAt)<Date.parse(this.lastValidAt))return false;
-    this.config=cached.config;this.lastValidAt=cached.fetchedAt;this.source='cache';this.emit();return true;}
+    this.config=cached.config;this.lastValidAt=cached.fetchedAt;this.source=cached.fresh?'cache':'stale-offline';this.emit();return true;}
   async refresh({force=false}={}){
     if(this.pending)return this.pending;
     if(!force&&this.now()<this.nextFetchAt)return this.snapshot();
@@ -39,11 +38,11 @@ export class V3RolloutControl{
       try{const config=validateRolloutConfig(await this.fetchConfig());if(this.config&&config.config_version<this.config.config_version)throw new Error('Versión de rollout obsoleta.');this.config=config;this.fallbackMinimum=config.minimum_client_version;this.source='remote';this.lastValidAt=iso(this.now());this.nextFetchAt=this.now()+this.ttlMs;
         try{this.storage?.setItem(ROLLOUT_CACHE_KEY,JSON.stringify({config,fetchedAt:this.lastValidAt}));}catch{}
         this.channel?.postMessage({type:'rollout-updated'});
-      }catch{this.nextFetchAt=this.now()+Math.min(this.ttlMs,10000);if(!this.consumeCache()){this.config=null;this.source='fallback';}}
+      }catch{this.nextFetchAt=this.now()+Math.min(this.ttlMs,10000);if(!this.consumeCache()&&!this.config){this.source='fallback';}else if(this.config){this.source='stale-offline';}}
       return this.emit();
     })();try{return await this.pending;}finally{this.pending=null;}
   }
-  async refreshIfDue(){if(this.lastValidAt&&this.now()-Date.parse(this.lastValidAt)>this.ttlMs){this.config=null;this.source='fallback';this.emit();}return this.refresh();}
+  async refreshIfDue(){if(this.source!=='remote')return this.refresh({force:true});return this.refresh();}
   async start(){this.uninstall=installRolloutControl(this);this.consumeCache();this.windowLike?.addEventListener?.('storage',this.onStorage);
     if(this.Channel){this.channel=new this.Channel('nico-fit-rollout');this.channel.onmessage=()=>this.consumeCache();}
     await this.refresh({force:true});this.timer=setInterval(()=>this.refresh({force:true}),this.ttlMs);return this.snapshot();}

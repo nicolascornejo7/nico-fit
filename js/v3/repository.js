@@ -73,10 +73,11 @@ function mutationStores(entity,enqueue=true){
   return stores;
 }
 
-async function runTransaction(database,stores,mode,callback){
+async function runTransaction(database,stores,mode,callback,diagnostic){
   const transaction=database.transaction(stores,mode),completion=transactionDone(transaction);
-  try{const result=await callback(transaction);await completion;return result;}
-  catch(error){try{transaction.abort();}catch{}await completion.catch(()=>{});throw error;}
+  diagnostic?.({stage:'transaction_opened',stores:[...stores],mode});
+  try{const result=await callback(transaction);await completion;diagnostic?.({stage:'transaction_committed'});return result;}
+  catch(error){try{transaction.abort();}catch{}await completion.catch(()=>{});diagnostic?.({stage:'transaction_aborted',errorName:error?.name||'Error',errorMessage:error?.message||String(error),errorCode:error?.code??null});throw error;}
 }
 
 export class V3LocalRepository{
@@ -108,7 +109,7 @@ export class V3LocalRepository{
   }
 
   // Entity graph, outbox and local UI checkpoint commit atomically.
-  async commitLocalChanges(changes=[],{trainingState,guards=[]}={}){
+  async commitLocalChanges(changes=[],{trainingState,guards=[],diagnostic}={}){
     if(changes.length)assertCurrentClient();
     const prepared=changes.map(change=>({...change,id:change.id||change.payload?.id||uuid(this.crypto),operationId:change.operationId||uuid(this.crypto)}));
     return runTransaction(this.database,[...ENTITY_STORES,INTERNAL_STORES.operations,INTERNAL_STORES.metadata,INTERNAL_STORES.conflicts],'readwrite',async transaction=>{
@@ -145,7 +146,9 @@ export class V3LocalRepository{
         if(catalog?.deleted_at&&type!=='soft_delete')throw new Error('Catalog exercise was deleted.');
         const blocked=current?.sync_status==='conflict'||parent?.sync_status==='conflict'||catalog?.sync_status==='conflict'||existingConflict?.status==='open';
         if(blocked)record.sync_status='conflict';
+        if(entity==='workout_sessions')diagnostic?.({stage:'workout_session_update_started',store:entity,recordId:id});
         await requestResult(store.put(record));
+        if(entity==='workout_sessions')diagnostic?.({stage:'workout_session_update_written',store:entity,recordId:id});
         const mutation=type==='insert'?'insert':await mutationType(operations,entity,id,current.remote_version,type);
         const operation=operationRecord({operationId:change.operationId,userId:this.userId,entity,record,type:mutation,baseRemoteVersion:current?.remote_version,sequence:sequence++,timestamp});
         if(change.preserveTransition)operation.preserve_transition=true;
@@ -167,9 +170,9 @@ export class V3LocalRepository{
           positions.add(row.position);
         }
       }
-      if(trainingState!==undefined)await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put({key:'training:state',owner_id:this.userId,value:clone(trainingState),updated_at:nowIso()}));
+      if(trainingState!==undefined){diagnostic?.({stage:'training_state_cleanup_started',store:INTERNAL_STORES.metadata});await requestResult(transaction.objectStore(INTERNAL_STORES.metadata).put({key:'training:state',owner_id:this.userId,value:clone(trainingState),updated_at:nowIso()}));diagnostic?.({stage:'training_state_cleanup_written',store:INTERNAL_STORES.metadata});}
       return results;
-    });
+    },diagnostic);
   }
 
   async get(entity,id){

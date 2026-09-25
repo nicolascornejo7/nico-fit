@@ -4,7 +4,11 @@ import {readFile} from 'node:fs/promises';
 import {IDBFactory} from 'fake-indexeddb';
 import {V3LocalRepository} from '../js/v3/repository.js';
 import {V3SyncEngine} from '../js/v3/sync-engine.js';
-import {compactOperations,remotePayloadForOperation} from '../js/v3/sync-protocol.js';
+import {compactOperations,remoteConfirmsOperation,remotePayloadForOperation} from '../js/v3/sync-protocol.js';
+import {BASE_EXERCISES,baseCatalogId} from '../js/v3/base-exercise-catalog.js';
+import {V3RolloutControl} from '../js/v3/rollout-control.js';
+import {EMPTY_FLAGS} from '../js/v3/rollout-policy.js';
+import {V3TrainingEngine} from '../js/v3/training-engine.js';
 
 const USER_A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -57,6 +61,7 @@ class TestLocks{
 
 const open=(indexedDB,userId=USER_A)=>V3LocalRepository.open({indexedDB,userId,featureEnabled:true});
 const engine=(repository,remote,options={})=>new V3SyncEngine({repository,remote,featureEnabled:true,locks:null,random:()=>0, ...options});
+const rolloutRow=(patch={})=>({singleton_id:true,config_version:1,minimum_client_version:'nico-fit-v33',maintenance_mode:false,...EMPTY_FLAGS,v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_sync_enabled:true,updated_at:'2026-09-22T12:00:00Z',...patch});
 
 test('V3 sync stays separate from V2 and staging rejects production secrets',async()=>{
   const [app,v2Sync,runner,flags]=await Promise.all([
@@ -142,6 +147,48 @@ test('a duplicated insert after a lost acknowledgement is idempotent',async()=>{
   const [operation]=await repository.listOperations(),remoteRow=await remote.mutate(operation,USER_A);
   await engine(repository,remote).syncOnce();
   assert.equal((await repository.listOperations())[0].status,'synced');assert.equal((await repository.get('workout_sessions',local.id)).remote_version,remoteRow.version);repository.close();
+});
+
+test('two stores seed the same deterministic base catalog with different timestamps without conflicts',async()=>{
+  const remote=new MockRemote(),a=await open(new IDBFactory()),b=await open(new IDBFactory());
+  try{
+    for(const item of BASE_EXERCISES){const id=await baseCatalogId(USER_A,item.stable_key);await a.create('exercise_catalog',{...item,created_at:'2026-09-22T10:00:00.000Z'},{id});}
+    const first=await engine(a,remote).syncOnce();assert.equal(first.conflicts,0);assert.equal(first.pushed,BASE_EXERCISES.length);
+    for(const item of BASE_EXERCISES){const id=await baseCatalogId(USER_A,item.stable_key);await b.create('exercise_catalog',{...item,created_at:'2026-09-22T11:00:00.000Z'},{id});}
+    const second=await engine(b,remote).syncOnce();
+    assert.equal(second.conflicts,0);assert.equal((await b.listConflicts()).length,0);
+    assert.equal((await b.listOperations()).filter(row=>row.status!=='synced').length,0);
+  }finally{a.close();b.close();}
+});
+
+test('deterministic catalog insert ignores timestamps and adopts an identical remote version 2',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote(),item=BASE_EXERCISES[0],id=await baseCatalogId(USER_A,item.stable_key);
+  try{
+    await repository.create('exercise_catalog',{...item,created_at:'2026-09-22T11:00:00.000Z'},{id});
+    remote.seed('exercise_catalog',{...item,id,owner_user_id:USER_A,created_at:'2026-09-22T10:00:00.000Z',version:2});
+    const result=await engine(repository,remote).syncOnce(),local=await repository.get('exercise_catalog',id);
+    assert.equal(result.conflicts,0);assert.equal(local.remote_version,2);assert.equal((await repository.listOperations())[0].status,'synced');
+  }finally{repository.close();}
+});
+
+test('deterministic catalog insert still conflicts on functional changes or remote tombstones',async()=>{
+  const item=BASE_EXERCISES[0],id=await baseCatalogId(USER_A,item.stable_key),payload={...item,id,owner_id:USER_A,created_at:'2026-09-22T11:00:00.000Z',updated_at:'2026-09-22T11:00:00.000Z',deleted_at:null,remote_version:null,local_revision:1,sync_status:'pending'},operation={operation_id:'catalog-op',entity:'exercise_catalog',record_id:id,type:'insert',base_remote_version:null,payload,sequence:1};
+  const remote={...remotePayloadForOperation(operation,USER_A),created_at:'2026-09-22T10:00:00.000Z',updated_at:'2026-09-22T10:00:00.000Z',version:2};
+  assert.equal(remoteConfirmsOperation(operation,remote,USER_A),true);
+  assert.equal(remoteConfirmsOperation(operation,{...remote,canonical_name:'Otro ejercicio'},USER_A),false);
+  assert.equal(remoteConfirmsOperation(operation,{...remote,deleted_at:'2026-09-22T12:00:00.000Z'},USER_A),false);
+});
+
+test('maintenance preserves a free workout queue and resumption drains it without conflicts',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();let config=rolloutRow({maintenance_mode:true});
+  const rollout=new V3RolloutControl({buildId:'nico-fit-v33',storage:{getItem:()=>null,setItem(){},removeItem(){}},Channel:null,windowLike:null,fetchConfig:async()=>config});
+  try{
+    await rollout.start();const training=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false});await training.createFreeWorkout({date:'2026-09-22'});
+    assert.equal((await engine(repository,remote).syncOnce()).skipped,'rollout_blocked');assert.equal((await repository.operationalSnapshot()).counts.pending,BASE_EXERCISES.length+1);
+    config=rolloutRow({config_version:2,maintenance_mode:false,updated_at:'2026-09-22T12:01:00Z'});await rollout.refresh({force:true});
+    const result=await engine(repository,remote).syncOnce(),snapshot=await repository.operationalSnapshot();
+    assert.equal(result.conflicts,0);assert.equal(snapshot.queue.operations,0);
+  }finally{rollout.stop();repository.close();}
 });
 
 test('an unexpected close while syncing recovers and completes the operation',async()=>{

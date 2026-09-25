@@ -62,7 +62,7 @@ test('strategy B remaps every V2 owner atomically and rejects protected target',
   }finally{await db.close();}
 });
 
-test('documentation distinguishes preserved Auth from recreated Auth and remains NO-GO',async()=>{
+test('documentation records the disposable Strategy B end-to-end PASS',async()=>{
   const docs=await read('docs/v3-full-disaster-recovery.md');
   assert.match(docs,/Estrategia A: dump y restore completos/);
   assert.match(docs,/Estrategia B: datos y recreación de Auth/);
@@ -70,5 +70,9 @@ test('documentation distinguishes preserved Auth from recreated Auth and remains
   assert.match(docs,/UUID de usuario/);
   assert.match(docs,/Objetos que no deben copiarse ciegamente/);
   assert.match(docs,/Elementos que se recrean manualmente/);
-  assert.match(docs,/NO-GO para considerar cerrado disaster recovery/);
+  assert.match(docs,/Strategy B end-to-end/);
+  assert.match(docs,/Strategy B queda \*\*PASS\*\*/);
+  const runner=await read('scripts/v3-dr-strategy-b-e2e.mjs');
+  for(const ref of ['xaklsoqyzwowtjwcpwmb','tmydirzzlmlmtjgwqcgh'])assert.match(runner,new RegExp(ref));
+  assert.doesNotMatch(runner,/console\.log\([^)]*(password|secretKey|access_token)/);
 });

@@ -9,9 +9,11 @@ import {sessionMetrics} from '../js/v3/training-metrics.js';
 import {v3Progression} from '../js/v3/training-progression.js';
 import {V3SyncEngine} from '../js/v3/sync-engine.js';
 import {remotePayloadForOperation} from '../js/v3/sync-protocol.js';
+import {installRolloutControl} from '../js/v3/rollout-state.js';
 
 const userId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 async function setup(indexedDB=new IDBFactory()){
+  installRolloutControl({snapshot:()=>({updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_sync_enabled:false}}),refreshIfDue:async()=>{}});
   const repository=await V3LocalRepository.open({indexedDB,userId,featureEnabled:true});
   let now=new Date('2026-09-15T12:00:00Z');
   const engine=new V3TrainingEngine({repository,featureEnabled:true,now:()=>new Date(now)});
@@ -26,7 +28,7 @@ const setInput=(patch={})=>({load_kg:50,reps:10,duration_seconds:null,rir:2,is_c
 test('training flag defaults off and never enables sync',async()=>{
   const values=new Map(),storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
   assert.equal(isV3TrainingEnabled(storage),false);setV3TrainingEnabled(true,storage);assert.equal(isV3TrainingEnabled(storage),true);assert.equal(isV3SyncEnabled(storage),false);
-  const {repository}=await setup();assert.throws(()=>new V3TrainingEngine({repository,flagStorage:{getItem:()=>null}}),/disabled/);repository.close();
+  const {repository}=await setup();assert.throws(()=>new V3TrainingEngine({repository,featureEnabled:false}),/disabled/);repository.close();
 });
 
 test('creating a routine session stores the full graph and historical prescription',async()=>{
@@ -56,7 +58,41 @@ test('free workout uses the V3 session graph without a routine and persists acro
 });
 
 test('free workout cannot finish empty',async()=>{
-  const {repository,engine}=await setup();await engine.createFreeWorkout();await assert.rejects(()=>engine.finishSession({rpe:7}),/al menos una serie/);repository.close();
+  const {repository,engine}=await setup();await engine.createFreeWorkout();await assert.rejects(()=>engine.finishSession({rpe:7}),/Completá al menos una serie antes de finalizar o descartá la sesión/);repository.close();
+});
+
+test('discarding an active empty draft tombstones it, clears training state and survives reload',async()=>{
+  const {repository,engine,indexedDB}=await setup(),started=await engine.createFreeWorkout();
+  const discarded=await engine.discardSession();assert.ok(discarded.deleted_at);assert.equal(discarded.status,'draft');assert.equal(discarded.ended_at,null);assert.equal(discarded.duration_seconds,null);assert.equal(engine.getState(),null);assert.equal(await repository.getTrainingState(),null);
+  const tombstone=(await repository.listOperations()).find(operation=>operation.entity==='workout_sessions'&&operation.record_id===started.session.id&&operation.type==='soft_delete');assert.ok(tombstone);assert.equal(tombstone.status,'pending');repository.close();
+  const reopened=await setup(indexedDB);assert.equal(await reopened.engine.recover(),null);assert.equal((await reopened.repository.listSessions()).some(session=>session.id===started.session.id),false);assert.ok((await reopened.repository.get('workout_sessions',started.session.id)).deleted_at);reopened.repository.close();
+});
+
+test('discarding an orphan draft preserves every other session and its tombstone',async()=>{
+  const {repository,engine}=await setup(),active=await engine.createFreeWorkout(),orphan=await repository.create('workout_sessions',{session_date:'2026-09-14',label:'Abandonada',status:'draft',started_at:'2026-09-14T12:00:00Z'}),other=await repository.create('workout_sessions',{session_date:'2026-09-13',label:'Otra',status:'draft',started_at:'2026-09-13T12:00:00Z'});
+  const discarded=await engine.discardSession(orphan.id);assert.ok(discarded.deleted_at);assert.equal((await repository.getTrainingState()).activeSessionId,active.session.id);assert.equal((await repository.get('workout_sessions',active.session.id)).deleted_at,null);assert.equal((await repository.get('workout_sessions',other.id)).deleted_at,null);assert.equal((await repository.listOperations()).filter(operation=>operation.record_id===orphan.id&&operation.type==='soft_delete').length,1);repository.close();
+});
+
+test('free workout seeds a persistent base catalog and never removes choices after use',async()=>{
+  const {repository,engine,indexedDB}=await setup();
+  const catalog=await engine.catalog(),byKey=new Map(catalog.map(item=>[item.stable_key,item]));
+  for(const key of ['sentadilla-prensa','press-banca','remo-barra','press-militar','curl-biceps-barra','extension-triceps-polea','elevacion-gemelos','plancha-pallof'])assert.ok(byKey.has(key),`missing ${key}`);
+  await engine.createFreeWorkout();
+  const a=await engine.addExercise(byKey.get('sentadilla-prensa').id),b=await engine.addExercise(byKey.get('press-banca').id),again=await engine.repeatExercise(a.id);
+  assert.deepEqual((await engine.snapshot()).exercises.map(item=>item.exercise_catalog_id),[a.exercise_catalog_id,b.exercise_catalog_id,a.exercise_catalog_id]);
+  assert.deepEqual((await engine.snapshot()).exercises.map(item=>item.position),[0,1,2]);
+  const after=await engine.catalog();assert.equal(after.length,catalog.length);assert.ok(after.some(item=>item.id===byKey.get('remo-barra').id));
+  repository.close();
+  const reopened=await setup(indexedDB);const persisted=await reopened.engine.catalog();assert.equal(persisted.length,catalog.length);assert.ok(persisted.some(item=>item.stable_key==='press-banca'));reopened.repository.close();
+});
+
+test('free workouts accept today or a past date, reject future dates, and leave the scheduled routine intact',async()=>{
+  const {repository,engine}=await setup();
+  const today=await engine.createFreeWorkout();assert.equal(today.session.session_date,'2026-09-15');
+  const yesterday=await engine.createFreeWorkout({date:'2026-09-14'});assert.equal(yesterday.session.session_date,'2026-09-14');
+  await assert.rejects(()=>engine.createFreeWorkout({date:'2026-09-16'}),/fecha futura/);
+  const scheduled=await engine.createSession();assert.equal(scheduled.session.session_type,'routine');assert.equal(scheduled.session.session_date,'2026-09-15');assert.equal(scheduled.exercises.length,7);
+  repository.close();
 });
 
 test('repeated exercises use occurrence IDs without sharing sets',async()=>{
@@ -108,11 +144,40 @@ test('reload restores current exercise, view, form drafts and summary inputs',as
   assert.equal(reopened.engine.getState().view,'summary');assert.equal(reopened.engine.getState().drafts[`${ex.id}:new`].rir,'0');assert.equal(reopened.engine.getState().summaryDraft.notes,'Pendiente');reopened.repository.close();
 });
 
+test('reload never auto-activates an orphan draft without a training checkpoint',async()=>{
+  const {repository,indexedDB}=await setup();
+  const orphan=await repository.create('workout_sessions',{session_date:'2026-09-14',label:'Draft huérfano',status:'draft',started_at:'2026-09-14T12:00:00Z'});
+  assert.equal(await repository.getTrainingState(),null);repository.close();
+  const reopened=await setup(indexedDB),restored=await reopened.engine.recover();
+  assert.equal(restored,null);assert.equal(reopened.engine.getState(),null);assert.equal((await reopened.repository.get('workout_sessions',orphan.id)).status,'draft');reopened.repository.close();
+});
+
 test('finalization records RPE, notes and timestamp duration before clearing active state',async()=>{
   const {repository,engine,setNow}=await setup();await engine.createSession({useRoutine:false});const ex=await custom(engine);await engine.saveSet(ex.id,setInput());setNow('2026-09-15T13:00:30Z');
   await assert.rejects(()=>engine.finishSession({rpe:11}),/RPE/);assert.ok(engine.getState());
   const result=await engine.finishSession({rpe:7.5,notes:'Técnica sólida'});assert.equal(result.session.status,'completed');assert.equal(result.session.duration_seconds,3630);assert.equal(result.session.rpe,7.5);
   assert.equal(await repository.getTrainingState(),null);assert.equal(engine.getState(),null);assert.equal(result.session.sync_status,'pending');repository.close();
+});
+
+test('finalization diagnostic records successful commit and immediate persisted state',async()=>{
+  const {repository,engine}=await setup();const started=await engine.createSession({useRoutine:false}),exercise=await custom(engine);await engine.saveSet(exercise.id,setInput());let diagnostic;
+  await engine.finishSession({rpe:7},{onDiagnostic:value=>diagnostic=value});
+  assert.equal(diagnostic.sessionId,started.session.id);assert.equal(diagnostic.preState,'draft');assert.equal(diagnostic.sessionIdMatchesTrainingState,true);assert.equal(diagnostic.transaction.opened,true);assert.equal(diagnostic.transaction.workoutSessionUpdateWritten,true);assert.equal(diagnostic.transaction.trainingStateCleanupWritten,true);assert.equal(diagnostic.transaction.committed,true);assert.equal(diagnostic.after.sessionStatus,'completed');assert.ok(diagnostic.after.endedAt);assert.equal(diagnostic.after.trainingStateActiveSessionId,null);repository.close();
+});
+
+test('finalization diagnostic distinguishes missing session and training-state mismatch',async()=>{
+  const first=await setup();first.engine.state={activeSessionId:'missing',drafts:{},summaryDraft:{}};let missing;
+  await assert.rejects(()=>first.engine.finishSession({rpe:7},{onDiagnostic:value=>missing=value}),/not found/);assert.equal(missing.failureStage,'validation_session_found');assert.equal(missing.transaction.opened,false);assert.equal(missing.after.sessionStatus,null);first.repository.close();
+  const second=await setup(),started=await second.engine.createSession({useRoutine:false}),exercise=await custom(second.engine);await second.engine.saveSet(exercise.id,setInput());await second.repository.commitLocalChanges([],{trainingState:{activeSessionId:'different',drafts:{},summaryDraft:{}}});let mismatch;
+  await second.engine.finishSession({rpe:7},{onDiagnostic:value=>mismatch=value});assert.equal(mismatch.sessionId,started.session.id);assert.equal(mismatch.trainingStateActiveSessionId,'different');assert.equal(mismatch.sessionIdMatchesTrainingState,false);assert.equal(mismatch.success,true);second.repository.close();
+});
+
+test('finalization diagnostic exposes transaction abort and write error without extra mutations',async()=>{
+  for(const error of [new DOMException('Transaction aborted','AbortError'),new DOMException('Write failed','QuotaExceededError')]){
+    const {repository,engine}=await setup();const started=await engine.createSession({useRoutine:false}),exercise=await custom(engine);await engine.saveSet(exercise.id,setInput());const before=await repository.get('workout_sessions',started.session.id),original=repository.commitLocalChanges.bind(repository);let diagnostic;
+    repository.commitLocalChanges=async(_changes,{diagnostic:trace})=>{trace({stage:'transaction_opened',stores:['workout_sessions','sync_metadata'],mode:'readwrite'});trace({stage:'workout_session_update_started',store:'workout_sessions',recordId:started.session.id});trace({stage:'transaction_aborted',errorName:error.name,errorMessage:error.message,errorCode:error.code??null});throw error;};
+    await assert.rejects(()=>engine.finishSession({rpe:7},{onDiagnostic:value=>diagnostic=value}),{name:error.name});assert.equal(diagnostic.success,false);assert.equal(diagnostic.failureStage,'transaction_aborted');assert.equal(diagnostic.transaction.opened,true);assert.equal(diagnostic.transaction.aborted,true);assert.equal(diagnostic.transaction.committed,false);assert.equal(diagnostic.after.sessionStatus,'draft');assert.deepEqual(await repository.get('workout_sessions',started.session.id),before);assert.equal((await repository.getTrainingState()).activeSessionId,started.session.id);repository.commitLocalChanges=original;repository.close();
+  }
 });
 
 test('failed finalization preserves session and summary for retry',async()=>{
@@ -197,6 +262,22 @@ class LocalTestRemote{
   }
 }
 
+test('local finalization persists across reopen, stops duration and later sync keeps it completed',async()=>{
+  const {repository,engine,indexedDB,setNow}=await setup();
+  await repository.create('workout_sessions',{session_date:'2026-09-10',label:'Histórica 1',status:'completed',started_at:'2026-09-10T12:00:00Z',ended_at:'2026-09-10T13:00:00Z'});
+  await repository.create('workout_sessions',{session_date:'2026-09-11',label:'Histórica 2',status:'completed',started_at:'2026-09-11T12:00:00Z',ended_at:'2026-09-11T13:00:00Z'});
+  const started=await engine.createSession({useRoutine:false}),exercise=await custom(engine);await engine.saveSet(exercise.id,setInput());setNow('2026-09-15T13:00:00Z');
+  const finished=await engine.finishSession({rpe:7,notes:'Final real'}),duration=finished.session.duration_seconds;
+  assert.equal(finished.session.status,'completed');assert.equal(finished.session.ended_at,'2026-09-15T13:00:00.000Z');assert.equal(await repository.getTrainingState(),null);
+  const pendingBefore=(await repository.listOperations({status:'pending'})).length;assert.ok(pendingBefore>0);repository.close();
+  const reopened=await setup(indexedDB);reopened.setNow('2026-09-18T18:00:00Z');assert.equal(await reopened.engine.recover(),null);
+  const persisted=await reopened.engine.snapshot(started.session.id);assert.equal(persisted.session.status,'completed');assert.equal(persisted.session.ended_at,'2026-09-15T13:00:00.000Z');assert.equal(sessionMetrics(persisted,{now:Date.parse('2026-09-18T18:00:00Z')}).durationSeconds,duration);
+  assert.equal((await reopened.repository.listOperations({status:'pending'})).length,pendingBefore);assert.equal((await reopened.engine.history()).filter(item=>item.session.status==='completed').length,3);
+  const remote=new LocalTestRemote(),sync=new V3SyncEngine({repository:reopened.repository,remote,featureEnabled:true,locks:null,batchSize:50});
+  for(let attempt=0;attempt<10&&(await reopened.repository.listOperations({status:'pending'})).length;attempt++)await sync.syncOnce();
+  const remoteSession=await remote.fetchById('workout_sessions',started.session.id);assert.equal(remoteSession.status,'completed');assert.equal(remoteSession.ended_at,'2026-09-15T13:00:00.000Z');assert.equal(await reopened.engine.recover(),null);reopened.repository.close();
+});
+
 test('a fully offline training graph and reorder sync later without version or position collisions',async()=>{
   const {repository,engine}=await setup();await engine.createSession({useRoutine:false});const a=await custom(engine),b=await engine.repeatExercise(a.id);await engine.saveSet(a.id,setInput());await engine.saveSet(a.id,{reps:12},{setId:(await engine.snapshot()).exercises[0].sets[0].id});await engine.reorderExercises([b.id,a.id]);await engine.finishSession({rpe:7});
   const remote=new LocalTestRemote(),sync=new V3SyncEngine({repository,remote,featureEnabled:true,locks:null,batchSize:3});
@@ -207,5 +288,5 @@ test('a fully offline training graph and reorder sync later without version or p
 
 test('training UI uses safe DOM, gated entry and no IndexedDB or Supabase component writes',async()=>{
   const [ui,entry]=await Promise.all([readFile(new URL('../js/v3/training-ui.js',import.meta.url),'utf8'),readFile(new URL('../js/v3/training-entry.js',import.meta.url),'utf8')]);
-  assert.doesNotMatch(ui,/innerHTML|indexedDB|\.database|\.schema\(|\.from\(/);assert.match(ui,/textContent/);assert.match(entry,/button.hidden=!isV3TrainingEnabled\(\)/);assert.match(entry,/await rolloutReady/);assert.doesNotMatch(entry,/setV3SyncEnabled|createClient/);
+  assert.doesNotMatch(ui,/innerHTML|indexedDB|\.database|\.schema\(|\.from\(/);assert.match(ui,/textContent/);assert.match(ui,/Fecha de la sesión/);assert.match(ui,/Registrar musculación libre/);assert.match(ui,/max:today/);assert.match(entry,/button.hidden=!isV3TrainingEnabled\(\)/);assert.match(entry,/await rolloutReady/);assert.doesNotMatch(entry,/setV3SyncEnabled|createClient/);
 });

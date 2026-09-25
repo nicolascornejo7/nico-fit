@@ -45,11 +45,11 @@ test('local backup excludes auth tokens and restore requires origin plus typed c
   assert.match(restore,/RESTORE AND REPLACE LOCAL NICO FIT DATA/);assert.match(restore,/payload\.origin!==location\.origin/);assert.match(restore,/store\.clear\(\)/);
 });
 
-test('runbook keeps activation ordered, rollback boundary explicit and current decision NO-GO',async()=>{
+test('runbook keeps activation ordered, rollback boundary explicit and current decision conditional',async()=>{
   const doc=await read('docs/v3-cutover-runbook.md'),order=['**Storage V3**','**Signals**','**Routines**','**Training**','**Sync**','**Conflicts**','**Observability**','**Coach**'];
   let prior=-1;for(const label of order){const index=doc.indexOf(label);assert.ok(index>prior,`${label} is out of order`);prior=index;}
   assert.match(doc,/punto de no retorno simple es la primera escritura V3 aceptada/i);
-  assert.match(doc,/NO-GO para cutover/);
+  assert.match(doc,/CONDITIONAL GO para producción/);
   assert.match(doc,/standalone PWA/i);assert.match(doc,/Android/i);assert.match(doc,/iPhone\/iOS/i);assert.match(doc,/dos pestañas/i);
   assert.match(doc,/365 días/);assert.match(doc,/eliminación de cuenta/i);
 });
