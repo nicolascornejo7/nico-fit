@@ -27,15 +27,16 @@ test('traceability tables contain required migration audit fields',async()=>{
 });
 
 test('schema, backfill, and cutover remain separate',async()=>{
-  const [schema,sessions,workouts,cutover]=await Promise.all([
-    read('supabase/migration-v3-schema.sql'),read('supabase/backfill-v2-sessions.sql'),read('supabase/backfill-v2-workouts.sql'),read('supabase/cutover-v3.sql')
+  const [schema,sessions,workouts,cutover,grants]=await Promise.all([
+    read('supabase/migration-v3-schema.sql'),read('supabase/backfill-v2-sessions.sql'),read('supabase/backfill-v2-workouts.sql'),read('supabase/cutover-v3.sql'),read('sql/v3-production-api-grants.sql')
   ]);
   assert.doesNotMatch(schema,/grant (select|insert|update).*authenticated/i);
   assert.match(schema,/revoke all on schema nico_fit_v3 from public, anon, authenticated/i);
   assert.match(sessions,/public\.workout_sessions/i);
   assert.match(workouts,/public\.workouts/i);
-  assert.match(cutover,/grant usage on schema nico_fit_v3 to authenticated/i);
-  assert.doesNotMatch(cutover,/grant delete/i);
+  assert.match(cutover,/\\ir \.\.\/sql\/v3-production-api-grants\.sql/i);
+  assert.match(grants,/grant usage on schema nico_fit_v3 to anon, authenticated/i);
+  assert.doesNotMatch(grants,/grant delete/i);
 });
 
 test('backfill preserves tombstones and is duplicate-safe',async()=>{
