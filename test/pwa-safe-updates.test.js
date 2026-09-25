@@ -126,10 +126,10 @@ test('worker precaches full version, avoids automatic takeover and cleans only N
   const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
   const index=await readFile(new URL('../index.html',import.meta.url),'utf8');
   const inventory=await readFile(new URL('../local-device-inventory.html',import.meta.url),'utf8');
-  assert.match(sw,/const BUILD_ID='nico-fit-v45'/);
-  assert.match(index,/nico-fit-build" content="nico-fit-v45"/);
-  assert.match(index,/PRUEBA v45/);
-  assert.match(inventory,/nico-fit-build" content="nico-fit-v45"/);
+  assert.match(sw,/const BUILD_ID='nico-fit-v46'/);
+  assert.match(index,/nico-fit-build" content="nico-fit-v46"/);
+  assert.match(index,/PRUEBA v46/);
+  assert.match(inventory,/nico-fit-build" content="nico-fit-v46"/);
   assert.doesNotMatch(sw,/clients\.claim\(/);
   assert.match(sw,/await self\.skipWaiting\(\)/);
   assert.match(sw,/Number\(name\.slice\(CACHE_PREFIX\.length\)\)<BUILD_NUMBER/);
@@ -213,7 +213,7 @@ test('waiting worker cache survives cleanup by the active worker',async()=>{
     globalThis.self={registration:{scope:'http://127.0.0.1:8199/'},location:{origin:'http://127.0.0.1:8199'},clients:{matchAll:async()=>[],get:async()=>({postMessage(){/* Page JS has not started yet. */}})},addEventListener:(name,handler)=>events.set(name,handler)};
     await import(`../sw.js?cache-test=${Date.now()}`);
     let install;events.get('install')({waitUntil:promise=>{install=promise;}});await install;
-    assert.ok(buckets.get('nico-fit-v45').has('http://127.0.0.1:8199/index.html'));
+    assert.ok(buckets.get('nico-fit-v46').has('http://127.0.0.1:8199/index.html'));
     globalThis.fetch=async()=>{throw new Error('offline');};
     for(let reopen=0;reopen<2;reopen++){
       const clientId=`reopened-client-${reopen}`;
@@ -226,10 +226,10 @@ test('waiting worker cache survives cleanup by the active worker',async()=>{
       let response;events.get('fetch')({request:{url:'http://127.0.0.1:8199/styles.css?standalone=1',method:'GET',mode:'cors'},clientId,respondWith:promise=>{response=promise;}});
       assert.equal((await response).status,200,'a query variant resolves to the same cached CSS');
     }
-    await cacheStorage.open('nico-fit-v46');await cacheStorage.open('unrelated-cache');await cacheStorage.open('nico-fit-v24');
+    await cacheStorage.open('nico-fit-v47');await cacheStorage.open('unrelated-cache');await cacheStorage.open('nico-fit-v24');
     let cleanup;let result;events.get('message')({data:{type:'NICO_FIT_CLEANUP'},ports:[{postMessage:value=>{result=value;}}],waitUntil:promise=>{cleanup=promise;}});await cleanup;
     assert.equal(result.cleaned,true);
-    assert.deepEqual((await cacheStorage.keys()).sort(),['nico-fit-v45','nico-fit-v46','unrelated-cache']);
+    assert.deepEqual((await cacheStorage.keys()).sort(),['nico-fit-v46','nico-fit-v47','unrelated-cache']);
     let fetched;events.get('fetch')({request:{url:'http://127.0.0.1:8199/',method:'GET',mode:'navigate'},clientId:'',respondWith:promise=>{fetched=promise;}});
     assert.equal((await fetched).status,200);
   }finally{globalThis.self=old.self;globalThis.caches=old.caches;globalThis.fetch=old.fetch;}

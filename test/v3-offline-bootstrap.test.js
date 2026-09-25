@@ -106,6 +106,16 @@ test('manual V3 sync validates rollout and Auth before constructing the engine',
   assert.deepEqual(result,{pushed:1,conflicts:0});assert.deepEqual(order,['rollout','config','client','auth','adapter','engine','sync']);
 });
 
+test('manual V3 sync permits only the authorized staging and production projects',async()=>{
+  const repository={userId},created=[];
+  class Adapter {constructor({client}){this.client=client;}}
+  class Engine {async syncOnce(){return {pushed:1,conflicts:0};}}
+  const options=url=>({online:()=>true,storageEnabled:()=>true,syncEnabled:()=>true,refreshRollout:async()=>({source:'remote',remoteWritesAllowed:true}),fetchConfig:async()=>({url,publishableKey:'sb_publishable_fixture'}),loadSdk:async()=>({createClient:target=>{created.push(target);return {auth:{getUser:async()=>({data:{user:{id:userId}},error:null})}};}}),Adapter,Engine});
+  for(const url of ['https://tmydirzzlmlmtjgwqcgh.supabase.co','https://xaklsoqyzwowtjwcpwmb.supabase.co'])assert.equal((await syncV3Repository(repository,options(url))).pushed,1);
+  for(const url of ['https://third-project.supabase.co','not-a-url','https://xaklsoqyzwowtjwcpwmb.supabase.co/path'])await assert.rejects(()=>syncV3Repository(repository,options(url)),/destino de sync V3/);
+  assert.deepEqual(created,['https://tmydirzzlmlmtjgwqcgh.supabase.co','https://xaklsoqyzwowtjwcpwmb.supabase.co']);
+});
+
 test('manual V3 sync remains pending when offline, stale, maintenance, disabled, invalid Auth, or a transient error occurs',async()=>{
   const repository={userId};
   const enabled={storageEnabled:()=>true,syncEnabled:()=>true};

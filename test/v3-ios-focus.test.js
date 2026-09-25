@@ -17,6 +17,6 @@ test('iOS focus controls use a non-zooming text size and a versioned shell',asyn
   assert.match(styles,/html\{[^}]*-webkit-text-size-adjust:100%/);
   assert.match(styles,/input:not\(\[type="range"\]\):not\(\[type="checkbox"\]\),select,textarea\{font-size:17px/);
   assert.match(training,/\.v3-training-screen input:not\(\[type="range"\]\):not\(\[type="checkbox"\]\).*font-size:17px/);
-  assert.match(index,/nico-fit-build" content="nico-fit-v45/);
-  assert.match(worker,/const BUILD_ID='nico-fit-v45'/);
+  assert.match(index,/nico-fit-build" content="nico-fit-v46/);
+  assert.match(worker,/const BUILD_ID='nico-fit-v46'/);
 });
