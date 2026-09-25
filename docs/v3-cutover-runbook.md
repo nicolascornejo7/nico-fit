@@ -436,3 +436,15 @@ No quedan bloqueantes técnicos documentales conocidos. Los pendientes operativo
 4. Designar responsables de DB, release y validación, definir la ventana y obtener confirmación manual.
 
 Pruebas todavía recomendadas: suspensión física prolongada, dos pestañas, dos dispositivos y flapping/backoff prolongado. Pueden aceptarse como riesgo residual porque Web Locks/lease, recuperación, backoff y aislamiento ya tienen cobertura automatizada y el flujo crítico físico pasó; esa aceptación debe quedar registrada antes de la autorización final.
+
+### Post-cutover incidents and resolutions
+
+- `signals_identity_guard()` asumía `NEW.football_session_id` en tablas sin esa columna. Se corrigió con lógica segura por tabla/JSONB; las validaciones de signals y RLS pasaron.
+- El runtime de sync rechazaba producción por una guarda limitada a staging. Se corrigió con una allowlist cerrada para staging y producción, manteniendo fail-closed.
+- Los flags remotos de routines/signals no gobernaban sus ramas de sync específicas. Se corrigió la precedencia: rollout remoto fresco es autoritativo y el flag local sólo funciona como fallback sin rollout válido.
+
+### Baseline estable
+
+Build `nico-fit-v47`; rollout v10; `v3_enabled`, storage, signals, routines, training, sync, conflicts, observability y coach activos; maintenance desactivado; minimum client `nico-fit-v18`. El primer sync real pasó de 70 a 40 operaciones al habilitar inicialmente sólo catálogo y terminó en 0 tras corregir la precedencia de flags. El punto de no retorno operativo fue la persistencia de 30 filas reales de `exercise_catalog` en producción.
+
+Checklist post-cutover: app productiva usable; sync y conflictos 0/0; safe PWA update validado; Auth/RLS validados; Coach, observabilidad y conflictos activos; backup pre-cutover verificado; Strategy B de disaster recovery/Auth validada end-to-end. V3 contiene datos personales productivos reales y es el baseline operativo futuro. No generar backfill V2 ni descongelar V2 sin aprobación explícita.
