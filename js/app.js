@@ -20,13 +20,16 @@ import {V3SignalsUI} from './v3/signals-ui.js';
 import {V3TodayService} from './v3/today-service.js';
 import {syncV3Repository} from './v3/sync-runtime.js';
 import {UnifiedProgress} from './v3/unified-progress.js';
+import {cachedPublicConfig} from './v3/public-config.js';
+import {assertAuthorizedV3Url} from './v3/authorized-projects.js';
+import {productSyncStatus} from './v3/product-sync-status.js';
 
 await rolloutReady;
 
 let storageOwner='guest',data=loadLocalData(storageOwner),lastRenderedDate=localDateKey();
 let sessionTick=null,restTick=null,restoreExercisePosition=true;
 let v3Repository=null,v3Signals=null,v3Today=null,v3Context=null,v3Generation=0;
-let progressSnapshot=null,progressGeneration=0;
+let progressSnapshot=null,progressGeneration=0,v3Operational=null,currentProductSync={kind:'local',text:'Solo local'};
 const v2HistoryReader=new V2HistoryReader({getData:()=>data});
 const $=id=>document.getElementById(id);
 const activeSession=new ActiveSessionStore({owner:storageOwner});
@@ -38,16 +41,20 @@ function workoutContext(){const state=activeSession.state;if(!state)return curre
 function persist(){saveLocalData(data,storageOwner);}
 function persistAndRender(capture=true){if(capture)captureActiveDrafts();persist();renderAll(false);}
 async function activateV3Product(user){
-  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;progressSnapshot=null;
+  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;v3Operational=null;progressSnapshot=null;
   if(!user?.id){renderAll(false);return;}
   const repository=await V3LocalRepository.open({userId:user.id});if(token!==v3Generation){repository.close();return;}
   v3Repository=repository;v3Signals=new V3SignalsUI({repository,syncNow:syncV3Repository});v3Today=new V3TodayService({repository});await refreshV3Product();
 }
-async function refreshV3Product(){if(!v3Today)return;v3Context=await v3Today.summary();renderAll(false);}
+function refreshProductSyncStatus(){
+  let runtimeAuthorized=false;try{runtimeAuthorized=!!assertAuthorizedV3Url(cachedPublicConfig()?.url);}catch{}
+  const rollout=rolloutSnapshot(),lastError=v3Operational?.lastError,lastSuccess=v3Operational?.lastSuccess,currentError=lastError&&(!lastSuccess||(lastError.sequence??0)>(lastSuccess.sequence??0))?lastError:null,status=productSyncStatus({authenticated:!!sync.user,online:navigator.onLine!==false,runtimeAuthorized,syncEnabled:!!rollout?.flags.v3_sync_enabled,queue:v3Operational?.queue.operations??0,conflicts:v3Operational?.counts.conflict??0,lastError:currentError});currentProductSync=status;setSyncBadge(status.kind,status.text);return status;
+}
+async function refreshV3Product(){if(!v3Today)return;[v3Context,v3Operational]=await Promise.all([v3Today.summary(),v3Repository.operationalSnapshot()]);refreshProductSyncStatus();renderAll(false);}
 function switchStorageOwner(user){
   if(storageOwner!==(user?.id||'guest'))clearPwaFormDrafts(['sleep','energy','freshness','pain','painArea','footballDuration','footballRpe','footballMinutes','matchEnergy','legs','performance','matchNotes']);
   captureActiveDrafts();storageOwner=user?.id||'guest';data=loadLocalData(storageOwner);activeSession.setOwner(storageOwner);restoreExercisePosition=true;persistAndRender(false);
-  setSyncBadge(user?'pending':'local',user?(navigator.onLine?'Pendiente de sincronizar':'Sin conexión'):'Solo local');
+  currentProductSync=user?{kind:'local',text:'Comprobando sincronización…'}:{kind:'local',text:'Solo local'};setSyncBadge(currentProductSync.kind,currentProductSync.text);
   document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:user?.id||null}}));
   activateV3Product(user).catch(error=>{console.warn(error);setAuthMessage('No se pudo abrir el almacenamiento de entrenamiento.',true);});
 }
@@ -172,7 +179,7 @@ async function renderProgress(){
 }
 function renderStrength(){const points=(progressSnapshot?.exercises??[]).filter(item=>item.identity===$('exerciseSelect').value&&item.maxLoad>0).sort((a,b)=>a.date.localeCompare(b.date)).slice(-10).map(item=>({label:item.date.slice(5),value:item.maxLoad})),maxValue=Math.max(0,...points.map(item=>item.value)),max=Math.max(20,maxValue);$('exerciseMaxLoad').textContent=maxValue?`Máximo: ${maxValue} kg`:'Sin carga registrada';lineChart($('strengthChart'),points,{min:0,max:Math.ceil(max/10)*10,suffix:'kg'});}
 function renderMatch(){$('matchSection').classList.toggle('hidden',currentContext().dayIndex!==6);}
-function renderAuth(){const signed=!!sync.user;$('signedOutBox').classList.toggle('hidden',signed);$('signedInBox').classList.toggle('hidden',!signed);if(signed){$('userEmail').textContent=sync.user.email||'usuario';$('authStatus').textContent=navigator.onLine?sync.lastState.text:'Sin conexión';}else setSyncBadge('local','Solo local');}
+function renderAuth(){const signed=!!sync.user;$('signedOutBox').classList.toggle('hidden',signed);$('signedInBox').classList.toggle('hidden',!signed);if(signed){$('userEmail').textContent=sync.user.email||'usuario';const status=refreshProductSyncStatus();$('authStatus').textContent=status.text;}else{currentProductSync={kind:'local',text:'Solo local'};setSyncBadge('local','Solo local');}}
 function setAuthMessage(msg,error=false){$('authMessage').textContent=msg;$('authMessage').className=error?'advice error-text':'advice';}
 function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active-view'));$(id).classList.add('active-view');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='progressView')setTimeout(()=>renderProgress().catch(()=>{}),0);window.scrollTo({top:0,behavior:'smooth'});}
 function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDate=currentContext().dateKey;hydrateToday();renderDashboard();renderWeek();renderWorkout();renderFootball();renderMatch();renderProgress().catch(()=>{});renderAuth();renderSessionSummary();restorePwaFormDrafts();['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);updateFootballLoad();startTimerIntervals();}
@@ -202,4 +209,4 @@ async function recoverOnlineAuth(){
   try{return await reconnectingAuth;}finally{reconnectingAuth=null;}
 }
 try{const user=rolloutSnapshot()?.flags.v3_enabled?(await reconnectV3Auth({sync,rollout:rolloutControl})).user:await sync.init();renderAuth();if(user){await sync.refreshReadOnly();await activateV3Product(user);renderAll();}}catch(error){console.warn(error);setAuthMessage('Supabase no está disponible. La app sigue funcionando en modo local.',true);renderAuth();if(navigator.onLine&&rolloutSnapshot()?.flags.v3_enabled)await recoverOnlineAuth();}
-window.addEventListener('online',()=>{if(rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});else{renderAuth();sync.refreshReadOnly().then(()=>renderAll()).catch(()=>{});}});window.addEventListener('offline',renderAuth);document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();if(v3Today)refreshV3Product().catch(()=>{});if(navigator.onLine&&!sync.user&&rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});}});setInterval(()=>{if(localDateKey()!==lastRenderedDate){renderAll();if(v3Today)refreshV3Product().catch(()=>{});}},60000);
+window.addEventListener('online',()=>{if(rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().then(()=>v3Today&&refreshV3Product()).catch(()=>{});else{renderAuth();sync.refreshReadOnly().then(()=>renderAll()).catch(()=>{});}});window.addEventListener('offline',renderAuth);document.addEventListener('nico-fit:pwa-safety-changed',()=>{if(v3Today)refreshV3Product().catch(()=>{});});document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();if(v3Today)refreshV3Product().catch(()=>{});if(navigator.onLine&&!sync.user&&rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});}});setInterval(()=>{if(localDateKey()!==lastRenderedDate){renderAll();if(v3Today)refreshV3Product().catch(()=>{});}},60000);

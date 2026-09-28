@@ -1,8 +1,7 @@
+import {assertAuthorizedV3Client} from './authorized-projects.js';
 const columns='event_id,user_id,event_type,entity,entity_id,strategy,local_revision,local_remote_version,remote_version,occurred_at,error_kind,error_code,received_at';
 export function assertStagingV3Client(client){
-  if(client?.supabaseUrl!=='https://tmydirzzlmlmtjgwqcgh.supabase.co')throw new Error('Only nico-fit-v3-staging is allowed.');
-  const key=client.supabaseKey;if(!key||key.startsWith('sb_secret_'))throw new Error('Publishable key required.');
-  if(key.split('.').length===3){const payload=JSON.parse(globalThis.atob(key.split('.')[1].replaceAll('-','+').replaceAll('_','/')));if(payload.role!=='anon')throw new Error('Service role forbidden.');}
+  return assertAuthorizedV3Client(client);
 }
 const expect=result=>{if(result.error)throw Object.assign(new Error('Audit request rejected.'),result.error,{status:result.status});return result.data;};
 export class SupabaseAuditAdapter{
