@@ -8,7 +8,7 @@ await rolloutReady;
 // Online Auth events and the SDK's persisted offline identity share the same user ID.
 {
   const stylesheet=document.createElement('link');stylesheet.rel='stylesheet';stylesheet.href='./v3-training.css';document.head.append(stylesheet);
-  const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Entrenar V3';
+  const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Entrenar';
   button.hidden=!isV3TrainingEnabled();document.addEventListener('nico-fit:rollout-change',()=>{button.hidden=!isV3TrainingEnabled();});
   document.querySelector('.top-actions').append(button);
   const root=document.createElement('section');root.className='v3-training-screen hidden';root.setAttribute('aria-label','Entrenamiento V3');document.body.append(root);
@@ -17,7 +17,7 @@ await rolloutReady;
   const setBackgroundInert=value=>background.forEach(node=>{node.inert=value;});
   let userId=globalThis.navigator?.onLine===false?cachedV3Identity()?.id||null:null,generation=0,ui=null,repository=null,opening=false;
   const offlineStatus=document.createElement('span');offlineStatus.setAttribute('role','status');offlineStatus.textContent='';button.after(offlineStatus);
-  const renderIdentity=()=>{button.title=userId?(globalThis.navigator?.onLine===false?'Offline · sesión local':'Abrir entrenamiento V3 local'):'Iniciá sesión para usar V3';offlineStatus.textContent=userId&&globalThis.navigator?.onLine===false?'Offline · sesión local':'';};
+  const renderIdentity=()=>{button.title=userId?(globalThis.navigator?.onLine===false?'Offline · sesión local':'Abrir entrenamiento'):'Iniciá sesión para entrenar';offlineStatus.textContent=userId&&globalThis.navigator?.onLine===false?'Offline · sesión local':'';};
   renderIdentity();
   globalThis.window?.addEventListener('offline',()=>{userId ||= cachedV3Identity()?.id||null;renderIdentity();});
   globalThis.window?.addEventListener('online',renderIdentity);
@@ -41,19 +41,22 @@ await rolloutReady;
     const next=event.detail?.userId||(globalThis.navigator?.onLine===false?cachedV3Identity()?.id:null);if(next!==userId){close();userId=next;}renderIdentity();
   });
   document.dispatchEvent(new CustomEvent('nico-fit:auth-request'));
-  button.addEventListener('click',async()=>{
+  const openTraining=async(mode='open')=>{
     if(opening)return;
     if(!mayStartNewWork()){window.alert('Actualizá o recargá esta pestaña antes de iniciar trabajo nuevo.');return;}
     if(!rolloutAllowsLocalTraining()||!isV3TrainingEnabled()||!isV3LocalStorageEnabled()){window.alert('Habilitá explícitamente los flags de entrenamiento y almacenamiento local V3.');return;}
     if(!userId){window.alert('Iniciá sesión online antes de abrir el entrenamiento V3.');return;}
     opening=true;const expectedUser=userId,token=++generation;
     try{
-      const [{V3LocalRepository},{V3TrainingEngine},{V3TrainingUI},{syncV3Repository}]=await Promise.all([import('./repository.js'),import('./training-engine.js'),import('./training-ui.js'),import('./sync-runtime.js')]);
+      const [{V3LocalRepository},{V3TrainingUI},{V3TodayService},{syncV3Repository}]=await Promise.all([import('./repository.js'),import('./training-ui.js'),import('./today-service.js'),import('./sync-runtime.js')]);
       const opened=await V3LocalRepository.open({userId:expectedUser});
       if(token!==generation||expectedUser!==userId){opened.close();return;}
-      document.dispatchEvent(new CustomEvent('nico-fit:v3-panel-open',{detail:'training'}));repository=opened;const engine=new V3TrainingEngine({repository});
-      ui=new V3TrainingUI({root,engine,onClose:close,syncNow:()=>syncV3Repository(opened)});root.classList.remove('hidden');setBackgroundInert(true);await ui.mount();
+      document.dispatchEvent(new CustomEvent('nico-fit:v3-panel-open',{detail:'training'}));repository=opened;const today=new V3TodayService({repository}),engine=today.engine;
+      if(mode==='today')await today.startToday();else if(mode==='free')await today.startFree();
+      const product=await today.summary();ui=new V3TrainingUI({root,engine,onClose:close,syncNow:()=>syncV3Repository(opened),readinessScore:product.readinessScore});root.classList.remove('hidden');setBackgroundInert(true);await ui.mount();
     }catch(error){if(token===generation){close();window.alert(error.message);}}
     finally{opening=false;}
-  });
+  };
+  button.addEventListener('click',()=>openTraining('open'));
+  document.addEventListener('nico-fit:open-training',event=>openTraining(event.detail?.mode??'open'));
 }

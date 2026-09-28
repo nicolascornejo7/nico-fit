@@ -1,5 +1,5 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v48';
+const BUILD_ID='nico-fit-v49';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
@@ -21,7 +21,7 @@ const APP_ASSETS=[
   './js/v3/observability-runtime.js','./js/v3/observability-service.js','./js/v3/observability-ui.js',
   './js/v3/offline-auth.js','./js/v3/public-config.js',
   './js/v3/repository.js','./js/v3/routine-presentation.js','./js/v3/routine-service.js',
-  './js/v3/routine-validation.js','./js/v3/routines.js','./js/v3/signals-repository.js',
+  './js/v3/routine-validation.js','./js/v3/routines.js','./js/v3/signals-repository.js','./js/v3/signals-ui.js','./js/v3/today-service.js',
   './js/v3/signals-validation.js','./js/v3/supabase-audit-adapter.js','./js/v3/supabase-v3-adapter.js',
   './js/v3/session-diagnostic.js','./js/v3/sync-diagnostic.js','./js/v3/sync-engine.js','./js/v3/sync-lock.js','./js/v3/sync-protocol.js',
   './js/v3/training-engine.js','./js/v3/training-entry.js','./js/v3/training-metrics.js',

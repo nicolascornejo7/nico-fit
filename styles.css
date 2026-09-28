@@ -17,6 +17,7 @@ input:not([type="range"]):not([type="checkbox"]),select,textarea{font-size:17px;
  .pwa-update-reminder[hidden]{display:none}
  .rollout-banner{position:relative;z-index:9;width:min(calc(100% - 24px),550px);margin:max(12px,env(safe-area-inset-top)) auto 12px;padding:14px 16px;border:1px solid #fbbf24;border-radius:12px;background:#2b2517;color:#fff;box-shadow:0 8px 28px #0009}
  .rollout-banner[hidden]{display:none}.rollout-banner p{margin:8px 0}.rollout-banner button[hidden]{display:none}
+.dashboard-card .wide+.wide{margin-top:10px}
 
 /* Nico Fit V3 identity: deep black surfaces, crimson action, white type. */
 body{background:radial-gradient(circle at 88% -10%,#491016 0,transparent 31%),linear-gradient(180deg,#111 0,#090909 65%)}

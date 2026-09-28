@@ -6,8 +6,8 @@ import {SyncService,authRedirectOrigin} from '../js/sync.js';
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 const setOnline=value=>Object.defineProperty(globalThis,'navigator',{value:{onLine:value},configurable:true});
 
-test('auth state callback defers Supabase synchronization',async()=>{
-  let authCallback,syncCalls=0;
+test('auth state callback defers a read-only V2 refresh without pushing legacy data',async()=>{
+  let authCallback,refreshCalls=0,syncCalls=0;
   const client={auth:{
     getSession:async()=>({data:{session:null}}),
     onAuthStateChange:callback=>{authCallback=callback;}
@@ -15,13 +15,14 @@ test('auth state callback defers Supabase synchronization',async()=>{
   global.window={supabase:{createClient:()=>client}};
   global.fetch=async()=>({ok:true,json:async()=>({url:'url',publishableKey:'key'})});
   const service=new SyncService({getData:emptyData,setData:()=>{}});
+  service.refreshReadOnly=async()=>{refreshCalls++;};
   service.syncAll=async()=>{syncCalls++;};
   await service.init();
   const returned=authCallback('SIGNED_IN',{user:{id:'user-a'}});
   assert.equal(returned,undefined);
-  assert.equal(syncCalls,0);
+  assert.equal(refreshCalls,0);assert.equal(syncCalls,0);
   await tick();
-  assert.equal(syncCalls,1);
+  assert.equal(refreshCalls,1);assert.equal(syncCalls,0);
 });
 
 test('auth redirect keeps authorized Preview origin',()=>{

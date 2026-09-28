@@ -31,7 +31,7 @@ export class SyncService{
     this.client.auth.onAuthStateChange((_event,session)=>{
       const expectedUser=session?.user||null;this.user=expectedUser;this.onAuth?.(expectedUser);
       // Supabase work must run after its auth callback releases the internal lock.
-      if(expectedUser)setTimeout(()=>{if(this.user?.id===expectedUser.id)this.syncAll().catch(()=>{});},0);
+      if(expectedUser)setTimeout(()=>{if(this.user?.id===expectedUser.id)this.refreshReadOnly().catch(()=>{});},0);
     });
     return this.user;
   }
@@ -81,6 +81,11 @@ export class SyncService{
     const [readiness,workouts,matches,football,sessions,tombstones]=await Promise.all([
       this.safeSelect('readiness'),this.safeSelect('workouts'),this.safeSelect('match_reviews'),this.safeSelect('football_sessions'),this.safeSelect('workout_sessions'),this.safeSelect('sync_tombstones','deleted_at')
     ]);return this.remoteToLocal({readiness,workouts,matches,football,sessions,tombstones});
+  }
+  async refreshReadOnly(){
+    if(!this.client||!this.user||!navigator.onLine)return false;
+    const userId=this.user.id,remote=await this.pull();if(this.user?.id!==userId)return false;
+    this.setData(this.merge(this.getData(),remote));return true;
   }
   merge(a,b){return applyTombstones({
     readiness:dedupeBy([...a.readiness,...b.readiness],recordKeys.readiness),workouts:dedupeBy([...a.workouts,...b.workouts],recordKeys.workouts),

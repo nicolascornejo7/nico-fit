@@ -32,14 +32,16 @@ test('existing V3 storage upgrades add sync stores without losing records',async
   assert.equal(await repository.acquireLease('upgrade-test','owner'),true);repository.close();
 });
 
-test('V2 app remains the default path and every V3 PWA asset exists',async()=>{
+test('the unified product path coordinates V3 through repositories and every PWA asset exists',async()=>{
   const [app,worker]=await Promise.all([
     readFile(new URL('../js/app.js',import.meta.url),'utf8'),
     readFile(new URL('../sw.js',import.meta.url),'utf8')
   ]);
   assert.match(app,/rolloutReady/);
-  assert.doesNotMatch(app,/import .*\.\/v3\/(?:repository|training-engine|sync-engine)/);
-  for(const module of ['client-storage.js','feature-flags.js','indexed-db.js','repository.js','import-v2.js']){
+  assert.match(app,/V3LocalRepository/);
+  assert.match(app,/V3SignalsUI/);
+  assert.doesNotMatch(app,/new V3TrainingEngine|new V3SyncEngine/);
+  for(const module of ['client-storage.js','feature-flags.js','indexed-db.js','repository.js','import-v2.js','signals-ui.js','today-service.js']){
     assert.match(worker,new RegExp(`js/v3/${module.replace('.','\\.')}`));
     await access(new URL(`../js/v3/${module}`,import.meta.url));
   }
