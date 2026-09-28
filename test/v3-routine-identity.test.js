@@ -13,7 +13,7 @@ import {routinePrescription} from '../js/v3/routine-validation.js';
 import {routineIdentityCard,routineListView} from '../js/v3/routine-presentation.js';
 import {importV2RoutineTrace} from '../js/v3/import-v2-routines.js';
 import {isV3RoutinesEnabled,isV3RoutinesSyncEnabled,isV3TrainingEnabled,isV3SyncEnabled,isV3CoachEnabled} from '../js/v3/feature-flags.js';
-import {remotePayloadForOperation} from '../js/v3/sync-protocol.js';
+import {remoteConfirmsOperation,remotePayloadForOperation} from '../js/v3/sync-protocol.js';
 import {v3Progression} from '../js/v3/training-progression.js';
 import {applyCoachRules} from '../js/v3/coach-rules.js';
 import {installRolloutControl} from '../js/v3/rollout-state.js';
@@ -65,6 +65,58 @@ test('duplicate ordinal from Supabase is persisted as conflict and is not renumb
 test('remote ordinal winner is recorded before IndexedDB unique index can reject it',async()=>{const {repository,service,graph,exercises}=await setup(),remote=new Remote(),engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});await engine.syncOnce();const loser=await service.createVersion(graph.template.id,{exercises}),winnerId=crypto.randomUUID(),stamp='2099-01-01T00:00:00.000Z';remote.tables.routine_versions[winnerId]={...loser.version,id:winnerId,user_id:A,version:1,created_at:stamp,updated_at:stamp};delete remote.tables.routine_versions[winnerId].owner_id;delete remote.tables.routine_versions[winnerId].remote_version;delete remote.tables.routine_versions[winnerId].local_revision;delete remote.tables.routine_versions[winnerId].sync_status;const result=await engine.syncOnce();assert.ok(result.conflicts>=1);const conflict=(await new V3ConflictService({repository,locks:null}).list()).find(row=>row.record_id===loser.version.id);assert.equal(conflict.origin,'routine_version_number_collision');assert.equal(conflict.remote.version,1);assert.equal(await repository.get('routine_versions',winnerId),null);repository.close();});
 test('explicit null versus zero, reps versus seconds and invalid prescriptions',()=>{assert.equal(routinePrescription({...rx,step:null,target_rir:null,rest:null}).step,null);assert.equal(routinePrescription({...rx,step:0,target_rir:0,rest:0}).step,0);assert.equal(routinePrescription({...rx,measurement_kind:'seconds',min:30,max:45}).measurement_kind,'seconds');for(const input of [{...rx,target_rir:8},{...rx,rest:-1},{...rx,min:null},{...rx,sets:null},{...rx,min:20,max:10},{...rx,measurement_kind:'mixed'}])assert.throws(()=>routinePrescription(input));});
 test('default Tuesday/Thursday/Friday mapping is deterministic and idempotent across reload/users',async()=>{const db=new IDBFactory(),repository=await open(db),service=new V3RoutineService({repository,featureEnabled:true});const first=await service.seedDefaults(),count=(await repository.listOperations()).length;await service.seedDefaults();assert.equal((await repository.listOperations()).length,count);assert.deepEqual(first.map(row=>row.version.day_index),[2,4,5]);repository.close();const reopened=await open(db),second=await new V3RoutineService({repository:reopened,featureEnabled:true}).seedDefaults();assert.deepEqual(second.map(row=>row.template.id),first.map(row=>row.template.id));const other=await open(db,B),third=await new V3RoutineService({repository:other,featureEnabled:true}).seedDefaults();assert.notEqual(third[0].template.id,first[0].template.id);assert.equal(await other.get('routine_templates',first[0].template.id),null);reopened.close();other.close();});
+test('deterministic routine inserts compare only explicit functional fields',async()=>{
+ const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});await service.seedDefaults();
+ try{
+  const operations=(await repository.listOperations()).filter(row=>row.entity.startsWith('routine_'));
+  assert.equal(operations.length,29);
+  for(const operation of operations){
+   const remote={...remotePayloadForOperation(operation,A),created_at:'2026-09-25T10:00:00.000Z',updated_at:'2026-09-25T10:00:00.000Z',version:2};
+   assert.equal(remoteConfirmsOperation(operation,remote,A),true,operation.entity);
+   assert.equal(remoteConfirmsOperation(operation,{...remote,deleted_at:'2026-09-26T10:00:00.000Z'},A),false,`${operation.entity} tombstone`);
+   assert.equal(remoteConfirmsOperation(operation,{...remote,user_id:B},A),false,`${operation.entity} owner`);
+  }
+  const template=operations.find(row=>row.entity==='routine_templates');
+  const version=operations.find(row=>row.entity==='routine_versions');
+  const exercise=operations.find(row=>row.entity==='routine_exercises');
+  assert.equal(remoteConfirmsOperation(template,{...remotePayloadForOperation(template,A),name:'Nombre distinto'},A),false);
+  assert.equal(remoteConfirmsOperation(version,{...remotePayloadForOperation(version,A),prescription_snapshot:{changed:true}},A),false);
+  assert.equal(remoteConfirmsOperation(exercise,{...remotePayloadForOperation(exercise,A),position:99},A),false);
+ }finally{repository.close();}
+});
+test('two devices reconcile all 29 deterministic routine defaults without conflicts',async()=>{
+ const remote=new Remote(),first=await open(),second=await open();
+ try{
+  const firstService=new V3RoutineService({repository:first,featureEnabled:true}),secondService=new V3RoutineService({repository:second,featureEnabled:true});
+  await firstService.seedDefaults();
+  const initial=await new V3SyncEngine({repository:first,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).syncOnce();
+  assert.equal(initial.conflicts,0);
+  assert.equal(Object.keys(remote.tables.routine_templates).length,3);
+  assert.equal(Object.keys(remote.tables.routine_versions).length,3);
+  assert.equal(Object.keys(remote.tables.routine_exercises).length,23);
+  for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of Object.values(remote.tables[entity])){
+   row.created_at='2026-09-25T10:00:00.000Z';row.updated_at='2026-09-25T10:00:00.000Z';row.version=2;
+  }
+  await secondService.seedDefaults();
+  const before=(await second.listOperations()).filter(row=>row.entity.startsWith('routine_'));
+  assert.equal(before.length,29);
+  for(const operation of before){
+   const expected=remotePayloadForOperation(operation,A),actual=await remote.fetchById(operation.entity,operation.record_id);
+   const differing=[...new Set([...Object.keys(expected),...Object.keys(actual)])].filter(key=>JSON.stringify(expected[key])!==JSON.stringify(actual[key]));
+   assert.ok(differing.length>0);
+   assert.equal(differing.every(key=>['created_at','updated_at','version'].includes(key)),true,`${operation.entity}: ${differing.join(', ')}`);
+  }
+  const reconciled=await new V3SyncEngine({repository:second,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).syncOnce();
+  assert.equal(reconciled.conflicts,0);
+  assert.equal((await second.listConflicts()).length,0);
+  assert.equal((await second.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
+  for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of await second.listRecords(entity,{includeDeleted:true}))assert.equal(row.remote_version,2);
+  const operationCount=(await second.listOperations()).length;await secondService.seedDefaults();assert.equal((await second.listOperations()).length,operationCount);
+  const training=new V3TrainingEngine({repository:second,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-28T12:00:00Z')});
+  await training.createFreeWorkout({date:'2026-09-28'});await secondService.seedDefaults();
+  assert.equal((await second.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
+ }finally{first.close();second.close();}
+});
 test('controlled legacy trace preserves sessions and marks ambiguous prescriptions pending review',async()=>{const repository=await open(),legacyEngine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false,now:()=>new Date('2026-09-15T12:00:00Z')}),session=await legacyEngine.createSession({dayIndex:2}),service=new V3RoutineService({repository,featureEnabled:true});const ambiguous=structuredClone(session);ambiguous.session.id='ambiguous';ambiguous.exercises[0].prescription_snapshot.sets=99;const before=await repository.get('workout_sessions',session.session.id);const rows=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(rows[0].migration_status,'migrated');assert.equal(rows[1].migration_status,'pending_review');assert.equal(rows[1].target_id,null);const again=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(again[0].created,false);assert.deepEqual(await repository.get('workout_sessions',session.session.id),before);repository.close();});
 test('historical exercise without catalog identity remains readable after staging download',async()=>{const repository=await open(),session=await repository.create('workout_sessions',{session_date:'2026-09-15',status:'completed',started_at:'2026-09-15T12:00:00Z',ended_at:'2026-09-15T13:00:00Z',label:'Histórica'});await repository.create('session_exercises',{session_id:session.id,exercise_catalog_id:null,position:0,exercise_name_snapshot:'Ejercicio histórico',prescription_snapshot:rx,notes:''});const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true});const snapshot=await engine.snapshot(session.id);assert.equal(snapshot.exercises[0].catalog,null);assert.equal(snapshot.exercises[0].exercise_name_snapshot,'Ejercicio histórico');repository.close();});
 test('sync explicit routine graph before session and paginate back into another isolated device',async()=>{const {repository,graph,training}=await setup(),remote=new Remote();const session=await training.createSession({routineVersionId:graph.version.id});const engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null,pageSize:1});assert.equal((await engine.syncOnce()).failed,0);assert.ok(remote.calls.indexOf('routine_versions')<remote.calls.indexOf('workout_sessions'));const other=await open(),download=new V3SyncEngine({repository:other,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null,pageSize:1});await download.syncOnce();assert.deepEqual((await other.get('workout_sessions',session.session.id)).routine_snapshot,session.session.routine_snapshot);assert.equal((await new V3RoutineService({repository:other,featureEnabled:true}).version(graph.version.id,{forTraining:true})).exercises.length,2);assert.equal((await repository.listOperations()).every(row=>row.status==='synced'),true);repository.close();other.close();});

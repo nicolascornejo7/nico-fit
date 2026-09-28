@@ -21,6 +21,17 @@ const stableValue=value=>{
 };
 const sameValue=(left,right)=>JSON.stringify(stableValue(left))===JSON.stringify(stableValue(right));
 
+// These fields define the server-visible meaning of deterministic inserts.
+// Local timestamps/revisions and the server's current optimistic version are
+// deliberately excluded; every ownership, identity and domain field remains
+// part of the comparison.
+export const IDEMPOTENT_INSERT_FIELDS=Object.freeze({
+  exercise_catalog:['id','owner_user_id','stable_key','canonical_name','measurement_kind','metadata','deleted_at'],
+  routine_templates:['id','user_id','stable_key','name','is_active','derived_from_routine_id','deleted_at'],
+  routine_versions:['id','user_id','routine_id','version_number','name_snapshot','day_index','prescription_snapshot','deleted_at'],
+  routine_exercises:['id','user_id','routine_version_id','exercise_catalog_id','position','exercise_name_snapshot','prescription_snapshot','deleted_at']
+});
+
 export function remotePayloadForOperation(operation,userId){
   const fields=REMOTE_ENTITY_FIELDS[operation.entity];
   if(!fields)throw new Error(`Unsupported remote V3 entity: ${operation.entity}`);
@@ -36,11 +47,10 @@ export function remotePayloadForOperation(operation,userId){
 export function remoteConfirmsOperation(operation,remoteRecord,userId){
   if(!remoteRecord||remoteRecord.id!==operation.record_id)return false;
   const expected=remotePayloadForOperation(operation,userId);
-  if(operation.entity==='exercise_catalog'&&operation.type==='insert'){
+  const functionalFields=operation.type==='insert'?IDEMPOTENT_INSERT_FIELDS[operation.entity]:null;
+  if(functionalFields){
     if(remoteRecord.deleted_at)return false;
-    // Base catalog IDs are deterministic across devices. Creation timestamps
-    // and the current server version are not functional exercise identity.
-    return Object.entries(expected).filter(([key])=>!['created_at','version'].includes(key)).every(([key,value])=>sameValue(remoteRecord[key],value));
+    return functionalFields.every(key=>sameValue(remoteRecord[key]??null,expected[key]??null));
   }
   return Object.entries(expected).every(([key,value])=>sameValue(remoteRecord[key],value));
 }
