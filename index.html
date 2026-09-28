@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v49" />
+  <meta name="nico-fit-build" content="nico-fit-v50" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -130,13 +130,15 @@
           <div class="section-head"><div><p class="eyebrow">PROGRESO</p><h2>Tu evolución</h2></div><span class="muted">Últimas semanas</span></div>
           <div class="stats">
             <div><span class="stat-label">Sesiones gym</span><strong id="workoutCount">0</strong></div>
+            <div><span class="stat-label">Volumen registrado</span><strong id="gymVolume">0 kg</strong></div>
             <div><span class="stat-label">Carga fútbol 7d</span><strong id="footballLoad7">0</strong></div>
             <div><span class="stat-label">Readiness</span><strong id="avgReadiness">—</strong></div>
           </div>
+          <p id="progressStatus" class="advice" role="status" aria-live="polite"></p>
         </section>
         <section class="card"><div class="section-head"><h2>Readiness</h2><span class="muted">0–100</span></div><canvas id="readinessChart" class="chart" height="190"></canvas></section>
         <section class="card"><div class="section-head"><h2>Frescura al partido</h2><span class="muted">Últimos partidos</span></div><canvas id="matchChart" class="chart" height="190"></canvas></section>
-        <section class="card"><div class="section-head"><h2>Progresión de fuerza</h2><select id="exerciseSelect" aria-label="Ejercicio para el gráfico de fuerza"></select></div><canvas id="strengthChart" class="chart" height="210" aria-label="Gráfico de progresión de fuerza" role="img"></canvas></section>
+        <section class="card"><div class="section-head"><div><h2>Carga máxima por ejercicio</h2><span id="exerciseMaxLoad" class="muted">—</span></div><select id="exerciseSelect" aria-label="Ejercicio para el gráfico de fuerza"></select></div><canvas id="strengthChart" class="chart" height="210" aria-label="Gráfico de carga máxima" role="img"></canvas></section>
         <section class="card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Sesiones y partidos</span></div><div id="history" class="history"></div></section>
       </section>
 

@@ -1,12 +1,12 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v49';
+const BUILD_ID='nico-fit-v50';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
 const APP_ASSETS=[
   './','./index.html','./styles.css','./manifest.json','./icons/icon-192.png','./icons/icon-512.png','./icons/nico-fit-logo-square.png',
   './local-device-inventory.html','./local-device-inventory.css','./v3-training.css',
-  './js/app.js','./js/active-session.js','./js/charts.js','./js/exercise-identity.js',
+  './js/app.js','./js/active-session.js','./js/charts.js','./js/exercise-identity.js','./js/v2-history-reader.js',
   './js/local-device-inventory-page.js','./js/local-device-inventory.js','./js/metrics.js',
   './js/plan.js','./js/progression.js','./js/pwa-update-entry.js','./js/pwa-update-coordinator.js','./js/pwa-update-diagnostic.js',
   './js/pwa-update-gate.js','./js/pwa-update-safety.js','./js/pwa-form-drafts.js','./js/pwa-version.js',
@@ -24,7 +24,7 @@ const APP_ASSETS=[
   './js/v3/routine-validation.js','./js/v3/routines.js','./js/v3/signals-repository.js','./js/v3/signals-ui.js','./js/v3/today-service.js',
   './js/v3/signals-validation.js','./js/v3/supabase-audit-adapter.js','./js/v3/supabase-v3-adapter.js',
   './js/v3/session-diagnostic.js','./js/v3/sync-diagnostic.js','./js/v3/sync-engine.js','./js/v3/sync-lock.js','./js/v3/sync-protocol.js',
-  './js/v3/training-engine.js','./js/v3/training-entry.js','./js/v3/training-metrics.js',
+  './js/v3/training-engine.js','./js/v3/training-entry.js','./js/v3/training-metrics.js','./js/v3/unified-progress.js',
   './js/v3/training-progression.js','./js/v3/training-ui.js','./js/v3/training-validation.js'
 ];
 const assetUrls=new Set(APP_ASSETS.map(path=>new URL(path,self.registration.scope).href));

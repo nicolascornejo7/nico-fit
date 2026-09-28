@@ -4,7 +4,8 @@ import {SyncService} from './sync.js';
 import {lineChart} from './charts.js';
 import {ActiveSessionStore,commitPendingSession,elapsedSeconds,remainingRestSeconds} from './active-session.js';
 import {exerciseId,sameExercise} from './exercise-identity.js';
-import {completedGymSessionCount,sessionVolume,strengthPoints} from './metrics.js';
+import {sessionVolume} from './metrics.js';
+import {V2HistoryReader} from './v2-history-reader.js';
 import {progressionSuggestion} from './progression.js';
 import {appendTextElement,clearNode} from './safe-dom.js';
 import {hasWorkoutInput,validateFootball,validateMatch,validateReadiness,validateSessionSummary,validateWorkout} from './validation.js';
@@ -18,12 +19,15 @@ import {V3LocalRepository} from './v3/repository.js';
 import {V3SignalsUI} from './v3/signals-ui.js';
 import {V3TodayService} from './v3/today-service.js';
 import {syncV3Repository} from './v3/sync-runtime.js';
+import {UnifiedProgress} from './v3/unified-progress.js';
 
 await rolloutReady;
 
 let storageOwner='guest',data=loadLocalData(storageOwner),lastRenderedDate=localDateKey();
 let sessionTick=null,restTick=null,restoreExercisePosition=true;
 let v3Repository=null,v3Signals=null,v3Today=null,v3Context=null,v3Generation=0;
+let progressSnapshot=null,progressGeneration=0;
+const v2HistoryReader=new V2HistoryReader({getData:()=>data});
 const $=id=>document.getElementById(id);
 const activeSession=new ActiveSessionStore({owner:storageOwner});
 const sync=new SyncService({getData:()=>data,setData:next=>{captureActiveDrafts();data=next;persistAndRender(false);},onState:setSyncBadge});
@@ -34,7 +38,7 @@ function workoutContext(){const state=activeSession.state;if(!state)return curre
 function persist(){saveLocalData(data,storageOwner);}
 function persistAndRender(capture=true){if(capture)captureActiveDrafts();persist();renderAll(false);}
 async function activateV3Product(user){
-  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;
+  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;progressSnapshot=null;
   if(!user?.id){renderAll(false);return;}
   const repository=await V3LocalRepository.open({userId:user.id});if(token!==v3Generation){repository.close();return;}
   v3Repository=repository;v3Signals=new V3SignalsUI({repository,syncNow:syncV3Repository});v3Today=new V3TodayService({repository});await refreshV3Product();
@@ -159,18 +163,19 @@ async function saveMatch(){
 }
 function hydrateToday(){const date=currentContext().dateKey,r=latestReadiness(date);if(r){$('sleep').value=r.sleep;$('energy').value=r.energy;$('freshness').value=r.freshness??6-r.fatigue;$('pain').value=r.pain;$('painArea').value=r.pain_area??r.painArea??'';}['sleep','energy','freshness','pain'].forEach(id=>$(id+'Val').textContent=$(id).value);const m=v3Context?.date===date?v3Context.matches?.[0]:data.matches.find(x=>x.date===date);if(m){$('matchEnergy').value=m.energy;$('legs').value=m.legs;$('performance').value=m.performance;$('matchNotes').value=m.notes||'';}['matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);}
 
-function renderProgress(){
-  $('workoutCount').textContent=completedGymSessionCount(data.sessions);const since=new Date();since.setDate(since.getDate()-6);const sinceKey=localDateKey(since);$('footballLoad7').textContent=Math.round(data.football.filter(x=>x.date>=sinceKey).reduce((a,x)=>a+(+x.duration*+x.rpe),0));const scores=data.readiness.map(readinessScore).filter(x=>x!=null);$('avgReadiness').textContent=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):'—';
-  lineChart($('readinessChart'),[...data.readiness].sort((a,b)=>a.date.localeCompare(b.date)).slice(-8).map(x=>({label:x.date.slice(5),value:readinessScore(x)})),{min:0,max:100});lineChart($('matchChart'),[...data.matches].sort((a,b)=>a.date.localeCompare(b.date)).slice(-8).map(x=>({label:x.date.slice(5),value:+x.legs})),{min:1,max:5});
-  const identities=new Map();data.workouts.forEach(workout=>{const id=exerciseId(workout.exerciseId||workout.exercise);if(id&&!identities.has(id))identities.set(id,workout.exercise);});const select=$('exerciseSelect'),current=select.value;clearNode(select);if(identities.size){[...identities].sort((a,b)=>a[1].localeCompare(b[1])).forEach(([id,name])=>{const option=select.ownerDocument.createElement('option');option.value=id;option.textContent=name;select.append(option);});if(identities.has(current))select.value=current;}else appendTextElement(select,'option','Sin datos');renderStrength();
-  const items=[...data.sessions.map(s=>({date:s.date,title:s.label,detail:`${s.duration} min · RPE ${s.rpe||'—'}`})),...data.matches.map(m=>({date:m.date,title:'Partido',detail:`Piernas ${m.legs}/5 · Rendimiento ${m.performance}/5`})),...data.football.map(f=>({date:f.date,title:f.type,detail:`${f.duration} min · RPE ${f.rpe} · carga ${f.duration*f.rpe}`}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,12),history=clearNode($('history'));if(!items.length){appendTextElement(history,'p','Todavía no hay registros suficientes.','muted');return;}items.forEach(item=>{const row=history.ownerDocument.createElement('div');row.className='history-item';appendTextElement(row,'strong',item.title);appendTextElement(row,'span',`${item.date} · ${item.detail}`);history.append(row);});
+async function renderProgress(){
+  const token=++progressGeneration,model=await new UnifiedProgress({v2Reader:v2HistoryReader,repository:v3Repository,userId:storageOwner}).load();if(token!==progressGeneration)return;progressSnapshot=model;
+  $('workoutCount').textContent=model.metrics.completedSessions;$('gymVolume').textContent=`${Math.round(model.metrics.volume)} kg`;$('footballLoad7').textContent=Math.round(model.metrics.footballLoad7);$('avgReadiness').textContent=model.metrics.averageReadiness??'—';$('progressStatus').textContent=model.warnings.join(' ');
+  lineChart($('readinessChart'),model.readiness.slice(-8).map(row=>({label:row.date.slice(5),value:row.value})),{min:0,max:100});lineChart($('matchChart'),[...model.matches].sort((a,b)=>a.date.localeCompare(b.date)).slice(-8).map(row=>({label:row.date.slice(5),value:+row.legs})),{min:1,max:5});
+  const identities=new Map();for(const item of model.exercises)if(item.identity&&!identities.has(item.identity))identities.set(item.identity,item.name);const select=$('exerciseSelect'),current=select.value;clearNode(select);if(identities.size){[...identities].sort((a,b)=>a[1].localeCompare(b[1])).forEach(([id,name])=>{const option=select.ownerDocument.createElement('option');option.value=id;option.textContent=name;select.append(option);});if(identities.has(current))select.value=current;}else appendTextElement(select,'option','Sin datos');renderStrength();
+  const items=[...model.sessions.map(row=>({...row,detail:`${row.durationMinutes} min · RPE ${row.rpe??'—'}${row.volume!=null?` · volumen ${Math.round(row.volume)} kg`:''}`})),...model.matches.map(row=>({date:row.date,title:'Partido',detail:`Piernas ${row.legs??'—'}/5 · Rendimiento ${row.performance??'—'}/5`})),...model.football.map(row=>({date:row.date,title:row.title,detail:`${row.durationMinutes} min · RPE ${row.rpe??'—'} · carga ${Math.round(row.load)}`}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,16),history=clearNode($('history'));if(!items.length){appendTextElement(history,'p','Todavía no hay registros suficientes.','muted');return;}items.forEach(item=>{const row=history.ownerDocument.createElement('div');row.className='history-item';appendTextElement(row,'strong',item.title);appendTextElement(row,'span',`${item.date} · ${item.detail}`);history.append(row);});
 }
-function renderStrength(){const points=strengthPoints(data.workouts,$('exerciseSelect').value).slice(-10),max=Math.max(20,...points.map(x=>x.value));lineChart($('strengthChart'),points,{min:0,max:Math.ceil(max/10)*10,suffix:'kg'});}
+function renderStrength(){const points=(progressSnapshot?.exercises??[]).filter(item=>item.identity===$('exerciseSelect').value&&item.maxLoad>0).sort((a,b)=>a.date.localeCompare(b.date)).slice(-10).map(item=>({label:item.date.slice(5),value:item.maxLoad})),maxValue=Math.max(0,...points.map(item=>item.value)),max=Math.max(20,maxValue);$('exerciseMaxLoad').textContent=maxValue?`Máximo: ${maxValue} kg`:'Sin carga registrada';lineChart($('strengthChart'),points,{min:0,max:Math.ceil(max/10)*10,suffix:'kg'});}
 function renderMatch(){$('matchSection').classList.toggle('hidden',currentContext().dayIndex!==6);}
 function renderAuth(){const signed=!!sync.user;$('signedOutBox').classList.toggle('hidden',signed);$('signedInBox').classList.toggle('hidden',!signed);if(signed){$('userEmail').textContent=sync.user.email||'usuario';$('authStatus').textContent=navigator.onLine?sync.lastState.text:'Sin conexión';}else setSyncBadge('local','Solo local');}
 function setAuthMessage(msg,error=false){$('authMessage').textContent=msg;$('authMessage').className=error?'advice error-text':'advice';}
-function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active-view'));$(id).classList.add('active-view');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='progressView')setTimeout(renderProgress,0);window.scrollTo({top:0,behavior:'smooth'});}
-function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDate=currentContext().dateKey;hydrateToday();renderDashboard();renderWeek();renderWorkout();renderFootball();renderMatch();renderProgress();renderAuth();renderSessionSummary();restorePwaFormDrafts();['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);updateFootballLoad();startTimerIntervals();}
+function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active-view'));$(id).classList.add('active-view');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='progressView')setTimeout(()=>renderProgress().catch(()=>{}),0);window.scrollTo({top:0,behavior:'smooth'});}
+function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDate=currentContext().dateKey;hydrateToday();renderDashboard();renderWeek();renderWorkout();renderFootball();renderMatch();renderProgress().catch(()=>{});renderAuth();renderSessionSummary();restorePwaFormDrafts();['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);updateFootballLoad();startTimerIntervals();}
 async function resetAll(){if(!allowNewWork())return;const scope=sync.user?'este dispositivo Y tu cuenta sincronizada':'este dispositivo';if(!confirm(`¿Borrar todos los registros de ${scope}?`))return;activeSession.clear();if(sync.user){try{await sync.deleteAll();}catch(error){alert('El borrado quedó pendiente de sincronizar: '+error.message);}location.reload();return;}data=emptyData();clearLocalData(storageOwner);location.reload();}
 
 ['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id).addEventListener('input',()=>{$(id+'Val').textContent=$(id).value;if(['sleep','energy','freshness','pain'].includes(id))renderDashboard();}));['footballDuration','footballRpe'].forEach(id=>$(id).addEventListener('input',updateFootballLoad));
