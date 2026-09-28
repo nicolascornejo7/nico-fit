@@ -7,6 +7,7 @@ import {isV3ConflictsEnabled} from '../js/v3/feature-flags.js';
 import {V3SyncEngine} from '../js/v3/sync-engine.js';
 import {remotePayloadForOperation} from '../js/v3/sync-protocol.js';
 import {V3ConflictUI} from '../js/v3/conflict-ui.js';
+import {V3RoutineService} from '../js/v3/routine-service.js';
 import {INTERNAL_STORES,requestResult,transactionDone} from '../js/v3/indexed-db.js';
 const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 async function fixture(entity='football_sessions',extra={}){
@@ -19,6 +20,16 @@ async function fixture(entity='football_sessions',extra={}){
   const local=await repository.create(entity,payload);const remote={...local,user_id:A,version:3,rpe:8,...extra};delete remote.owner_id;
   await repository.recordConflict({entity,recordId:local.id,operationIds:(await repository.unresolvedOperations(entity,local.id)).map(row=>row.operation_id),reason:'remote_changed',localPayload:local,remotePayload:remote});
   const service=new V3ConflictService({repository,locks:null});return {db,repository,service,local,remote,view:(await service.list())[0]};
+}
+async function routineConflicts(mutate=()=>{}){
+  const db=new IDBFactory(),repository=await V3LocalRepository.open({indexedDB:db,userId:A,featureEnabled:true}),service=new V3RoutineService({repository,featureEnabled:true});await service.seedDefaults();
+  const operations=(await repository.listOperations()).filter(row=>row.entity.startsWith('routine_'));
+  assert.equal(operations.length,29);
+  for(const [index,operation] of operations.entries()){
+    const remote={...remotePayloadForOperation(operation,A),created_at:'2026-09-25T10:00:00.000Z',updated_at:'2026-09-25T10:00:00.000Z',version:2};mutate(remote,operation,index,operations);
+    await repository.recordConflict({entity:operation.entity,recordId:operation.record_id,operationIds:[operation.operation_id],reason:'remote_change_vs_local_change',localPayload:operation.payload,remotePayload:remote});
+  }
+  return {repository,service:new V3ConflictService({repository,locks:null}),operations};
 }
 test('conflict read model exposes both sides, explanations and no implicit decision',async()=>{const f=await fixture();assert.equal(f.view.local.rpe,7);assert.equal(f.view.remote.rpe,8);assert.ok(f.view.explanation);assert.equal(await f.service.count(),1);assert.equal((await f.service.history()).length,0);f.repository.close();});
 test('accept remote archives local operations and preserves auditable resolved conflict',async()=>{const f=await fixture();const audit=await f.service.resolve(f.view,'accept_remote');assert.equal(audit.owner_id,A);assert.equal(audit.entity,'football_sessions');assert.equal(audit.remote_version,3);assert.ok(audit.resolved_at);assert.equal((await f.repository.get('football_sessions',f.local.id)).rpe,8);assert.equal((await f.repository.listOperations())[0].status,'superseded');assert.equal((await f.service.list({status:'resolved'})).length,1);f.repository.close();});
@@ -58,8 +69,8 @@ test('panel renders hostile text literally and never resolves without confirmati
   const old=globalThis.document;globalThis.document={createElement:tag=>new Element(tag)};
   try{
     const f=await fixture(),root=new Element('section');f.view.local.notes='<img src=x onerror=alert(1)>';
-    let calls=0;const ui=new V3ConflictUI({root,service:{list:async()=>[f.view],resolve:async()=>{calls++;f.view.status='resolved';}},onClose:()=>{}});await ui.mount();
-    const all=element=>[element,...element.children.flatMap(all)],nodes=all(root);assert.equal(calls,0);assert.ok(nodes.some(node=>node.tag==='pre'&&node.textContent.includes('<img src=x onerror=alert(1)>')));assert.ok(nodes.some(node=>node.tag==='label'));assert.ok(nodes.some(node=>node.tag==='summary'));await nodes.find(node=>node.textContent==='Confirmar decisión').onclick();assert.equal(calls,1);assert.ok(nodes.some(node=>node.textContent==='0 conflictos abiertos · 0 decisiones pendientes de sync · 1 resueltos'));assert.ok(nodes.find(node=>node.tag==='summary').focused);ui.destroy();
+    let calls=0,reconcileCalls=0;const ui=new V3ConflictUI({root,service:{list:async()=>[f.view],resolve:async()=>{calls++;f.view.status='resolved';},reconcileEquivalentRoutines:async()=>{reconcileCalls++;return {resolved:1,remaining:0};}},confirmAction:()=>true,onClose:()=>{}});await ui.mount();
+    const all=element=>[element,...element.children.flatMap(all)],nodes=all(root);assert.equal(calls,0);assert.equal(reconcileCalls,0);assert.ok(nodes.some(node=>node.tag==='pre'&&node.textContent.includes('<img src=x onerror=alert(1)>')));assert.ok(nodes.some(node=>node.tag==='label'));assert.ok(nodes.some(node=>node.tag==='summary'));await nodes.find(node=>node.textContent==='Reconciliar conflictos equivalentes').onclick();assert.equal(reconcileCalls,1);await nodes.find(node=>node.textContent==='Confirmar decisión').onclick();assert.equal(calls,1);assert.ok(nodes.some(node=>node.textContent==='0 conflictos abiertos · 0 decisiones pendientes de sync · 1 resueltos'));assert.ok(nodes.find(node=>node.tag==='summary').focused);ui.destroy();
     f.view.status='open';const failing=new V3ConflictUI({root,service:{list:async()=>[f.view],resolve:async()=>{throw new Error('Affected active session');}},onClose:()=>{}});await failing.mount();const retry=all(root).find(node=>node.textContent==='Confirmar decisión');await retry.onclick();assert.equal(retry.disabled,false);assert.equal(retry.focused,true);assert.ok(all(root).some(node=>node.textContent.includes('Este conflicto afecta la sesión activa')));failing.destroy();f.repository.close();
   }finally{globalThis.document=old;}
 });
@@ -67,3 +78,27 @@ test('archived operations cannot contaminate failed/retry entity status',async()
 test('updated remote snapshot rejects stale decision and preserves audit-free state',async()=>{const f=await fixture();await f.repository.recordConflict({entity:'football_sessions',recordId:f.local.id,reason:'remote_version_conflict',remotePayload:{...f.remote,version:8}});await assert.rejects(f.service.resolve(f.view,'accept_remote'),/Conflict changed/);assert.equal((await f.service.history()).length,0);f.repository.close();});
 test('ambiguous source review cannot be bypassed by a refreshed remote snapshot',async()=>{const f=await fixture();await f.repository.update('football_sessions',f.local.id,{migration_status:'pending_review'});const view=(await f.service.list())[0];assert.deepEqual(view.strategies,['defer']);await assert.rejects(f.service.resolve(view,'keep_local'));f.repository.close();});
 test('remote version guard rejects changes sharing the same millisecond timestamp',async()=>{const f=await fixture(),transaction=f.repository.database.transaction(INTERNAL_STORES.conflicts,'readwrite'),done=transactionDone(transaction),store=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=await requestResult(store.get(f.view.conflict_id));conflict.remote_payload.version=8;await requestResult(store.put(conflict));await done;assert.equal((await f.service.list())[0].updated_at,f.view.updated_at);await assert.rejects(f.service.resolve(f.view,'accept_remote'),/Conflict changed/);assert.equal((await f.service.history()).length,0);f.repository.close();});
+test('manual routine reconciliation resolves all 29 semantically equivalent deterministic inserts',async()=>{
+  const f=await routineConflicts();try{
+    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:29,remaining:0});assert.equal(await f.service.count(),0);
+    assert.equal((await f.repository.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
+    assert.equal((await f.service.history()).filter(row=>row.strategy==='reconcile_equivalent'&&row.confirmation==='server_confirmed').length,29);
+    for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of await f.repository.listRecords(entity,{includeDeleted:true}))assert.equal(row.remote_version,2);
+    assert.deepEqual(await f.service.reconcileEquivalentRoutines(),{examined:0,resolved:0,remaining:0});
+  }finally{f.repository.close();}
+});
+test('manual routine reconciliation leaves any functional difference open',async()=>{
+  let changed=false;const f=await routineConflicts((remote,operation)=>{if(!changed&&operation.entity==='routine_templates'){remote.name='Nombre funcional distinto';changed=true;}});try{
+    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:28,remaining:1});const [remaining]=await f.service.list({status:'open'});assert.equal(remaining.entity,'routine_templates');assert.equal(remaining.remote.name,'Nombre funcional distinto');
+  }finally{f.repository.close();}
+});
+test('owner, tombstone, FK, order and prescription mismatches remain open',async()=>{
+  const changed=new Set(),f=await routineConflicts((remote,operation)=>{
+    if(operation.entity==='routine_templates'&&!changed.has('owner')){remote.user_id=B;changed.add('owner');return;}
+    if(operation.entity==='routine_templates'&&!changed.has('tombstone')){remote.deleted_at='2026-09-28T10:00:00.000Z';changed.add('tombstone');return;}
+    if(operation.entity==='routine_versions'&&!changed.has('fk')){remote.routine_id=B;changed.add('fk');return;}
+    if(operation.entity==='routine_exercises'&&!changed.has('order')){remote.position=99;changed.add('order');return;}
+    if(operation.entity==='routine_exercises'&&!changed.has('prescription')){remote.prescription_snapshot={...remote.prescription_snapshot,sets:99};changed.add('prescription');}
+  });
+  try{const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:24,remaining:5});assert.equal((await f.service.list({status:'open'})).length,5);}finally{f.repository.close();}
+});

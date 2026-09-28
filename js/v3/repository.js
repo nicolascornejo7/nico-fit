@@ -1,4 +1,4 @@
-import {ENTITY_STORES,INTERNAL_STORES,openUserDatabase,requestResult,transactionDone} from './indexed-db.js';
+import {ENTITY_STORES,INTERNAL_STORES,ROUTINE_STORES,openUserDatabase,requestResult,transactionDone} from './indexed-db.js';
 import {isV3LocalStorageEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {summarizeOperations} from './diagnostic-model.js';
@@ -549,6 +549,27 @@ export class V3LocalRepository{
       }
       conflict.status=candidate?'resolution_pending':'resolved';conflict.resolved_at=timestamp;conflict.strategy=strategy;conflict.resolution_metadata={decision_id:decisionId,operation_ids:audit.operation_ids,target_id:audit.target_id??local.id};
       return persistAudit();
+    });
+  }
+
+  async reconcileEquivalentRoutineConflict({conflictId,operationIds,expectedUpdatedAt,expectedRemoteVersion,expectedLocalRevision,metadata={}}){
+    if(!operationIds?.length)throw new Error('Equivalent reconciliation requires its original operations.');
+    return runTransaction(this.database,[...ENTITY_STORES,...Object.values(INTERNAL_STORES)],'readwrite',async transaction=>{
+      const conflicts=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=assertOwned(await requestResult(conflicts.get(conflictId)),this.userId);
+      if(!conflict||conflict.status!=='open'||conflict.updated_at!==expectedUpdatedAt||(conflict.remote_payload?.version??null)!==expectedRemoteVersion)throw new Error('Conflict changed. Refresh before reconciling.');
+      const entity=conflict.entity;if(!ROUTINE_STORES.includes(entity))throw new Error('Equivalent reconciliation is limited to routine entities.');
+      const store=transaction.objectStore(entity),local=assertOwned(await requestResult(store.get(conflict.record_id)),this.userId),remote=clone(conflict.remote_payload);
+      if(!local||local.local_revision!==expectedLocalRevision)throw new Error('Local revision changed. Refresh before reconciling.');
+      if(!remote||remote.id!==local.id||!Number.isSafeInteger(remote.version)||remote.version<1||remote.deleted_at)throw new Error('A live remote routine snapshot is required.');
+      if(remote.user_id!==this.userId)throw new Error('Remote ownership mismatch.');
+      const operations=transaction.objectStore(INTERNAL_STORES.operations),related=(await requestResult(operations.index('entity_record').getAll([entity,local.id]))).filter(row=>row.owner_id===this.userId&&UNRESOLVED_OPERATION_STATES.has(row.status));
+      const expectedIds=new Set(operationIds);if(related.length!==expectedIds.size||related.some(row=>!expectedIds.has(row.operation_id)||row.type!=='insert'||row.status==='syncing'))throw new Error('Conflict operations changed. Refresh before reconciling.');
+      const timestamp=nowIso(),decisionId=uuid(this.crypto),auditStore=transaction.objectStore(INTERNAL_STORES.metadata);
+      for(const operation of related){operation.status='synced';operation.last_error=null;operation.next_attempt_at=null;operation.updated_at=timestamp;operation.resolution_id=decisionId;await requestResult(operations.put(operation));}
+      const accepted={...remote,owner_id:this.userId,remote_version:remote.version,local_revision:local.local_revision,sync_status:'synced'};delete accepted.version;await requestResult(store.put(accepted));
+      const audit={id:decisionId,owner_id:this.userId,entity,record_id:local.id,local_revision:local.local_revision,local_remote_version:local.remote_version,remote_version:remote.version,conflict_id:conflictId,strategy:'reconcile_equivalent',resolved_at:timestamp,confirmed_at:timestamp,metadata:clone(metadata),local_payload:clone(local),remote_payload:remote,operation_ids:[...operationIds],confirmation:'server_confirmed'};
+      conflict.status='resolved';conflict.resolved_at=timestamp;conflict.confirmed_at=timestamp;conflict.strategy='reconcile_equivalent';conflict.resolution_history=[...(conflict.resolution_history||[]),decisionId];conflict.resolution_metadata={decision_id:decisionId,operation_ids:[...operationIds],target_id:local.id};conflict.updated_at=timestamp;
+      await requestResult(auditStore.put({key:`resolution:${decisionId}`,owner_id:this.userId,value:audit,updated_at:timestamp}));await requestResult(conflicts.put(conflict));return clone(audit);
     });
   }
 

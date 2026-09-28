@@ -1,5 +1,9 @@
 import {withV3SyncLock} from './sync-lock.js';
 import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
+import {compactOperations,remoteConfirmsOperation} from './sync-protocol.js';
+
+const ROUTINE_ENTITIES=new Set(['routine_templates','routine_versions','routine_exercises']);
+const effectiveOperation=group=>({...group.operations[0],type:group.type,payload:structuredClone(group.payload),base_remote_version:group.baseRemoteVersion,record_id:group.recordId});
 
 const explanations={routine_version_number_collision:'Dos dispositivos publicaron el mismo número de versión con IDs distintos. Conservá los snapshots y revisá explícitamente la nueva versión; no se renumera ni se aplica automáticamente.',remote_changed:'El servidor cambió mientras había cambios locales pendientes.',remote_change_vs_local_change:'El servidor cambió mientras había cambios locales pendientes.',conflict_remote_refresh:'Se actualizó la copia remota de un conflicto que sigue abierto.',remote_version_conflict:'La versión enviada ya no coincide con la del servidor.',remote_tombstone:'El servidor conserva un registro de borrado. Su identidad no puede reactivarse.',version_conflict:'La versión enviada ya no coincide con la del servidor.',v2_source_changed:'La fuente V2 cambió después de importar. Requiere revisión explícita de la importación.'};
 export function availableStrategies(conflict,local){
@@ -29,6 +33,26 @@ export class V3ConflictService{
     if(rolloutBlocksNewWork()||rolloutFlag('v3_conflicts_enabled')===false)throw new Error('Conflictos V3 desactivados o actualización requerida.');
     if(!view.strategies.includes(strategy))throw new Error('Esta estrategia no está disponible. Actualizá el detalle.');
     const result=await withV3SyncLock({repository:this.repository,userId:this.repository.userId,locks:this.locks,task:()=>this.repository.resolveConflict({conflictId:view.conflict_id,strategy,expectedUpdatedAt:view.updated_at,expectedRemoteVersion:view.remote?.version??null,expectedLocalRevision:view.local.local_revision,metadata:{note:String(note).slice(0,2000),source:'conflict-ui',semantics:strategy==='keep_both'?'Independent football occurrence; linked reviews are not copied.':null}})});
+    if(result?.skipped)throw new Error('La sincronización está trabajando. Reintentá cuando termine.');
+    return result;
+  }
+  async reconcileEquivalentRoutines(){
+    if(rolloutBlocksNewWork()||rolloutFlag('v3_conflicts_enabled')===false)throw new Error('Conflictos V3 desactivados o actualización requerida.');
+    const result=await withV3SyncLock({repository:this.repository,userId:this.repository.userId,locks:this.locks,task:async()=>{
+      const rows=await this.list({status:'open'}),summary={examined:0,resolved:0,remaining:0};
+      for(const view of rows.filter(row=>ROUTINE_ENTITIES.has(row.entity))){
+        summary.examined+=1;const operations=await this.repository.unresolvedOperations(view.entity,view.record_id),groups=compactOperations(operations);
+        if(groups.length!==1){summary.remaining+=1;continue;}
+        const operation=effectiveOperation(groups[0]);
+        if(operation.type!=='insert'||!remoteConfirmsOperation(operation,view.remote,this.repository.userId)){summary.remaining+=1;continue;}
+        try{
+          await this.repository.reconcileEquivalentRoutineConflict({conflictId:view.conflict_id,operationIds:groups[0].operationIds,expectedUpdatedAt:view.updated_at,expectedRemoteVersion:view.remote.version,expectedLocalRevision:view.local.local_revision,metadata:{source:'conflict-ui',semantics:'Deterministic routine insert matched all explicit functional fields.'}});summary.resolved+=1;
+        }catch(error){
+          if(/changed|revision/i.test(error.message)){summary.remaining+=1;continue;}throw error;
+        }
+      }
+      return summary;
+    }});
     if(result?.skipped)throw new Error('La sincronización está trabajando. Reintentá cuando termine.');
     return result;
   }

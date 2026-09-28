@@ -4,11 +4,11 @@ const labels={defer:'Posponer decisión',keep_local:'Conservar local',accept_rem
 const states={open:'Pendiente de decisión',resolution_pending:'Decisión pendiente de sync',resolved:'Resuelto'};
 const counter=rows=>`${rows.filter(row=>row.status==='open').length} conflictos abiertos · ${rows.filter(row=>row.status==='resolution_pending').length} decisiones pendientes de sync · ${rows.filter(row=>row.status==='resolved').length} resueltos`;
 export class V3ConflictUI{
-  constructor({root,service,onClose}){Object.assign(this,{root,service,onClose});this.destroyed=false;this.busy=false;}
+  constructor({root,service,onClose,confirmAction=message=>globalThis.confirm(message)}){Object.assign(this,{root,service,onClose,confirmAction});this.destroyed=false;this.busy=false;}
   destroy(){this.destroyed=true;}
   async mount(){
-    this.root.replaceChildren();const heading=node('h1','Conflictos V3'),close=node('button','Cerrar'),refresh=node('button','Actualizar lista'),list=node('div'),status=node('p');status.setAttribute('role','status');
-    close.onclick=this.onClose;refresh.onclick=()=>this.refresh(list,status);this.root.append(heading,close,refresh,status,list);await this.refresh(list,status);close.focus();
+    this.root.replaceChildren();const heading=node('h1','Conflictos V3'),close=node('button','Cerrar'),refresh=node('button','Actualizar lista'),reconcile=node('button','Reconciliar conflictos equivalentes'),list=node('div'),status=node('p');status.setAttribute('role','status');
+    close.onclick=this.onClose;refresh.onclick=()=>this.refresh(list,status);reconcile.onclick=async()=>{if(!mayStartNewWork()){status.textContent='Actualizá esta pestaña antes de reconciliar conflictos.';return;}if(!this.confirmAction('Se cerrarán únicamente conflictos de rutinas cuyo contenido funcional local y remoto sea idéntico. ¿Continuar?'))return;reconcile.disabled=true;this.busy=true;try{const result=await this.service.reconcileEquivalentRoutines();await this.refresh(list,status);status.textContent+=` · Reconciliados: ${result.resolved}. Permanecen para revisión: ${result.remaining}.`;}catch(error){status.textContent=error.message;}finally{this.busy=false;reconcile.disabled=false;}};this.root.append(heading,close,refresh,reconcile,status,list);await this.refresh(list,status);close.focus();
   }
   async refresh(list,status){
     try{const rows=await this.service.list();if(this.destroyed)return;list.replaceChildren();status.textContent=counter(rows);
