@@ -5,6 +5,7 @@ import {mayStartNewWork} from '../pwa-update-gate.js';
 import {buildV3SyncDiagnostic} from './sync-diagnostic.js';
 import {buildV3SessionDiagnostic} from './session-diagnostic.js';
 import {appBuildId} from '../pwa-version.js';
+import {completedRoutineSessions,completedExerciseHint} from './completed-today.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -22,10 +23,11 @@ const select=(parent,label,options,value)=>{
   wrapper.append(node);parent.append(wrapper);return node;
 };
 const duration=seconds=>`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
+const formatLocalTime=value=>{if(!value)return '';const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});};
 const confirmDiscard=label=>globalThis.confirm?.(`¿Descartar “${label}”? Se conservará una marca de borrado local para sincronizarla cuando corresponda.`)===true;
 
 export class V3TrainingUI{
-  constructor({root,engine,onClose,syncNow=null,pullOnly=null,readinessScore=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.pullOnly=pullOnly;this.readinessScore=readinessScore;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
+  constructor({root,engine,onClose,syncNow=null,pullOnly=null,readinessScore=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.pullOnly=pullOnly;this.readinessScore=readinessScore;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.viewedCompletedId=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
 
   async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);globalThis.window?.addEventListener('online',this.onOnline);}
   destroy(){this.destroyed=true;clearInterval(this.timer);globalThis.window?.removeEventListener('online',this.onOnline);this.root.replaceChildren();}
@@ -50,7 +52,11 @@ export class V3TrainingUI{
     this.conflict=el('p','','advice v3-conflict');this.conflict.setAttribute('role','status');this.conflict.setAttribute('aria-live','polite');shell.append(this.conflict);
     this.coachSlot=null;
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
-    if(!snapshot||snapshot.session.status!=='draft'){await this.renderStart(shell);return;}
+    if(!snapshot||snapshot.session.status!=='draft'){
+      if(this.viewedCompletedId)await this.renderCompleted(shell,this.viewedCompletedId);
+      else await this.renderStart(shell);
+      return;
+    }
     shell.append(el('h3',snapshot.session.label));shell.append(el('p',`${snapshot.session.session_type==='free_workout'?'Musculación libre · ':''}Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
     if(snapshot.session.routine_snapshot?.name)shell.append(el('p',snapshot.session.routine_snapshot.name,'muted'));
     this.clock=el('strong',duration(sessionMetrics(snapshot).durationSeconds));shell.append(this.clock);
@@ -62,7 +68,7 @@ export class V3TrainingUI{
     if(drafts.length>1){const picker=select(shell,'Cambiar sesión activa',drafts.map(item=>[item.id,`${item.session_date} · ${item.label}`]),snapshot.session.id);picker.addEventListener('change',()=>this.run(()=>this.engine.selectSession(picker.value)));}
     if(state.view==='active'){
       const metrics=sessionMetrics(snapshot);shell.append(el('p',`${snapshot.exercises.length} ejercicios · ${metrics.completedSets} series completadas · ${metrics.volume.toFixed(1)} kg de volumen`));
-      shell.append(button('Continuar con ejercicios',()=>this.run(()=>this.engine.saveUIState({view:'exercises'})),'primary'));
+      shell.append(button('Continuar entrenamiento',()=>this.run(()=>this.engine.saveUIState({view:'exercises'})),'primary'));
     }else if(state.view==='exercises')await this.renderExercises(shell,snapshot,state);
     else await this.renderSummary(shell,snapshot,state);
     this.renderRest();
@@ -78,12 +84,20 @@ export class V3TrainingUI{
   }
 
   async renderStart(shell){
-    if(this.engine.routines)await this.engine.routines.seedDefaults();
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
-    const dayIndex=new Date(this.engine.now()).getDay(),hasRoutine=[2,4,5].includes(dayIndex),dayLabel={2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
+    const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),hasRoutine=[2,4,5].includes(dayIndex),dayLabel={2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
+    const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex}):[];
+    if(!completed.length&&this.engine.routines)await this.engine.routines.seedDefaults();
     const primary=el('section','','card v3-training-primary');shell.append(primary);primary.append(el('h3',hasRoutine?'Entrenamiento de hoy':'Hoy no hay rutina programada'));
-    primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
-    if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+    if(completed.length){
+      const latest=await this.engine.snapshot(completed[0].id),metrics=sessionMetrics(latest);
+      primary.append(el('p','✓ Completado','v3-completed-label'),el('p',`${latest.exercises.length} ejercicios · ${metrics.completedSets} series completadas`,'muted'));
+      primary.append(button('Ver entrenamiento realizado',()=>{this.viewedCompletedId=latest.session.id;return this.render();},'primary wide'));
+      if(completed.length>1){const others=document.createElement('details');others.className='v3-completed-more';others.append(el('summary',`Otras sesiones completadas hoy (${completed.length-1})`));for(const session of completed.slice(1))others.append(button(`Ver sesión de ${formatLocalTime(session.started_at)}`,()=>{this.viewedCompletedId=session.id;return this.render();}));primary.append(others);}
+    }else{
+      primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
+      if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+    }
     const free=el('section','','card v3-free-workout');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Registrá sólo lo que realmente hagas, cualquier día.','muted'));
     const today=localDateKey(this.engine.now()),freeOptions=document.createElement('details');freeOptions.className='v3-start-options';freeOptions.append(el('summary','Ajustar fecha o nombre'));
     const freeDate=field(freeOptions,'Fecha de la sesión',{type:'date',value:today,max:today}),freeName=field(freeOptions,'Nombre opcional',{type:'text'});free.append(freeOptions);
@@ -93,6 +107,29 @@ export class V3TrainingUI{
     custom.append(button('Comenzar sesión personalizada',()=>this.run(()=>this.engine.createSession({label:name.value.trim()||undefined,dayIndex:Number(routine.value),useRoutine:routine.value!=='0'})),'primary wide'));shell.append(custom);
     const drafts=(await this.engine.repository.listSessions({status:'draft'})).filter(item=>item.started_at&&!item.reconstructed);
     if(drafts.length){const recovery=el('section','','v3-draft-recovery');recovery.append(el('h3','Sesiones sin finalizar'));for(const session of drafts){const actions=el('div','','v3-actions');actions.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))),button(`Descartar ${session.session_date} · ${session.label}`,()=>{if(confirmDiscard(session.label))return this.run(()=>this.engine.discardSession(session.id));},'danger-btn'));recovery.append(actions);}shell.append(recovery);}
+  }
+
+  async renderCompleted(shell,id){
+    const snapshot=await this.engine.snapshot(id);
+    if(!snapshot||snapshot.session.status!=='completed'||snapshot.session.deleted_at){this.viewedCompletedId=null;await this.renderStart(shell);return;}
+    const {session}=snapshot,exercises=snapshot.exercises.filter(item=>!item.deleted_at),metrics=sessionMetrics(snapshot),card=el('section','','card v3-completed-session');
+    shell.append(button('‹ Volver a Entrenar',()=>{this.viewedCompletedId=null;return this.render();}));
+    card.append(el('h3',session.label||'Entrenamiento realizado'),el('p','✓ Completado','v3-completed-label'));
+    card.append(el('p',`Fecha: ${session.session_date} · ${exercises.length} ejercicios · ${metrics.completedSets} series completadas`,'muted'));
+    const start=formatLocalTime(session.started_at),end=formatLocalTime(session.ended_at);
+    if(start||end)card.append(el('p',`Horario: ${start||'—'}–${end||'—'} · Duración ${duration(session.duration_seconds??metrics.durationSeconds)}`,'muted'));
+    card.append(el('p',`Volumen: ${metrics.volume.toFixed(1)} kg`,'muted'));
+    for(const exercise of exercises){
+      const section=el('section','','v3-completed-exercise');card.append(section);
+      section.append(el('h4',exercise.exercise_name_snapshot));
+      const hint=completedExerciseHint(exercise,snapshot);if(hint)section.append(el('p',hint,'muted'));
+      if(!exercise.sets.length){section.append(el('p','Sin series registradas.','muted'));continue;}
+      for(const set of exercise.sets.filter(item=>!item.deleted_at).sort((a,b)=>a.position-b.position)){
+        const amount=set.duration_seconds!=null?`${set.duration_seconds} s`:set.reps!=null?`${set.reps} reps`:'Sin reps/duración';
+        section.append(el('p',`S${set.position+1} · ${set.load_kg??'—'} kg · ${amount} · RIR ${set.rir??'—'} · ${set.is_completed?'Completada':'Sin completar'}`,'v3-completed-set'));
+      }
+    }
+    shell.append(card);
   }
 
   async renderSync(shell){
