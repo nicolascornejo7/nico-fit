@@ -40,3 +40,39 @@ test('mobile shell reserves room above bottom navigation and supports safe-area 
   assert.match(css,/@media\(max-width:650px\)[\s\S]*\.v3-training-shell\{[^}]*safe-area-inset-bottom/);
   assert.match(css,/\.v3-training-screen \.wide\{min-height:48px/);
 });
+
+test('compact series keeps values and completion primary while moving destructive actions to options',async()=>{
+  const ui=await read('../js/v3/training-ui.js');
+  assert.match(ui,/v3-set v3-set-compact/);
+  assert.match(ui,/v3-set-values/);
+  assert.match(ui,/Marcar completada/);
+  assert.match(ui,/is_completed:!set\.is_completed/);
+  assert.match(ui,/v3-set-menu/);
+  assert.match(ui,/Editar serie/);
+  assert.match(ui,/Eliminar serie/);
+  const setRender=ui.slice(ui.indexOf('async renderSets'),ui.indexOf('async renderSummary'));
+  assert.doesNotMatch(setRender,/set\.sync_status/);
+});
+
+test('exercise picker keeps basic add direct and prescription controls optional',async()=>{
+  const ui=await read('../js/v3/training-ui.js');
+  assert.match(ui,/v3-add-exercise/);
+  assert.match(ui,/Ejercicio del catálogo/);
+  assert.match(ui,/v3-exercise-advanced/);
+  assert.match(ui,/Ajustes avanzados \(opcional\)/);
+  assert.match(ui,/Descanso \(s\)/);
+  assert.match(ui,/button\('Agregar'/);
+  assert.match(ui,/v3-custom-exercise/);
+});
+
+test('football entry is available by selected date and match review follows that context',async()=>{
+  const [app,index,css]=await Promise.all([read('../js/app.js'),read('../index.html'),read('../styles.css')]);
+  assert.match(index,/<details id="footballQuickCard" class="card football-entry">/);
+  assert.match(index,/id="footballDate" type="date"/);
+  assert.match(app,/function footballContext\(date=\$\('footballDate'\)\.value\|\|currentContext\(\)\.dateKey\)/);
+  assert.match(app,/date\.max=today/);
+  assert.match(app,/local_date:ctx\.date/);
+  assert.match(app,/footballContext\(\)\.sessionType!=='match'/);
+  assert.doesNotMatch(app.slice(app.indexOf('function renderFootball'),app.indexOf('function updateFootballLoad')),/\[1,3,6\]/);
+  assert.match(css,/\.football-entry>summary\{[^}]*min-height:58px/);
+});

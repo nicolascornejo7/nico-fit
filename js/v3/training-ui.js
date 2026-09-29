@@ -136,23 +136,26 @@ export class V3TrainingUI{
     const list=el('ol','','v3-exercises');shell.append(list);
     for(const [index,exercise] of snapshot.exercises.entries()){
       const row=el('li');row.append(button(`${index+1}. ${exercise.exercise_name_snapshot}`,()=>this.run(()=>this.engine.saveUIState({currentExerciseId:exercise.id,editingSetId:null}))));
+      const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Opciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){
         actions.append(button(`${title} ${exercise.exercise_name_snapshot}`,()=>this.run(()=>{const ids=snapshot.exercises.map(ex=>ex.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];return this.engine.reorderExercises(ids);})));
       }
-      actions.append(button('Repetir ejercicio',()=>this.run(()=>this.engine.repeatExercise(exercise.id))),button('Eliminar ejercicio y sus series',()=>this.run(()=>this.engine.deleteExercise(exercise.id))));row.append(actions);list.append(row);
+      actions.append(button('Repetir ejercicio',()=>this.run(()=>this.engine.repeatExercise(exercise.id))),button('Eliminar ejercicio y sus series',()=>this.run(()=>this.engine.deleteExercise(exercise.id))));menu.append(actions);row.append(menu);list.append(row);
     }
     const current=snapshot.exercises.find(ex=>ex.id===state.currentExerciseId)||snapshot.exercises[0];
     if(current)await this.renderSets(shell,current,state);
     const catalog=await this.engine.catalog();
-    const card=el('section','','card');shell.append(card);card.append(el('h3','Agregar ejercicio'));
+    const card=el('section','','card v3-add-exercise');shell.append(card);card.append(el('h3','Agregar ejercicio'));
     if(catalog.length){
       const choice=select(card,'Ejercicio del catálogo',catalog.map(ex=>[ex.id,`${ex.metadata?.category?`${ex.metadata.category} · `:''}${ex.canonical_name} · ${ex.measurement_kind}`]));
-      const target=field(card,'Series objetivo',{value:3,min:1,max:100}),minimum=field(card,'Mínimo (reps o segundos)',{min:1}),maximum=field(card,'Máximo (reps o segundos)',{min:1}),step=field(card,'Incremento de carga (kg)',{value:0,min:0,max:100,step:'.5'});
-      card.append(button('Agregar a la sesión',()=>this.run(()=>this.engine.addExercise(choice.value,{sets:target.value,min:minimum.value,max:maximum.value,step:step.value})),'primary'));
+      const advanced=document.createElement('details');advanced.className='v3-exercise-advanced';advanced.append(el('summary','Ajustes avanzados (opcional)'));
+      const target=field(advanced,'Series objetivo',{value:3,min:1,max:100}),minimum=field(advanced,'Mínimo (reps o segundos)',{min:1}),maximum=field(advanced,'Máximo (reps o segundos)',{min:1}),rest=field(advanced,'Descanso (s)',{min:0,max:3600}),step=field(advanced,'Incremento de carga (kg)',{value:0,min:0,max:100,step:'.5'});
+      card.append(advanced,button('Agregar',()=>this.run(()=>this.engine.addExercise(choice.value,{sets:target.value,min:minimum.value,max:maximum.value,rest:rest.value,step:step.value})),'primary wide'));
     }
-    const name=field(card,'Nombre de ejercicio personalizado',{type:'text'}),mode=select(card,'Unidad', [['reps','Repeticiones'],['seconds','Segundos'],['mixed','Elegir reps o segundos por serie']]);
-    card.append(button('Crear ejercicio personalizado y agregar',()=>this.run(async()=>{const custom=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(custom.id);})));
+    const custom=document.createElement('details');custom.className='v3-custom-exercise';custom.append(el('summary','Crear ejercicio personalizado'));
+    const name=field(custom,'Nombre de ejercicio personalizado',{type:'text'}),mode=select(custom,'Unidad', [['reps','Repeticiones'],['seconds','Segundos'],['mixed','Elegir reps o segundos por serie']]);
+    custom.append(button('Crear y agregar',()=>this.run(async()=>{const created=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(created.id);}),'ghost wide'));card.append(custom);
   }
 
   async renderSets(shell,exercise,state){
@@ -160,8 +163,12 @@ export class V3TrainingUI{
     const rx=exercise.prescription_snapshot;card.append(el('p',`${rx.sets} series objetivo · ${rx.measurement_kind} · ${rx.min??'—'}–${rx.max??'—'}`,'muted'));
     card.append(el('p',(await this.engine.progression(exercise.id,{readinessScore:this.readinessScore})).text,'advice'));
     for(const set of exercise.sets){
-      const row=el('div','','v3-set');row.append(el('p',`S${set.position+1} · ${set.load_kg??'—'} kg · ${set.reps!=null?`${set.reps} reps`:`${set.duration_seconds??'—'} s`} · RIR ${set.rir??'—'} · ${set.is_completed?'Completada':'Sin completar'} · ${set.sync_status}`));
-      row.append(button(`Editar serie ${set.position+1}`,()=>this.run(()=>this.engine.saveUIState({editingSetId:set.id}))),button(`Eliminar serie ${set.position+1}`,()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id))));card.append(row);
+      const row=el('div','','v3-set v3-set-compact'),values=el('div','','v3-set-values');
+      values.append(el('span',`S${set.position+1}`,'v3-set-number'),el('span',`${set.load_kg??'—'} kg`),el('span',set.reps!=null?`${set.reps} reps`:`${set.duration_seconds??'—'} s`),el('span',`RIR ${set.rir??'—'}`));
+      const complete=button(set.is_completed?'✓ Completada':'Marcar completada',()=>this.run(()=>this.engine.saveSet(exercise.id,{is_completed:!set.is_completed},{setId:set.id})),'v3-set-complete');complete.setAttribute('aria-pressed',String(!!set.is_completed));complete.setAttribute('aria-label',`${set.is_completed?'Desmarcar':'Marcar'} serie ${set.position+1} como completada`);
+      const menu=document.createElement('details');menu.className='v3-set-menu';menu.append(el('summary','Opciones'));
+      const actions=el('div','','v3-actions');actions.append(button(`Editar serie ${set.position+1}`,()=>this.run(()=>this.engine.saveUIState({editingSetId:set.id}))),button(`Eliminar serie ${set.position+1}`,()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id))));menu.append(actions);
+      row.append(values,complete,menu);card.append(row);
     }
     const editing=exercise.sets.find(set=>set.id===state.editingSetId),key=`${exercise.id}:${editing?.id||'new'}`,draft=state.drafts[key]||editing||{};
     const form=el('form');card.append(form);form.append(el('h4',editing?'Editar serie':'Nueva serie'));

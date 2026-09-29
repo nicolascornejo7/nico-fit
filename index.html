@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v55" />
+  <meta name="nico-fit-build" content="nico-fit-v56" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -84,8 +84,9 @@
           <div id="weekGrid" class="week-grid"></div>
         </section>
 
-        <section id="footballQuickCard" class="card hidden">
-          <div class="section-head"><div><p class="eyebrow">CARGA DE FÚTBOL</p><h2 id="footballTitle">Sesión</h2></div><span class="tag">sRPE</span></div>
+        <details id="footballQuickCard" class="card football-entry">
+          <summary><span><span class="eyebrow">CARGA DE FÚTBOL</span><strong id="footballTitle">Registrar fútbol</strong></span><span class="tag">sRPE</span></summary>
+          <label class="field-label">Fecha<input id="footballDate" type="date"></label>
           <div class="three-grid">
             <label class="field-label">Duración (min)<input id="footballDuration" type="number" min="0" step="5" placeholder="90"></label>
             <label class="field-label">Intensidad RPE (1–10)<input id="footballRpe" type="number" min="1" max="10" placeholder="7"></label>
@@ -93,7 +94,7 @@
           </div>
           <p id="footballLoadPreview" class="metric-callout">Carga estimada: —</p>
           <button id="saveFootball" class="primary wide">Guardar carga de fútbol</button>
-        </section>
+        </details>
 
         <section id="matchSection" class="card hidden">
           <div class="section-head"><div><p class="eyebrow">POST PARTIDO</p><h2>Evaluación del sábado</h2></div><span class="tag">Partido</span></div>
