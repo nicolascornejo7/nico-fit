@@ -41,3 +41,8 @@ test('exercise identities never merge by similar names across V2 and V3',async()
   const historical={...emptyV2(),workouts:[{date:'2026-09-01',exercise:'Press banca',sets:[{kg:60,reps:8,done:true}]}]},current=session(),exercise={id:'ex',session_id:current.id,exercise_catalog_id:'catalog-press',exercise_name_snapshot:'Press Banca'},model=await new UnifiedProgress({v2Reader:v2Reader(historical),repository:repository({sessions:[current],exercises:{[current.id]:[exercise]},sets:{ex:[{id:'s',is_completed:true,load_kg:65,reps:8}]}})}).load();
   assert.equal(new Set(model.exercises.map(row=>row.identity)).size,2);assert.deepEqual(new Set(model.exercises.map(row=>row.source)),new Set(['v2','v3']));
 });
+
+test('readiness fields remain available for presentation while the unified score is unchanged',async()=>{
+  const historical={...emptyV2(),readiness:[{date:'2026-09-01',sleep:4,energy:3,fatigue:2,pain:1}]},model=await new UnifiedProgress({v2Reader:v2Reader(historical),repository:repository()}).load();
+  assert.equal(model.readiness[0].sleep,4);assert.equal(model.readiness[0].energy,3);assert.equal(model.readiness[0].freshness,4);assert.equal(model.readiness[0].pain,1);assert.equal(model.readiness[0].value,73);
+});

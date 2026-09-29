@@ -1,5 +1,5 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v56';
+const BUILD_ID='nico-fit-v57';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
@@ -17,7 +17,7 @@ const APP_ASSETS=[
   './js/v3/coach-service.js','./js/v3/coach-signals.js','./js/v3/conflict-entry.js',
   './js/v3/conflict-service.js','./js/v3/conflict-ui.js','./js/v3/diagnostic-model.js',
   './js/v3/exercise-family.js','./js/v3/feature-flags.js','./js/v3/import-v2-routines.js','./js/v3/import-v2-signals.js',
-  './js/v3/import-v2.js','./js/v3/indexed-db.js','./js/v3/observability-entry.js',
+  './js/v3/import-v2.js','./js/v3/indexed-db.js','./js/v3/observability-entry.js','./js/v3/progress-presentation.js',
   './js/v3/observability-runtime.js','./js/v3/observability-service.js','./js/v3/observability-ui.js',
   './js/v3/offline-auth.js','./js/v3/public-config.js',
   './js/v3/repository.js','./js/v3/routine-presentation.js','./js/v3/routine-service.js',

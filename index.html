@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v56" />
+  <meta name="nico-fit-build" content="nico-fit-v57" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -127,20 +127,37 @@
       </section>
 
       <section id="progressView" class="view">
-        <section class="card">
-          <div class="section-head"><div><p class="eyebrow">PROGRESO</p><h2>Tu evolución</h2></div><span class="muted">Últimas semanas</span></div>
-          <div class="stats">
-            <div><span class="stat-label">Sesiones gym</span><strong id="workoutCount">0</strong></div>
-            <div><span class="stat-label">Volumen registrado</span><strong id="gymVolume">0 kg</strong></div>
-            <div><span class="stat-label">Carga fútbol 7d</span><strong id="footballLoad7">0</strong></div>
-            <div><span class="stat-label">Readiness</span><strong id="avgReadiness">—</strong></div>
+        <section class="card progress-overview">
+          <div class="section-head"><div><p class="eyebrow">PROGRESO</p><h2>Tu evolución</h2></div></div>
+          <p id="progressHeadline" class="progress-headline">Elegí un área para ver tu tendencia.</p>
+          <div id="progressAreas" class="progress-areas" role="tablist" aria-label="Área de progreso">
+            <button type="button" class="ghost active" data-progress-area="strength" role="tab" aria-selected="true">Fuerza</button>
+            <button type="button" class="ghost" data-progress-area="readiness" role="tab" aria-selected="false">Readiness</button>
+            <button type="button" class="ghost" data-progress-area="football" role="tab" aria-selected="false">Fútbol</button>
           </div>
           <p id="progressStatus" class="advice" role="status" aria-live="polite"></p>
         </section>
-        <section class="card"><div class="section-head"><h2>Readiness</h2><span class="muted">0–100</span></div><canvas id="readinessChart" class="chart" height="190"></canvas></section>
-        <section class="card"><div class="section-head"><h2>Frescura al partido</h2><span class="muted">Últimos partidos</span></div><canvas id="matchChart" class="chart" height="190"></canvas></section>
-        <section class="card"><div class="section-head"><div><h2>Carga máxima por ejercicio</h2><span id="exerciseMaxLoad" class="muted">—</span></div><select id="exerciseSelect" aria-label="Ejercicio para el gráfico de fuerza"></select></div><canvas id="strengthChart" class="chart" height="210" aria-label="Gráfico de carga máxima" role="img"></canvas></section>
-        <section class="card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Sesiones y partidos</span></div><div id="history" class="history"></div></section>
+
+        <section id="progressStrengthPanel" class="card progress-panel" role="tabpanel">
+          <div class="section-head"><div><h2>Fuerza</h2><span id="strengthTrend" class="muted">—</span></div><select id="exerciseSelect" aria-label="Ejercicio para el gráfico de fuerza"></select></div>
+          <div class="progress-summary"><div><span class="stat-label">Mejor carga reciente</span><strong id="exerciseMaxLoad">—</strong></div><div><span class="stat-label">Volumen registrado</span><strong id="exerciseVolume">—</strong></div></div>
+          <canvas id="strengthChart" class="chart" height="210" aria-label="Gráfico de carga máxima" role="img"></canvas>
+        </section>
+
+        <section id="progressReadinessPanel" class="card progress-panel hidden" role="tabpanel">
+          <div class="section-head"><div><h2>Readiness</h2><span id="readinessTrend" class="muted">—</span></div><select id="readinessMetricSelect" aria-label="Métrica de readiness"><option value="score">Score global</option><option value="sleep">Sueño</option><option value="energy">Energía</option><option value="freshness">Frescura</option><option value="pain">Dolor</option></select></div>
+          <div id="readinessLatest" class="progress-summary compact"></div>
+          <canvas id="readinessChart" class="chart" height="210" aria-label="Gráfico de readiness" role="img"></canvas>
+        </section>
+
+        <section id="progressFootballPanel" class="card progress-panel hidden" role="tabpanel">
+          <div class="section-head"><div><h2>Fútbol</h2><span id="footballTrend" class="muted">—</span></div></div>
+          <div class="progress-summary"><div><span class="stat-label">Carga últimos 7 días</span><strong id="footballLoad7">0</strong></div><div><span class="stat-label">Último review</span><strong id="latestMatchReview">—</strong></div></div>
+          <canvas id="footballChart" class="chart" height="210" aria-label="Gráfico de carga de fútbol" role="img"></canvas>
+          <div id="footballRecent" class="progress-list"></div>
+        </section>
+
+        <section class="card progress-history-card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Últimos registros</span></div><div id="history" class="history"></div><details id="historyOlder" class="progress-history-more"><summary>Ver historial anterior</summary><div id="historyOlderList" class="history"></div></details></section>
       </section>
 
       <section id="settingsView" class="view">
