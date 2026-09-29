@@ -48,6 +48,22 @@ export class V3SyncEngine{
     }
   }
 
+  // Explicit recovery path: authenticate and pull under the normal sync lock,
+  // but never claim queued operations or call the remote mutation adapter.
+  async pullOnly(){
+    const enabled=this.featureEnabled??isV3SyncEnabled(this.flagStorage);
+    if(!enabled)return {skipped:'disabled'};
+    if(!await rolloutAllowsRemote())return {skipped:'rollout_blocked'};
+    if(!this.online())return {skipped:'offline'};
+    const remoteUserId=await this.remote.authenticatedUserId();
+    if(remoteUserId!==this.repository.userId)throw Object.assign(new Error('Authenticated Supabase user does not match the local V3 repository.'),{status:401});
+    return withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:async()=>{
+      const result={pulled:0,confirmed:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
+      if(!await this.#pull(result,{pullOnly:true}))return {...result,skipped:'rollout_blocked'};
+      return result;
+    }});
+  }
+
   // Diagnostic writes are best effort; quota errors must not prevent domain sync.
   async #observe(attemptId,patch){try{await this.repository.recordSyncAttempt(attemptId,patch);}catch{}}
 
@@ -60,7 +76,7 @@ export class V3SyncEngine{
     return result;
   }
 
-  async #pull(result){
+  async #pull(result,{pullOnly=false}={}){
     for(const entity of this.#entities()){
       if(!await rolloutAllowsRemote())return false;
       if(!ENTITY_STORES.includes(entity))continue;
@@ -88,7 +104,9 @@ export class V3SyncEngine{
             if(unresolved.some(item=>item.status==='conflict')){
               await this.repository.recordConflict({entity,recordId:remoteRecord.id,operationIds:unresolved.map(item=>item.operation_id),reason:'conflict_remote_refresh',localPayload:await this.repository.get(entity,remoteRecord.id),remotePayload:remoteRecord});
             }else if(groups.length===1&&remoteConfirmsOperation(effective,remoteRecord,this.repository.userId)){
-              await this.repository.acknowledgeOperations(last.operationIds,{remoteRecord});result.pushed+=1;
+              await this.repository.acknowledgeOperations(last.operationIds,{remoteRecord});
+              if(pullOnly)result.confirmed+=last.operationIds.length;
+              else result.pushed+=1;
             }else if(!remoteRecord.deleted_at&&unresolved.every(item=>item.type!=='insert'&&item.base_remote_version===remoteRecord.version)){
               // The pull returned the exact server base on which these offline edits were made.
               // Keep the local draft and let the queued mutation advance version by one.

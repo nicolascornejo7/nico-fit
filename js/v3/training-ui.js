@@ -25,7 +25,7 @@ const duration=seconds=>`${String(Math.floor(seconds/60)).padStart(2,'0')}:${Str
 const confirmDiscard=label=>globalThis.confirm?.(`¿Descartar “${label}”? Se conservará una marca de borrado local para sincronizarla cuando corresponda.`)===true;
 
 export class V3TrainingUI{
-  constructor({root,engine,onClose,syncNow=null,readinessScore=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.readinessScore=readinessScore;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
+  constructor({root,engine,onClose,syncNow=null,pullOnly=null,readinessScore=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.pullOnly=pullOnly;this.readinessScore=readinessScore;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
 
   async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);globalThis.window?.addEventListener('online',this.onOnline);}
   destroy(){this.destroyed=true;clearInterval(this.timer);globalThis.window?.removeEventListener('online',this.onOnline);this.root.replaceChildren();}
@@ -99,7 +99,9 @@ export class V3TrainingUI{
     const operational=await this.engine.repository.operationalSnapshot(),counts=operational.counts;
     const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado',clean=state==='sincronizado';
     const row=el('section','',clean?'v3-sync-status is-clean':'card v3-sync-status');row.append(el('p',clean?'✓ Sincronizado':`Sincronización: ${state}. Cola: ${operational.queue.operations}.`,clean?'v3-sync-indicator':'advice'));
-    if(!clean){const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;row.append(action);}shell.append(row);
+    if(!clean){const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;row.append(action);
+      if(this.pullOnly){const recovery=button('Recuperar del servidor (sin enviar)',()=>this.requestPullOnly());recovery.disabled=globalThis.navigator?.onLine===false||this.syncing;row.append(recovery);}}
+    shell.append(row);
   }
 
   async exportDiagnostic(){
@@ -139,6 +141,19 @@ export class V3TrainingUI{
       return result;
     }catch(error){if(!this.destroyed)this.message.textContent=`Error de sync: ${error.message}`;if(!automatic)throw error;return {failed:true};}
     finally{this.syncing=false;if(!this.destroyed)await this.render();}
+  }
+
+  async requestPullOnly(){
+    if(this.destroyed||this.syncing||!this.pullOnly||globalThis.navigator?.onLine===false)return {skipped:'offline'};
+    if(globalThis.confirm?.('Se descargarán datos de tu cuenta sin enviar la cola local. Las semillas equivalentes se confirmarán; las diferentes quedarán para revisión. ¿Continuar?')!==true)return {skipped:'cancelled'};
+    this.syncing=true;await this.render();this.message.textContent='Recuperando datos del servidor sin enviar la cola…';
+    let result,message;
+    try{
+      result=await this.pullOnly();
+      message=result.skipped?'Recuperación pausada: no se cambió el servidor.':result.conflicts?'Datos descargados; algunas semillas requieren revisión. No se envió la cola.':'Datos recuperados del servidor. No se envió la cola.';
+      return result;
+    }catch(error){message=`No se completó la recuperación: ${error.message}`;return {failed:true};}
+    finally{this.syncing=false;if(!this.destroyed){await this.render();this.message.textContent=message;}}
   }
 
   async renderExercises(shell,snapshot,state){

@@ -34,3 +34,9 @@ export async function syncV3Repository(repository,options={}){
   if(runtime.skipped)return runtime;
   return runtime.engine.syncOnce();
 }
+
+export async function pullV3Repository(repository,options={}){
+  const runtime=await prepareV3SyncRuntime(repository,options);
+  if(runtime.skipped)return runtime;
+  return runtime.engine.pullOnly();
+}
