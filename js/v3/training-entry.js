@@ -8,7 +8,7 @@ await rolloutReady;
 // Online Auth events and the SDK's persisted offline identity share the same user ID.
 {
   const stylesheet=document.createElement('link');stylesheet.rel='stylesheet';stylesheet.href='./v3-training.css';document.head.append(stylesheet);
-  const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Entrenar';
+  const button=document.createElement('button');button.type='button';button.className='ghost header-explore';button.textContent='Explorar';button.setAttribute('aria-label','Explorar entrenamientos');
   button.hidden=!isV3TrainingEnabled();document.addEventListener('nico-fit:rollout-change',()=>{button.hidden=!isV3TrainingEnabled();});
   document.querySelector('.top-actions').append(button);
   const root=document.createElement('section');root.className='v3-training-screen hidden';root.setAttribute('aria-label','Entrenamiento V3');document.body.append(root);

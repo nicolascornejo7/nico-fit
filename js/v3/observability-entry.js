@@ -6,8 +6,8 @@ import {rolloutReady} from './rollout-boot.js';
 await rolloutReady;
 {
   const css=document.createElement('link');css.rel='stylesheet';css.href='./v3-training.css';document.head.append(css);
-  const button=document.createElement('button');button.type='button';button.className='ghost';button.textContent='Diagnóstico';document.querySelector('.top-actions').append(button);
-  button.hidden=!isV3ObservabilityEnabled();document.addEventListener('nico-fit:rollout-change',()=>{button.hidden=!isV3ObservabilityEnabled();});
+  const button=document.createElement('button'),support=document.querySelector('#v3SupportSection');button.type='button';button.className='ghost';button.textContent='Diagnóstico técnico';document.querySelector('#v3SupportActions')?.append(button);
+  const updateVisibility=()=>{button.hidden=!isV3ObservabilityEnabled();support?.classList.toggle('hidden',![...support.querySelectorAll('button')].some(item=>!item.hidden));};updateVisibility();document.addEventListener('nico-fit:rollout-change',updateVisibility);
   const root=document.createElement('section');root.className='v3-training-screen hidden';root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-label','Estado operativo V3');document.body.append(root);
   const background=[...document.querySelectorAll('.app-shell,.bottom-nav,#restOverlay,#sessionSummary')];let userId=null,repository=null,ui=null,runtimeCleanup=null,generation=0,opening=false;
   document.addEventListener('nico-fit:pwa-safety-request',event=>{event.detail.critical ||= opening||!!ui?.busy;event.detail.userId ||= userId;});

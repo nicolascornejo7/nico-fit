@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v54" />
+  <meta name="nico-fit-build" content="nico-fit-v55" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -76,7 +76,7 @@
             </select>
           </label>
           <button id="saveReadiness" class="primary wide">Guardar estado</button>
-          <p id="readinessAdvice" class="advice"></p>
+          <p id="readinessAdvice" class="advice" role="status" aria-live="polite"></p>
         </section>
 
         <section class="card">
@@ -149,6 +149,11 @@
           <button id="openAuthSettings" class="ghost wide">Cuenta / sincronización</button>
           <p><a href="./local-device-inventory.html">Inventario y respaldo de este dispositivo</a></p>
         </section>
+        <section id="v3SupportSection" class="card support-card hidden" aria-labelledby="v3SupportTitle">
+          <div class="section-head"><div><p class="eyebrow">SOPORTE</p><h2 id="v3SupportTitle">Sincronización y diagnóstico</h2></div></div>
+          <p class="muted">Revisá este apartado sólo si aparece un aviso de sincronización o necesitás ayuda técnica.</p>
+          <div id="v3SupportActions" class="support-actions"></div>
+        </section>
         <section class="card danger-card">
           <div class="section-head"><h2>Borrar datos</h2><span class="muted">Irreversible</span></div>
           <p class="muted">Con sesión iniciada, también se borran tus registros sincronizados de Supabase.</p>
@@ -178,7 +183,7 @@
 
   <nav class="bottom-nav" aria-label="Navegación principal">
     <button data-view="homeView" class="nav-btn active"><span>⌂</span>Inicio</button>
-    <button data-view="workoutView" class="nav-btn"><span>🏋</span>Entrenar</button>
+    <button data-view="workoutView" class="nav-btn" aria-label="Explorar entrenamientos"><span>🏋</span>Explorar</button>
     <button data-view="progressView" class="nav-btn"><span>↗</span>Progreso</button>
     <button data-view="settingsView" class="nav-btn"><span>⚙</span>Ajustes</button>
   </nav>
