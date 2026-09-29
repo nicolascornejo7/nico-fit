@@ -1,6 +1,7 @@
-.v3-training-screen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(circle at 90% -10%,#491016 0,transparent 30%),#090909; color: #f8f8f8; padding: 20px 16px 60px; }
+.v3-training-screen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; overscroll-behavior:contain; background: radial-gradient(circle at 90% -10%,#491016 0,transparent 30%),#090909; color: #f8f8f8; padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(104px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); }
 .v3-training-screen.hidden { display: none; }
-.v3-training-shell { max-width: 850px; margin: auto; }
+.v3-training-shell { max-width: 850px; margin: auto; padding-bottom:calc(24px + env(safe-area-inset-bottom)); }
+.v3-training-header{display:flex;align-items:center;gap:10px;min-width:0;margin:0 0 8px}.v3-training-header h2{margin:0;min-width:0;font-size:clamp(22px,7vw,30px);overflow-wrap:anywhere}.v3-back-button{flex:0 0 auto;min-width:44px!important;min-height:44px!important;padding:10px 12px!important;white-space:nowrap}.v3-local-note{margin:0 0 12px}
 .v3-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .v3-exercises { padding-left: 24px; }
 .v3-exercises li { margin: 16px 0; }
@@ -19,4 +20,6 @@
 .v3-training-screen button{min-height:44px;min-width:44px}
 .v3-training-screen label{display:block;margin:.8rem 0}
 .v3-training-screen input:not([type="range"]):not([type="checkbox"]),.v3-training-screen select,.v3-training-screen textarea{font-size:17px;line-height:1.25;min-height:44px}
-@media(max-width:650px){.v3-conflict-sides{grid-template-columns:1fr}}
+.v3-training-primary,.v3-free-workout{padding:16px}.v3-training-primary h3,.v3-free-workout h3{margin:0 0 6px}.v3-training-primary p,.v3-free-workout p{margin:0 0 12px;line-height:1.45}.v3-start-options,.v3-custom-session{margin:12px 0}.v3-start-options summary,.v3-custom-session summary{min-height:44px;display:flex;align-items:center;font-weight:750;cursor:pointer}.v3-custom-session{padding:14px 16px}.v3-draft-recovery{border-top:1px solid #3a3a3a;margin-top:16px;padding-top:14px}.v3-draft-recovery h3{font-size:15px;margin:0}
+.v3-sync-status{margin:0 0 12px}.v3-sync-status.is-clean{display:flex;justify-content:flex-end}.v3-sync-indicator{margin:0;color:#b8f6cc;font-size:12px}.v3-sync-status .advice{margin:0 0 8px}.v3-coach-card{padding:16px;margin-bottom:12px}.v3-coach-card>p:first-child{margin:0 0 5px;color:#ff6875;font-size:11px;font-weight:850;letter-spacing:.12em}.v3-coach-card h3{margin:0 0 6px;font-size:20px}.v3-coach-card>p:not(:first-child){margin:0;line-height:1.45}.v3-coach-card details{margin:12px 0 0}.v3-coach-card summary{font-weight:750}.v3-coach-refresh{margin:-4px 0 12px;font-size:12px;min-height:40px!important}
+@media(max-width:650px){.v3-conflict-sides{grid-template-columns:1fr}.v3-training-screen{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}.v3-training-shell{padding-bottom:calc(40px + env(safe-area-inset-bottom))}.v3-training-screen .card{border-radius:18px;padding:15px}.v3-actions{gap:7px}.v3-actions button{flex:1 1 auto}.v3-training-screen .wide{min-height:48px}.v3-training-header{position:sticky;top:0;z-index:2;padding:6px 0;background:linear-gradient(180deg,#090909 80%,transparent)} }

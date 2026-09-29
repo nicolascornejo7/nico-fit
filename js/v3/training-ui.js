@@ -43,8 +43,8 @@ export class V3TrainingUI{
   async render(){
     const snapshot=await this.engine.snapshot(),state=this.engine.getState();if(this.destroyed)return;
     this.root.replaceChildren();const shell=el('div','','v3-training-shell');this.root.append(shell);
-    const head=el('div','','section-head');this.heading=el('h2','Entrenamiento');this.heading.tabIndex=-1;head.append(this.heading,button('Volver',()=>this.onClose()));shell.append(head);
-    shell.append(el('p','Tus cambios se guardan en el dispositivo y se sincronizan cuando hay conexión.','muted'));
+    const head=el('header','','v3-training-header');this.heading=el('h2','Entrenar');this.heading.tabIndex=-1;const back=button('‹ Volver',()=>this.onClose(),'ghost v3-back-button');back.setAttribute('aria-label','Volver al inicio');head.append(back,this.heading);shell.append(head);
+    shell.append(el('p','Tus cambios se guardan en este dispositivo y se sincronizan cuando hay conexión.','muted v3-local-note'));
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
     await this.renderSync(shell);
     this.conflict=el('p','','advice v3-conflict');this.conflict.setAttribute('role','status');this.conflict.setAttribute('aria-live','polite');shell.append(this.conflict);
@@ -71,23 +71,26 @@ export class V3TrainingUI{
   async renderStart(shell){
     if(this.engine.routines)await this.engine.routines.seedDefaults();
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
-    const card=el('section','','card');shell.append(card);card.append(el('h3','Nueva sesión'));
-    const routine=select(card,'Rutina',[[0,'Personalizada'],[2,'Martes · fuerza'],[4,'Jueves · prevención'],[5,'Viernes · prepartido']],[2,4,5].includes(new Date().getDay())?new Date().getDay():0);
-    const name=field(card,'Nombre opcional',{type:'text'});
-    card.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({label:name.value.trim()||undefined,dayIndex:Number(routine.value),useRoutine:routine.value!=='0'})),'primary'));
-    const free=el('section','','card');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Disponible cualquier día. Elegí ejercicios del catálogo y registrá sólo lo que realmente hagas.','muted'));
-    const today=localDateKey(this.engine.now()),freeDate=field(free,'Fecha de la sesión',{type:'date',value:today,max:today});
-    const freeName=field(free,'Nombre opcional de sesión libre',{type:'text'});
-    free.append(button('Registrar musculación libre',()=>this.run(()=>this.engine.createFreeWorkout({label:freeName.value.trim()||undefined,date:freeDate.value})),'ghost'));
+    const dayIndex=new Date(this.engine.now()).getDay(),hasRoutine=[2,4,5].includes(dayIndex),dayLabel={2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
+    const primary=el('section','','card v3-training-primary');shell.append(primary);primary.append(el('h3',hasRoutine?'Entrenamiento de hoy':'Hoy no hay rutina programada'));
+    primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
+    if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+    const free=el('section','','card v3-free-workout');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Registrá sólo lo que realmente hagas, cualquier día.','muted'));
+    const today=localDateKey(this.engine.now()),freeOptions=document.createElement('details');freeOptions.className='v3-start-options';freeOptions.append(el('summary','Ajustar fecha o nombre'));
+    const freeDate=field(freeOptions,'Fecha de la sesión',{type:'date',value:today,max:today}),freeName=field(freeOptions,'Nombre opcional',{type:'text'});free.append(freeOptions);
+    free.append(button('Comenzar musculación libre',()=>this.run(()=>this.engine.createFreeWorkout({label:freeName.value.trim()||undefined,date:freeDate.value})),'ghost wide'));
+    const custom=document.createElement('details');custom.className='card v3-custom-session';custom.append(el('summary','Crear sesión personalizada'));
+    const routine=select(custom,'Rutina',[[0,'Personalizada'],[2,'Martes · fuerza'],[4,'Jueves · prevención'],[5,'Viernes · prepartido']],hasRoutine?dayIndex:0),name=field(custom,'Nombre opcional',{type:'text'});
+    custom.append(button('Comenzar sesión personalizada',()=>this.run(()=>this.engine.createSession({label:name.value.trim()||undefined,dayIndex:Number(routine.value),useRoutine:routine.value!=='0'})),'primary wide'));shell.append(custom);
     const drafts=(await this.engine.repository.listSessions({status:'draft'})).filter(item=>item.started_at&&!item.reconstructed);
-    for(const session of drafts){const actions=el('div','','v3-actions');actions.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))),button(`Descartar ${session.session_date} · ${session.label}`,()=>{if(confirmDiscard(session.label))return this.run(()=>this.engine.discardSession(session.id));},'danger-btn'));card.append(actions);}
+    if(drafts.length){const recovery=el('section','','v3-draft-recovery');recovery.append(el('h3','Sesiones sin finalizar'));for(const session of drafts){const actions=el('div','','v3-actions');actions.append(button(`Recuperar ${session.session_date} · ${session.label}`,()=>this.run(()=>this.engine.selectSession(session.id))),button(`Descartar ${session.session_date} · ${session.label}`,()=>{if(confirmDiscard(session.label))return this.run(()=>this.engine.discardSession(session.id));},'danger-btn'));recovery.append(actions);}shell.append(recovery);}
   }
 
   async renderSync(shell){
     const operational=await this.engine.repository.operationalSnapshot(),counts=operational.counts;
-    const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado';
-    const row=el('section','','card v3-sync-status');row.append(el('h3','Sincronización'),el('p',`Estado: ${state}. Cola: ${operational.queue.operations}.`,'muted'));
-    const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;row.append(action);shell.append(row);
+    const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado',clean=state==='sincronizado';
+    const row=el('section','',clean?'v3-sync-status is-clean':'card v3-sync-status');row.append(el('p',clean?'✓ Sincronizado':`Sincronización: ${state}. Cola: ${operational.queue.operations}.`,clean?'v3-sync-indicator':'advice'));
+    if(!clean){const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;row.append(action);}shell.append(row);
   }
 
   async exportDiagnostic(){
@@ -206,7 +209,7 @@ export class V3TrainingUI{
     const slot=this.coachSlot;if(!slot)return;
     try{const [{V3CoachService},{renderCoachCard}]=await Promise.all([import('./coach-service.js'),import('./coach-presentation.js')]);
       const result=await new V3CoachService({engine:this.engine}).today(snapshot);if(this.destroyed||slot!==this.coachSlot)return;
-      slot.replaceChildren(renderCoachCard(result,snapshot),button('Actualizar Coach',async()=>{await this.refreshCoach(await this.engine.snapshot());}));this.coachDate=result.signals.date;
+      const card=renderCoachCard(result,snapshot);card.classList.add('v3-coach-card');slot.replaceChildren(card,button('Actualizar Coach',async()=>{await this.refreshCoach(await this.engine.snapshot());},'ghost v3-coach-refresh'));this.coachDate=result.signals.date;
     }catch(error){if(this.destroyed||slot!==this.coachSlot)return;slot.replaceChildren(el('p',`Coach no disponible: ${error.message}`,'advice'));this.coachDate=localDateKey();}
   }
 }

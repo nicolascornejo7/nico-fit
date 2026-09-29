@@ -288,5 +288,5 @@ test('a fully offline training graph and reorder sync later without version or p
 
 test('training UI uses safe DOM, gated entry and no IndexedDB or Supabase component writes',async()=>{
   const [ui,entry]=await Promise.all([readFile(new URL('../js/v3/training-ui.js',import.meta.url),'utf8'),readFile(new URL('../js/v3/training-entry.js',import.meta.url),'utf8')]);
-  assert.doesNotMatch(ui,/innerHTML|indexedDB|\.database|\.schema\(|\.from\(/);assert.match(ui,/textContent/);assert.match(ui,/Fecha de la sesión/);assert.match(ui,/Registrar musculación libre/);assert.match(ui,/max:today/);assert.match(entry,/button.hidden=!isV3TrainingEnabled\(\)/);assert.match(entry,/await rolloutReady/);assert.doesNotMatch(entry,/setV3SyncEnabled|createClient/);
+  assert.doesNotMatch(ui,/innerHTML|indexedDB|\.database|\.schema\(|\.from\(/);assert.match(ui,/textContent/);assert.match(ui,/Fecha de la sesión/);assert.match(ui,/Comenzar musculación libre/);assert.match(ui,/max:today/);assert.match(entry,/button.hidden=!isV3TrainingEnabled\(\)/);assert.match(entry,/await rolloutReady/);assert.doesNotMatch(entry,/setV3SyncEnabled|createClient/);
 });
