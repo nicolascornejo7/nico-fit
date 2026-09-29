@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {IDBFactory} from 'fake-indexeddb';
 import {V3LocalRepository} from '../js/v3/repository.js';
-import {V3TrainingEngine} from '../js/v3/training-engine.js';
+import {V3TrainingEngine,remainingRestSeconds} from '../js/v3/training-engine.js';
 import {isV3TrainingEnabled,setV3TrainingEnabled,isV3SyncEnabled} from '../js/v3/feature-flags.js';
 import {sessionMetrics} from '../js/v3/training-metrics.js';
 import {v3Progression} from '../js/v3/training-progression.js';
@@ -115,6 +115,91 @@ test('sets support editing, completion timestamps and soft delete',async()=>{
   const edited=await engine.saveSet(exercise.id,{reps:12},{setId:set.id});assert.equal(edited.completed_at,set.completed_at);assert.equal(edited.id,set.id);
   const undone=await engine.saveSet(exercise.id,{is_completed:false},{setId:set.id});assert.equal(undone.completed_at,null);
   await engine.deleteSet(exercise.id,set.id);assert.ok((await repository.get('exercise_sets',set.id)).deleted_at);assert.equal((await engine.snapshot()).exercises[0].sets.length,0);repository.close();
+});
+
+test('target rows and local input drafts create no set operations until the circle saves',async()=>{
+  const {repository,engine}=await setup();await engine.createSession({useRoutine:false});
+  const catalog=await engine.createCustomExercise({name:'Press de prueba'}),exercise=await engine.addExercise(catalog.id,{sets:3,min:6,max:10,rest:90});
+  const before=(await repository.listOperations()).length;
+  assert.equal((await engine.snapshot()).exercises[0].sets.length,0);
+  assert.equal((await repository.listOperations()).length,before);
+  const draftKey=`${exercise.id}:slot:1`;await engine.saveDraft(draftKey,{load_kg:'80',reps:'8',rir:'2',is_completed:false});
+  assert.equal((await repository.listOperations()).length,before);
+  const saved=await engine.saveSet(exercise.id,{load_kg:'80',reps:'8',rir:'2',is_completed:true},{position:1,startRest:true,draftKey});
+  assert.equal(saved.position,1);assert.equal(saved.is_completed,true);
+  assert.equal((await engine.snapshot()).exercises[0].sets.length,1);
+  assert.equal(engine.getState().drafts[draftKey],undefined);
+  assert.equal((await repository.listOperations()).length,before+1);
+  await assert.rejects(()=>engine.saveSet(exercise.id,setInput(),{position:1}),/ya existe/);
+  assert.equal((await repository.listOperations()).length,before+1);repository.close();
+});
+
+test('completion starts timestamp-based rest, skip works, and reopen preserves remaining time',async()=>{
+  const {repository,engine,indexedDB,setNow}=await setup();await engine.createSession({useRoutine:false});
+  const catalog=await engine.createCustomExercise({name:'Sentadilla de prueba'}),exercise=await engine.addExercise(catalog.id,{sets:2,min:6,max:10,rest:90});
+  const first=await engine.saveSet(exercise.id,setInput({is_completed:false}),{position:0});
+  assert.equal(engine.restRemaining(),0);
+  await engine.saveSet(exercise.id,{is_completed:true},{setId:first.id,startRest:true});
+  assert.equal(engine.restRemaining(),90);
+  assert.equal(remainingRestSeconds(engine.getState().rest,Date.parse('2026-09-15T12:00:30Z')),60);
+  setNow('2026-09-15T12:00:30Z');assert.equal(engine.restRemaining(),60);repository.close();
+  const reopened=await setup(indexedDB);reopened.setNow('2026-09-15T12:00:40Z');await reopened.engine.recover();
+  assert.equal(reopened.engine.restRemaining(),50);
+  await reopened.engine.saveSet(exercise.id,setInput({reps:8}),{position:1,startRest:true});
+  assert.equal(reopened.engine.restRemaining(),90);
+  await reopened.engine.skipRest();assert.equal(reopened.engine.restRemaining(),0);
+  assert.equal((await reopened.repository.getTrainingState()).rest,null);reopened.repository.close();
+});
+
+test('invalid completion leaves the timer and queue untouched',async()=>{
+  const {repository,engine}=await setup();await engine.createSession({useRoutine:false});
+  const catalog=await engine.createCustomExercise({name:'Press de prueba'}),exercise=await engine.addExercise(catalog.id,{sets:1,rest:60});
+  const before=(await repository.listOperations()).length;
+  await assert.rejects(()=>engine.saveSet(exercise.id,{load_kg:'40',reps:'',rir:'',is_completed:true},{position:0,startRest:true}),/Completá reps o segundos/);
+  assert.equal(engine.restRemaining(),0);assert.equal((await engine.snapshot()).exercises[0].sets.length,0);
+  assert.equal((await repository.listOperations()).length,before);repository.close();
+});
+
+test('replacement changes only the current occurrence and preserves position and prescription',async()=>{
+  const {repository,engine}=await setup(),original=await engine.createSession();
+  const exercise=original.exercises[0],catalog=await engine.catalog(),alternative=catalog.find(item=>item.id!==exercise.exercise_catalog_id&&item.measurement_kind===exercise.catalog.measurement_kind);
+  await engine.saveDraft(`${exercise.id}:slot:0`,{reps:'8',load_kg:'80'});
+  const beforeOps=(await repository.listOperations()).length,replaced=await engine.replaceExercise(exercise.id,alternative.id);
+  assert.equal(replaced.id,exercise.id);assert.equal(replaced.position,exercise.position);
+  assert.equal(replaced.exercise_catalog_id,alternative.id);assert.equal(replaced.exercise_name_snapshot,alternative.canonical_name);
+  assert.deepEqual(replaced.prescription_snapshot,exercise.prescription_snapshot);
+  assert.equal(engine.getState().drafts[`${exercise.id}:slot:0`],undefined);
+  assert.equal((await repository.listOperations()).length,beforeOps+1);
+  assert.equal((await engine.snapshot()).exercises[0].exercise_catalog_id,alternative.id);
+  const next=await engine.createSession();assert.equal(next.exercises[0].exercise_catalog_id,exercise.exercise_catalog_id);
+  await engine.selectSession(original.session.id);
+  await engine.saveSet(exercise.id,setInput(),{position:0,startRest:true});
+  const second=await engine.replaceExercise(exercise.id,exercise.exercise_catalog_id),after=(await engine.snapshot()).exercises;
+  assert.equal(after[0].exercise_catalog_id,alternative.id);assert.equal(after[0].sets.length,1);
+  assert.equal(second.exercise_catalog_id,exercise.exercise_catalog_id);assert.equal(second.position,1);
+  assert.equal(second.prescription_snapshot.sets,Math.max(1,exercise.prescription_snapshot.sets-1));
+  assert.equal(after[1].id,second.id);assert.equal(after[1].sets.length,0);
+  assert.equal((await engine.createSession()).exercises[0].exercise_catalog_id,exercise.exercise_catalog_id);
+  repository.close();
+});
+
+test('replacement recorded offline syncs actual catalog identity without false conflicts',async()=>{
+  const {repository,engine}=await setup();await engine.createSession({useRoutine:false});
+  const original=await custom(engine),catalog=await engine.catalog(),replacement=catalog.find(item=>item.id!==original.exercise_catalog_id&&item.measurement_kind==='reps');
+  await engine.replaceExercise(original.id,replacement.id);
+  await engine.saveSet(original.id,setInput({reps:8}),{position:0,startRest:true});
+  const nextCatalog=catalog.find(item=>item.id!==original.exercise_catalog_id&&item.id!==replacement.id&&item.measurement_kind==='reps');
+  const remaining=await engine.replaceExercise(original.id,nextCatalog.id);await engine.saveSet(remaining.id,setInput({reps:6}),{position:0,startRest:true});
+  await engine.finishSession({rpe:7});
+  const remote=new LocalTestRemote(),sync=new V3SyncEngine({repository,remote,featureEnabled:true,locks:null,batchSize:5});
+  for(let attempt=0;attempt<20&&(await repository.listOperations({status:'pending'})).length;attempt++)await sync.syncOnce();
+  assert.equal((await repository.listOperations()).filter(op=>op.status!=='synced').length,0);
+  assert.equal((await repository.listConflicts()).length,0);
+  assert.equal((await remote.fetchById('session_exercises',original.id)).exercise_catalog_id,replacement.id);
+  assert.equal((await remote.fetchById('session_exercises',remaining.id)).exercise_catalog_id,nextCatalog.id);
+  const completed=(await engine.snapshot((await repository.listSessions())[0].id)).exercises;
+  assert.deepEqual(completed.map(item=>item.exercise_catalog_id),[replacement.id,nextCatalog.id]);
+  assert.ok(completed.every(item=>item.sets[0].is_completed));repository.close();
 });
 
 test('deleting an exercise tombstones its sets atomically',async()=>{

@@ -24,3 +24,33 @@
 .v3-training-primary,.v3-free-workout{padding:16px}.v3-training-primary h3,.v3-free-workout h3{margin:0 0 6px}.v3-training-primary p,.v3-free-workout p{margin:0 0 12px;line-height:1.45}.v3-start-options,.v3-custom-session{margin:12px 0}.v3-start-options summary,.v3-custom-session summary{min-height:44px;display:flex;align-items:center;font-weight:750;cursor:pointer}.v3-custom-session{padding:14px 16px}.v3-draft-recovery{border-top:1px solid #3a3a3a;margin-top:16px;padding-top:14px}.v3-draft-recovery h3{font-size:15px;margin:0}
 .v3-sync-status{margin:0 0 12px}.v3-sync-status.is-clean{display:flex;justify-content:flex-end}.v3-sync-indicator{margin:0;color:#b8f6cc;font-size:12px}.v3-sync-status .advice{margin:0 0 8px}.v3-coach-card{padding:16px;margin-bottom:12px}.v3-coach-card>p:first-child{margin:0 0 5px;color:#ff6875;font-size:11px;font-weight:850;letter-spacing:.12em}.v3-coach-card h3{margin:0 0 6px;font-size:20px}.v3-coach-card>p:not(:first-child){margin:0;line-height:1.45}.v3-coach-card details{margin:12px 0 0}.v3-coach-card summary{font-weight:750}.v3-coach-refresh{margin:-4px 0 12px;font-size:12px;min-height:40px!important}
 @media(max-width:650px){.v3-conflict-sides{grid-template-columns:1fr}.v3-training-screen{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}.v3-training-shell{padding-bottom:calc(104px + env(safe-area-inset-bottom))}.v3-training-screen .card{border-radius:18px;padding:15px}.v3-actions{gap:7px}.v3-actions button{flex:1 1 auto}.v3-training-screen .wide{min-height:48px}.v3-training-header{position:sticky;top:0;z-index:2;padding:6px 0;background:linear-gradient(180deg,#090909 80%,transparent)}.v3-set-compact{grid-template-columns:minmax(0,1fr) auto}.v3-set-menu{grid-column:1/-1;margin:0!important}.v3-set-menu summary{font-size:12px}.v3-set-values{font-size:12px;gap:4px 7px}.v3-set-complete{font-size:0!important;width:44px;padding:0!important}.v3-set-complete::first-letter{font-size:18px} }
+
+/* V3 session entry: one compact card per exercise, with editable target rows. */
+.v3-exercises{display:grid;gap:12px;padding:0}
+.v3-exercise-card{min-width:0;margin:0!important}
+.v3-exercise-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.v3-exercise-heading h3{margin:0;min-width:0;font-size:17px;overflow-wrap:anywhere}
+.v3-exercise-progress{flex:0 0 auto;font-size:13px;font-weight:800;color:#b8f6cc}
+.v3-exercise-card>.muted{margin:4px 0 8px}
+.v3-exercise-menu{margin:0!important}.v3-exercise-menu summary{font-size:13px}
+.v3-progression-note{margin:0 0 8px!important;padding:0!important;border:0!important}
+.v3-progression-note summary{font-size:12px;color:#dedede}
+.v3-progression-note .advice{margin:0 0 8px}
+.v3-inline-sets{display:grid;gap:7px}
+.v3-inline-set{display:grid;grid-template-columns:30px repeat(3,minmax(0,1fr)) 44px 44px;align-items:end;gap:4px;min-width:0}
+.v3-inline-set .v3-set-number{align-self:center}
+.v3-inline-field{display:grid!important;gap:2px;min-width:0;margin:0!important}
+.v3-inline-field span{font-size:11px;color:#dedede;text-align:center}
+.v3-training-screen .v3-inline-field input{width:100%;min-width:0;min-height:44px;margin:0;padding:7px 2px;border:1px solid #555;border-radius:9px;background:#101010;color:#f8f8f8;text-align:center;font-size:16px;line-height:1.2}
+.v3-inline-field input::placeholder{font-size:11px;color:#999}
+.v3-inline-set .v3-set-complete{width:44px;min-width:44px;min-height:44px;padding:0!important;font-size:25px!important;line-height:1}
+.v3-inline-set .v3-set-menu{margin:0!important;align-self:end}
+.v3-inline-set .v3-set-menu summary{display:grid;place-items:center;width:44px;min-height:44px;font-size:23px;line-height:1}
+.v3-inline-set .v3-set-menu[open]{grid-column:1/-1}
+.v3-add-set{margin-top:10px}
+.v3-replace-exercise{padding:6px 0 12px}
+.v3-replace-exercise[hidden]{display:none}
+.v3-rest-bar{position:fixed;z-index:4;left:max(14px,env(safe-area-inset-left));right:max(14px,env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:600px;margin:auto;padding:10px 12px;border:1px solid #a62a36;border-radius:16px;background:#271013;box-shadow:0 12px 32px #000a}
+.v3-rest-bar strong{font-variant-numeric:tabular-nums;font-size:18px}
+.v3-rest-bar button{flex:0 0 auto}
+@media(max-width:360px){.v3-inline-set{grid-template-columns:30px repeat(3,minmax(0,1fr)) 44px}.v3-inline-set .v3-set-menu{grid-column:1/-1;justify-self:end}.v3-inline-set .v3-set-menu[open]{justify-self:stretch}}

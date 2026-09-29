@@ -65,7 +65,16 @@ export class V3TrainingUI{
       shell.append(button('Continuar con ejercicios',()=>this.run(()=>this.engine.saveUIState({view:'exercises'})),'primary'));
     }else if(state.view==='exercises')await this.renderExercises(shell,snapshot,state);
     else await this.renderSummary(shell,snapshot,state);
+    this.renderRest();
     this.setConflict(snapshot);
+  }
+
+  renderRest(){
+    this.restTime=null;
+    const remaining=this.engine.restRemaining();if(!remaining)return;
+    const bar=el('aside','','v3-rest-bar');bar.setAttribute('role','timer');bar.setAttribute('aria-label','Descanso entre series');
+    this.restTime=el('strong',`Descanso ${duration(remaining)}`);bar.append(this.restTime,button('Omitir',()=>this.run(()=>this.engine.skipRest()),'ghost'));
+    this.root.append(bar);
   }
 
   async renderStart(shell){
@@ -133,19 +142,38 @@ export class V3TrainingUI{
   }
 
   async renderExercises(shell,snapshot,state){
-    const list=el('ol','','v3-exercises');shell.append(list);
+    const list=el('div','','v3-exercises');shell.append(list),catalog=await this.engine.catalog();
     for(const [index,exercise] of snapshot.exercises.entries()){
-      const row=el('li');row.append(button(`${index+1}. ${exercise.exercise_name_snapshot}`,()=>this.run(()=>this.engine.saveUIState({currentExerciseId:exercise.id,editingSetId:null}))));
-      const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Opciones'));
+      const card=el('section','','card v3-exercise-card');list.append(card);
+      const heading=el('div','','v3-exercise-heading');heading.append(el('h3',`${index+1}. ${exercise.exercise_name_snapshot}`));
+      const rx=exercise.prescription_snapshot,completed=exercise.sets.filter(set=>set.is_completed).length;
+      heading.append(el('span',`${completed}/${Math.max(rx.sets||1,exercise.sets.length)}`,'v3-exercise-progress'));card.append(heading);
+      card.append(el('p',`${rx.sets||1} × ${rx.min??'—'}${rx.max!=null&&rx.max!==rx.min?`–${rx.max}`:''} ${rx.measurement_kind==='seconds'?'s':'reps'} · Descanso ${rx.rest??rx.rest_seconds??0} s`,'muted'));
+      const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){
         actions.append(button(`${title} ${exercise.exercise_name_snapshot}`,()=>this.run(()=>{const ids=snapshot.exercises.map(ex=>ex.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];return this.engine.reorderExercises(ids);})));
       }
-      actions.append(button('Repetir ejercicio',()=>this.run(()=>this.engine.repeatExercise(exercise.id))),button('Eliminar ejercicio y sus series',()=>this.run(()=>this.engine.deleteExercise(exercise.id))));menu.append(actions);row.append(menu);list.append(row);
+      actions.append(button('Repetir ejercicio',()=>this.run(()=>this.engine.repeatExercise(exercise.id))));
+      const swap=button('Cambiar ejercicio',()=>{replacement.hidden=!replacement.hidden;if(!replacement.hidden)search.focus();});
+      actions.append(swap,button('Eliminar ejercicio y sus series',()=>this.run(()=>this.engine.deleteExercise(exercise.id))));menu.append(actions);
+      const replacement=el('div','','v3-replace-exercise');replacement.hidden=true;
+      replacement.append(el('p',exercise.sets.length?'Las series registradas conservarán el ejercicio original. El reemplazo aparecerá a continuación.':'Se cambia sólo en esta sesión; la rutina base queda intacta.','muted'));
+      const search=field(replacement,'Buscar alternativa',{type:'search'}),choice=select(replacement,'Ejercicio alternativo',[['','Elegí un ejercicio']]);
+      const region=exercise.catalog?.metadata?.body_region;
+      const ordered=[...catalog].filter(item=>item.id!==exercise.exercise_catalog_id).sort((a,b)=>{
+        const aMatch=region&&a.metadata?.body_region===region&&a.measurement_kind===exercise.catalog?.measurement_kind;
+        const bMatch=region&&b.metadata?.body_region===region&&b.measurement_kind===exercise.catalog?.measurement_kind;
+        return Number(!!bMatch)-Number(!!aMatch)||a.canonical_name.localeCompare(b.canonical_name);
+      });
+      const refill=()=>{const prior=choice.value,query=search.value.trim().toLocaleLowerCase('es');choice.replaceChildren();
+        for(const [id,name] of [['','Elegí un ejercicio'],...ordered.filter(item=>item.canonical_name.toLocaleLowerCase('es').includes(query)).map(item=>[item.id,`${region&&item.metadata?.body_region===region?'Sugerido · ':''}${item.canonical_name}`])]){const option=el('option',name);option.value=id;choice.append(option);}if([...choice.options].some(option=>option.value===prior))choice.value=prior;
+      };search.addEventListener('input',refill);refill();
+      replacement.append(button('Confirmar cambio',()=>{if(!choice.value){this.message.textContent='Elegí un ejercicio alternativo.';return;}this.run(()=>this.engine.replaceExercise(exercise.id,choice.value));},'ghost'));
+      menu.append(replacement);
+      await this.renderSets(card,exercise,state);
+      card.append(menu);
     }
-    const current=snapshot.exercises.find(ex=>ex.id===state.currentExerciseId)||snapshot.exercises[0];
-    if(current)await this.renderSets(shell,current,state);
-    const catalog=await this.engine.catalog();
     const card=el('section','','card v3-add-exercise');shell.append(card);card.append(el('h3','Agregar ejercicio'));
     if(catalog.length){
       const choice=select(card,'Ejercicio del catálogo',catalog.map(ex=>[ex.id,`${ex.metadata?.category?`${ex.metadata.category} · `:''}${ex.canonical_name} · ${ex.measurement_kind}`]));
@@ -158,31 +186,37 @@ export class V3TrainingUI{
     custom.append(button('Crear y agregar',()=>this.run(async()=>{const created=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(created.id);}),'ghost wide'));card.append(custom);
   }
 
-  async renderSets(shell,exercise,state){
-    const card=el('section','','card');shell.append(card);card.append(el('h3',exercise.exercise_name_snapshot));
-    const rx=exercise.prescription_snapshot;card.append(el('p',`${rx.sets} series objetivo · ${rx.measurement_kind} · ${rx.min??'—'}–${rx.max??'—'}`,'muted'));
-    card.append(el('p',(await this.engine.progression(exercise.id,{readinessScore:this.readinessScore})).text,'advice'));
-    for(const set of exercise.sets){
-      const row=el('div','','v3-set v3-set-compact'),values=el('div','','v3-set-values');
-      values.append(el('span',`S${set.position+1}`,'v3-set-number'),el('span',`${set.load_kg??'—'} kg`),el('span',set.reps!=null?`${set.reps} reps`:`${set.duration_seconds??'—'} s`),el('span',`RIR ${set.rir??'—'}`));
-      const complete=button(set.is_completed?'✓ Completada':'Marcar completada',()=>this.run(()=>this.engine.saveSet(exercise.id,{is_completed:!set.is_completed},{setId:set.id})),'v3-set-complete');complete.setAttribute('aria-pressed',String(!!set.is_completed));complete.setAttribute('aria-label',`${set.is_completed?'Desmarcar':'Marcar'} serie ${set.position+1} como completada`);
-      const menu=document.createElement('details');menu.className='v3-set-menu';menu.append(el('summary','Opciones'));
-      const actions=el('div','','v3-actions');actions.append(button(`Editar serie ${set.position+1}`,()=>this.run(()=>this.engine.saveUIState({editingSetId:set.id}))),button(`Eliminar serie ${set.position+1}`,()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id))));menu.append(actions);
-      row.append(values,complete,menu);card.append(row);
+  async renderSets(card,exercise,state){
+    const rx=exercise.prescription_snapshot,extra=state.extraSets?.[exercise.id]||0,count=Math.max((rx.sets||1)+extra,0,...exercise.sets.map(set=>set.position+1));
+    const suggestion=document.createElement('details');suggestion.className='v3-progression-note';suggestion.append(el('summary','Sugerencia de carga'));
+    suggestion.append(el('p',(await this.engine.progression(exercise.id,{readinessScore:this.readinessScore})).text,'advice'));
+    const rows=el('div','','v3-inline-sets');card.append(rows);
+    for(let position=0;position<count;position++){
+      const set=exercise.sets.find(item=>item.position===position),key=`${exercise.id}:${set?.id||`slot:${position}`}`;
+      const draft=state.drafts?.[key]||(!set&&position===0?state.drafts?.[`${exercise.id}:new`]:null)||set||{};
+      const row=el('div','','v3-inline-set');rows.append(row);row.append(el('strong',`S${position+1}`,'v3-set-number'));
+      const input=(label,value,{max=1000,step='1',placeholder=''}={})=>{
+        const wrapper=el('label','','v3-inline-field'),caption=el('span',label);const node=el('input');node.type='number';node.inputMode='decimal';node.min='0';node.max=String(max);node.step=step;node.value=value??'';node.placeholder=placeholder;
+        node.setAttribute('aria-label',`Serie ${position+1}: ${label}`);wrapper.append(caption,node);row.append(wrapper);return node;
+      };
+      const load=input('kg',draft.load_kg,{step:'.001'}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
+      const seconds=rx.measurement_kind==='seconds'?input('seg',draft.duration_seconds,{max:86400,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
+      const rir=input('RIR',draft.rir,{max:5,step:'.1',placeholder:rx.target_rir!=null?String(rx.target_rir):''});
+      const read=isCompleted=>({load_kg:load.value,reps:reps?.value??null,duration_seconds:seconds?.value??null,rir:rir.value,is_completed:isCompleted});
+      for(const node of [load,reps,seconds,rir].filter(Boolean))node.addEventListener('input',()=>this.engine.saveDraft(key,read(!!set?.is_completed)).catch(error=>{if(!this.destroyed)this.message.textContent=error.message;}));
+      const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key})),'v3-set-complete');
+      complete.setAttribute('aria-pressed',String(!!set?.is_completed));complete.setAttribute('aria-label',`${set?.is_completed?'Desmarcar':'Completar'} serie ${position+1} de ${exercise.exercise_name_snapshot}`);row.append(complete);
+      const menu=document.createElement('details');menu.className='v3-set-menu';const summary=el('summary','⋯');summary.setAttribute('aria-label',`Más acciones para serie ${position+1}`);menu.append(summary);
+      const actions=el('div','','v3-actions');actions.append(button(set?'Guardar cambios':'Guardar sin completar',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!!set?.is_completed),{setId:set?.id,position,draftKey:key}))));
+      if(set)actions.append(button('Borrar serie',()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id)),'danger-btn'));
+      else actions.append(button('Descartar cambios',()=>this.run(()=>this.engine.discardDraft(key))));
+      menu.append(actions);row.append(menu);
     }
-    const editing=exercise.sets.find(set=>set.id===state.editingSetId),key=`${exercise.id}:${editing?.id||'new'}`,draft=state.drafts[key]||editing||{};
-    const form=el('form');card.append(form);form.append(el('h4',editing?'Editar serie':'Nueva serie'));
-    const load=field(form,'Carga (kg)',{value:draft.load_kg,min:0,max:1000,step:'.001'});
-    const reps=rx.measurement_kind!=='seconds'?field(form,'Repeticiones',{value:draft.reps,min:1,max:500}):null;
-    const seconds=rx.measurement_kind!=='reps'?field(form,'Duración (s)',{value:draft.duration_seconds,min:1,max:86400}):null;
-    const rir=field(form,'RIR (vacío = desconocido)',{value:draft.rir,min:0,max:5,step:'.1'});
-    const done=field(form,'Serie completada',{type:'checkbox'});done.checked=!!draft.is_completed;
-    const read=()=>({load_kg:load.value,reps:reps?.value??null,duration_seconds:seconds?.value??null,rir:rir.value,is_completed:done.checked});
-    form.addEventListener('input',()=>this.engine.saveDraft(key,read()).catch(error=>{if(!this.destroyed)this.message.textContent=error.message;}));
-    const submit=el('button',editing?'Guardar edición':'Guardar serie','primary');submit.type='submit';form.append(submit);
-    form.append(button('Descartar borrador',()=>this.run(()=>this.engine.discardDraft(key))));
-    form.addEventListener('submit',event=>{event.preventDefault();this.run(async()=>{await this.engine.saveSet(exercise.id,read(),{setId:editing?.id});await this.engine.saveUIState({editingSetId:null});});});
-    if(editing)form.append(button('Nueva serie',()=>this.run(()=>this.engine.saveUIState({editingSetId:null}))));
+    card.append(button('+ Agregar serie',()=>this.run(()=>{
+      if(count>=100)throw new Error('Máximo de 100 series por ejercicio.');
+      return this.engine.saveUIState({extraSets:{...state.extraSets,[exercise.id]:(state.extraSets?.[exercise.id]||0)+1}});
+    }),'ghost v3-add-set'));
+    card.append(suggestion);
   }
 
   async renderSummary(shell,snapshot,state){
@@ -209,7 +243,9 @@ export class V3TrainingUI{
     if(this.destroyed||this.busy)return;const snapshot=await this.engine.snapshot();if(this.destroyed)return;
     if(this.coachSlot&&this.coachDate!==localDateKey())await this.refreshCoach(snapshot);
     if(!snapshot||this.destroyed)return;
-    if(this.clock)this.clock.textContent=duration(sessionMetrics(snapshot).durationSeconds);this.setConflict(snapshot);
+    if(this.clock)this.clock.textContent=duration(sessionMetrics(snapshot).durationSeconds);
+    const remaining=this.engine.restRemaining();if(this.restTime){if(remaining)this.restTime.textContent=`Descanso ${duration(remaining)}`;else{this.restTime.parentElement?.remove();this.restTime=null;}}
+    this.setConflict(snapshot);
   }
 
   async refreshCoach(snapshot){

@@ -41,17 +41,33 @@ test('mobile shell reserves room above bottom navigation and supports safe-area 
   assert.match(css,/\.v3-training-screen \.wide\{min-height:48px/);
 });
 
-test('compact series keeps values and completion primary while moving destructive actions to options',async()=>{
-  const ui=await read('../js/v3/training-ui.js');
-  assert.match(ui,/v3-set v3-set-compact/);
-  assert.match(ui,/v3-set-values/);
-  assert.match(ui,/Marcar completada/);
-  assert.match(ui,/is_completed:!set\.is_completed/);
-  assert.match(ui,/v3-set-menu/);
-  assert.match(ui,/Editar serie/);
-  assert.match(ui,/Eliminar serie/);
+test('target sets are inline with a one-tap completion circle and secondary editing',async()=>{
+  const [ui,css]=await Promise.all([read('../js/v3/training-ui.js'),read('../v3-training.css')]);
   const setRender=ui.slice(ui.indexOf('async renderSets'),ui.indexOf('async renderSummary'));
+  assert.match(setRender,/v3-inline-sets/);
+  assert.match(setRender,/position<count/);
+  assert.match(setRender,/input\('kg'/);
+  assert.match(setRender,/input\('RIR'/);
+  assert.match(setRender,/set\?\.is_completed\?'✓':'○'/);
+  assert.match(setRender,/startRest:!set\?\.is_completed/);
+  assert.match(setRender,/\+ Agregar serie/);
+  assert.match(setRender,/Guardar cambios/);
+  assert.match(setRender,/Borrar serie/);
   assert.doesNotMatch(setRender,/set\.sync_status/);
+  assert.match(css,/\.v3-inline-set\{display:grid/);
+  assert.match(css,/\.v3-inline-set \.v3-set-complete\{[^}]*min-height:44px/);
+  assert.doesNotMatch(setRender,/form=el\('form'/);
+});
+
+test('rest bar and session-only replacement stay reachable on iPhone',async()=>{
+  const [ui,css]=await Promise.all([read('../js/v3/training-ui.js'),read('../v3-training.css')]);
+  assert.match(ui,/v3-rest-bar/);
+  assert.match(ui,/Descanso \$\{duration\(remaining\)\}/);
+  assert.match(ui,/button\('Omitir'/);
+  assert.match(ui,/Cambiar ejercicio/);
+  assert.match(ui,/replaceExercise\(exercise\.id,choice\.value\)/);
+  assert.match(css,/\.v3-rest-bar\{[^}]*safe-area-inset-bottom/);
+  assert.match(css,/@media\(max-width:360px\)/);
 });
 
 test('exercise picker keeps basic add direct and prescription controls optional',async()=>{

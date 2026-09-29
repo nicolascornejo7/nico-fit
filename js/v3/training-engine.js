@@ -12,6 +12,7 @@ const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
 const update=(entity,record,payload)=>({entity,id:record.id,type:'update',payload,expectedLocalRevision:record.local_revision});
 const remove=(entity,record)=>({entity,id:record.id,type:'soft_delete',expectedLocalRevision:record.local_revision});
+export const remainingRestSeconds=(rest,now=Date.now())=>rest?Math.max(0,Math.ceil((Date.parse(rest.endsAt)-now)/1000)||0):0;
 
 export class V3TrainingEngine{
   constructor({repository,flagStorage=globalThis.localStorage,featureEnabled,routinesEnabled,now=()=>new Date(),cryptoImpl=globalThis.crypto}={}){
@@ -24,6 +25,7 @@ export class V3TrainingEngine{
   #run(task){const result=this.pending.then(task);this.pending=result.catch(()=>{});return result;}
   flush(){return this.pending;}
   getState(){return this.state?clone(this.state):null;}
+  restRemaining(){return remainingRestSeconds(this.state?.rest,this.now().getTime());}
   #guard(session){return {entity:'workout_sessions',id:session.id,expectedLocalRevision:session.local_revision,status:'draft'};}
 
   async snapshot(sessionId=this.state?.activeSessionId){
@@ -91,14 +93,14 @@ export class V3TrainingEngine{
       const exerciseId=this.crypto.randomUUID();exerciseIds.push(exerciseId);
       changes.push(insert('session_exercises',exerciseId,{session_id:id,exercise_catalog_id:entry.id,position,exercise_name_snapshot:concrete?item.canonical_name:entry.canonical_name,prescription_snapshot:validatePrescription(item.prescription),notes:''}));
     }
-    const state={activeSessionId:id,currentExerciseId:exerciseIds[0]||null,view:'active',drafts:{},summaryDraft:{}};
+    const state={activeSessionId:id,currentExerciseId:exerciseIds[0]||null,view:'exercises',drafts:{},summaryDraft:{}};
     await this.repository.commitLocalChanges(changes,{trainingState:state});this.state=state;return this.snapshot(id);
   });}
 
   createFreeWorkout({label='Musculación libre',date}={}){return this.createSession({label,date,useRoutine:false,sessionType:'free_workout'});}
 
   selectSession(id){return this.#run(async()=>{
-    const snapshot=await this.#editable(id),state={activeSessionId:id,currentExerciseId:snapshot.exercises[0]?.id||null,view:'active',drafts:{},summaryDraft:{}};
+    const snapshot=await this.#editable(id),state={activeSessionId:id,currentExerciseId:snapshot.exercises[0]?.id||null,view:'exercises',drafts:{},summaryDraft:{}};
     await this.repository.commitLocalChanges([],{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;return snapshot;
   });}
 
@@ -129,6 +131,35 @@ export class V3TrainingEngine{
     const state={...this.state,currentExerciseId:newId,view:'exercises'};const [record]=await this.repository.commitLocalChanges([insert('session_exercises',newId,payload)],{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;return record;
   });}
 
+  replaceExercise(id,catalogId){return this.#run(async()=>{
+    const snapshot=await this.#editable(),exercise=snapshot.exercises.find(ex=>ex.id===id);
+    if(!exercise)throw new Error('Ejercicio no disponible.');
+    const catalog=await this.repository.get('exercise_catalog',catalogId);
+    if(!catalog||catalog.deleted_at)throw new Error('Ejercicio de catálogo no disponible.');
+    if(catalog.id===exercise.exercise_catalog_id)return exercise;
+    const prescription=clone(exercise.prescription_snapshot);
+    if(prescription.measurement_kind!==catalog.measurement_kind){prescription.min=null;prescription.max=null;}
+    prescription.measurement_kind=catalog.measurement_kind;
+    if(exercise.sets.length){
+      // A performed occurrence is historical evidence. Keep it, and insert the
+      // substitute after it so completed sets retain their actual identity.
+      prescription.sets=Math.max(1,(prescription.sets||1)-exercise.sets.filter(set=>set.is_completed).length);
+      const newId=this.crypto.randomUUID(),base=Math.max(...snapshot.exercises.map(ex=>ex.position))+snapshot.exercises.length+2;
+      const changes=snapshot.exercises.map((ex,index)=>({...update('session_exercises',ex,{position:base+index}),preserveTransition:true}));
+      changes.push(insert('session_exercises',newId,{session_id:snapshot.session.id,exercise_catalog_id:catalog.id,position:exercise.position+1,exercise_name_snapshot:catalog.canonical_name,prescription_snapshot:validatePrescription(prescription),notes:''}));
+      for(const ex of snapshot.exercises)changes.push({entity:'session_exercises',id:ex.id,type:'update',payload:{position:ex.position+(ex.position>exercise.position?1:0)},preserveTransition:true});
+      const state={...this.state,currentExerciseId:newId,view:'exercises'};
+      const records=await this.repository.commitLocalChanges(changes,{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;
+      return records[snapshot.exercises.length];
+    }
+    const state={...this.state,drafts:Object.fromEntries(Object.entries(this.state.drafts||{}).filter(([key])=>!key.startsWith(`${id}:`)))};
+    const [record]=await this.repository.commitLocalChanges([update('session_exercises',exercise,{
+      exercise_catalog_id:catalog.id,exercise_name_snapshot:catalog.canonical_name,
+      prescription_snapshot:validatePrescription(prescription)
+    })],{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;
+    return record;
+  });}
+
   reorderExercises(ids){return this.#run(async()=>{
     const snapshot=await this.#editable(),current=snapshot.exercises;
     if(ids.length!==current.length||new Set(ids).size!==ids.length||ids.some(id=>!current.some(ex=>ex.id===id)))throw new Error('El orden debe incluir cada ejercicio una vez.');
@@ -140,25 +171,40 @@ export class V3TrainingEngine{
     await this.repository.commitLocalChanges(changes,{guards:[this.#guard(snapshot.session)]});return this.snapshot();
   });}
 
-  saveSet(exerciseId,input,{setId}={}){return this.#run(async()=>{
+  saveSet(exerciseId,input,{setId,position,startRest=false,draftKey}={}){return this.#run(async()=>{
     const snapshot=await this.#editable(),exercise=snapshot.exercises.find(ex=>ex.id===exerciseId);if(!exercise)throw new Error('Ejercicio no disponible.');
     const current=setId?exercise.sets.find(set=>set.id===setId):null;if(setId&&!current)throw new Error('Serie no disponible.');
+    if(position!=null&&(!Number.isInteger(position)||position<0||position>999))throw new Error('Posición de serie inválida.');
+    if(!current&&position!=null&&exercise.sets.some(set=>set.position===position))throw new Error('La serie ya existe. Recargá antes de guardarla.');
     const value=validateSet(current?{...current,...input}:input,exercise.prescription_snapshot.measurement_kind);
     value.completed_at=value.is_completed?(current?.is_completed?current.completed_at:this.now().toISOString()):null;
-    const id=current?.id||this.crypto.randomUUID(),change=current?update('exercise_sets',current,value):insert('exercise_sets',id,{...value,session_exercise_id:exerciseId,position:Math.max(-1,...exercise.sets.map(set=>set.position))+1});
+    const id=current?.id||this.crypto.randomUUID(),change=current?update('exercise_sets',current,value):insert('exercise_sets',id,{...value,session_exercise_id:exerciseId,position:position??Math.max(-1,...exercise.sets.map(set=>set.position))+1});
     const state={...this.state,drafts:{...this.state.drafts},currentExerciseId:exerciseId};delete state.drafts[`${exerciseId}:${setId||'new'}`];
+    if(draftKey)delete state.drafts[draftKey];
+    if(!value.is_completed&&state.rest?.setId===id)state.rest=null;
+    if(startRest&&value.is_completed&&!current?.is_completed){
+      const seconds=optionalNumber(exercise.prescription_snapshot.rest??exercise.prescription_snapshot.rest_seconds,'Descanso',{max:3600,integer:true});
+      const started=this.now();state.rest=seconds>0?{startedAt:started.toISOString(),endsAt:new Date(started.getTime()+seconds*1000).toISOString(),durationSeconds:seconds,exerciseId,setId:id}:null;
+    }
     const [record]=await this.repository.commitLocalChanges([change],{trainingState:state,guards:[this.#guard(snapshot.session),{entity:'session_exercises',id:exerciseId,expectedLocalRevision:exercise.local_revision}]});this.state=state;return record;
+  });}
+
+  skipRest(){return this.#run(async()=>{
+    if(!this.state?.rest)return null;
+    const state={...this.state,rest:null};await this.repository.commitLocalChanges([],{trainingState:state});this.state=state;return state;
   });}
 
   deleteSet(exerciseId,setId){return this.#run(async()=>{
     const snapshot=await this.#editable(),exercise=snapshot.exercises.find(ex=>ex.id===exerciseId),set=exercise?.sets.find(item=>item.id===setId);if(!set)throw new Error('Serie no disponible.');
     const state={...this.state,drafts:{...this.state.drafts},editingSetId:null};delete state.drafts[`${exerciseId}:${setId}`];
+    if(state.rest?.setId===setId)state.rest=null;
     await this.repository.commitLocalChanges([remove('exercise_sets',set)],{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;return this.snapshot();
   });}
 
   deleteExercise(id){return this.#run(async()=>{
     const snapshot=await this.#editable(),exercise=snapshot.exercises.find(ex=>ex.id===id);if(!exercise)throw new Error('Ejercicio no disponible.');
     const state={...this.state,currentExerciseId:snapshot.exercises.find(ex=>ex.id!==id)?.id||null};
+    if(state.rest?.exerciseId===id)state.rest=null;
     state.drafts=Object.fromEntries(Object.entries(state.drafts).filter(([key])=>!key.startsWith(`${id}:`)));state.editingSetId=null;
     await this.repository.commitLocalChanges([...exercise.sets.map(set=>remove('exercise_sets',set)),remove('session_exercises',exercise)],{trainingState:state,guards:[this.#guard(snapshot.session)]});this.state=state;return this.snapshot();
   });}
