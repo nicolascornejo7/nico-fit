@@ -24,12 +24,15 @@ import {PROGRESS_AREAS,READINESS_METRICS,footballSummary,readinessSummary,recent
 import {cachedPublicConfig} from './v3/public-config.js';
 import {assertAuthorizedV3Url} from './v3/authorized-projects.js';
 import {productSyncStatus} from './v3/product-sync-status.js';
+import {bootstrapV3Repository,BOOTSTRAP_PENDING_MESSAGE} from './v3/bootstrap.js';
+import {cachedV3Identity} from './v3/offline-auth.js';
 
 await rolloutReady;
 
 let storageOwner='guest',data=loadLocalData(storageOwner),lastRenderedDate=localDateKey();
 let sessionTick=null,restTick=null,restoreExercisePosition=true;
 let v3Repository=null,v3Signals=null,v3Today=null,v3Context=null,v3Generation=0;
+let v3Activation=null,v3BootstrapPending=false;
 let progressSnapshot=null,progressGeneration=0,progressArea='strength',readinessMetric='score',v3Operational=null,currentProductSync={kind:'local',text:'Solo local'};
 const v2HistoryReader=new V2HistoryReader({getData:()=>data});
 const $=id=>document.getElementById(id);
@@ -41,18 +44,31 @@ function currentContext(now=new Date()){const dayIndex=now.getDay();return {now,
 function workoutContext(){const state=activeSession.state;if(!state)return currentContext();return {now:new Date(),dayIndex:state.dayIndex,dateKey:state.sessionDate,plan:plan[state.dayIndex],active:state};}
 function persist(){saveLocalData(data,storageOwner);}
 function persistAndRender(capture=true){if(capture)captureActiveDrafts();persist();renderAll(false);}
-async function activateV3Product(user){
-  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;v3Operational=null;progressSnapshot=null;
-  if(!user?.id){renderAll(false);return;}
-  const repository=await V3LocalRepository.open({userId:user.id});if(token!==v3Generation){repository.close();return;}
-  v3Repository=repository;v3Signals=new V3SignalsUI({repository,syncNow:syncV3Repository});v3Today=new V3TodayService({repository});await refreshV3Product();
+function activateV3Product(user){
+  const owner=user?.id??null;
+  if(v3Repository?.userId===owner)return v3BootstrapPending?retryV3Bootstrap():Promise.resolve();
+  if(v3Activation?.userId===owner)return v3Activation.promise;
+  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;v3Operational=null;progressSnapshot=null;v3BootstrapPending=!!owner;
+  const promise=(async()=>{
+    if(!owner){renderAll(false);return;}
+    const repository=await V3LocalRepository.open({userId:owner});if(token!==v3Generation){repository.close();return;}
+    let bootstrap;
+    try{bootstrap=await bootstrapV3Repository(repository);}catch(error){console.warn('No se pudo completar la primera recuperación V3.',error);bootstrap={status:'pending'};}
+    if(token!==v3Generation){repository.close();return;}
+    v3BootstrapPending=bootstrap.status==='pending';v3Repository=repository;v3Signals=new V3SignalsUI({repository,syncNow:syncV3Repository});v3Today=new V3TodayService({repository});await refreshV3Product();
+  })();
+  v3Activation={userId:owner,promise};
+  promise.finally(()=>{if(v3Activation?.promise===promise)v3Activation=null;}).catch(()=>{});
+  return promise;
 }
 function refreshProductSyncStatus(){
+  if(v3BootstrapPending){currentProductSync={kind:'local',text:'Recuperación pendiente'};setSyncBadge(currentProductSync.kind,currentProductSync.text);return currentProductSync;}
   let runtimeAuthorized=false;try{runtimeAuthorized=!!assertAuthorizedV3Url(cachedPublicConfig()?.url);}catch{}
   const rollout=rolloutSnapshot(),lastError=v3Operational?.lastError,lastSuccess=v3Operational?.lastSuccess,currentError=lastError&&(!lastSuccess||(lastError.sequence??0)>(lastSuccess.sequence??0))?lastError:null,status=productSyncStatus({authenticated:!!sync.user,online:navigator.onLine!==false,runtimeAuthorized,syncEnabled:!!rollout?.flags.v3_sync_enabled,queue:v3Operational?.queue.operations??0,conflicts:v3Operational?.counts.conflict??0,lastError:currentError});currentProductSync=status;setSyncBadge(status.kind,status.text);return status;
 }
 async function refreshV3Product(){if(!v3Today)return;[v3Context,v3Operational]=await Promise.all([v3Today.summary(),v3Repository.operationalSnapshot()]);refreshProductSyncStatus();renderAll(false);}
 function switchStorageOwner(user){
+  if(v3Repository?.userId!==user?.id)v3BootstrapPending=!!user;
   if(storageOwner!==(user?.id||'guest'))clearPwaFormDrafts(['sleep','energy','freshness','pain','painArea','footballDuration','footballRpe','footballMinutes','matchEnergy','legs','performance','matchNotes']);
   captureActiveDrafts();storageOwner=user?.id||'guest';data=loadLocalData(storageOwner);activeSession.setOwner(storageOwner);restoreExercisePosition=true;persistAndRender(false);
   currentProductSync=user?{kind:'local',text:'Comprobando sincronización…'}:{kind:'local',text:'Solo local'};setSyncBadge(currentProductSync.kind,currentProductSync.text);
@@ -86,7 +102,7 @@ function guidance(ctx=currentContext()){
 function renderDashboard(){
   const ctx=currentContext(),r=latestReadiness(ctx.dateKey),score=readinessScore(r),[cls,label]=readinessLevel(score),sat=daysUntilSaturday(ctx.now),hasActive=!!v3Context?.activeSession;
   const hasRoutine=ctx.plan.type==='Gimnasio',action=hasActive?['Continuar entrenamiento','today']:hasRoutine?['Comenzar rutina','today']:['Explorar entrenamientos','open'],actions=storageOwner!=='guest'?`<button class="primary wide" id="goWorkoutBtn">${action[0]}</button><button class="ghost wide" id="freeWorkoutBtn">Musculación libre</button>`:'',syncNotice=storageOwner!=='guest'&&currentProductSync.kind!=='synced'?`<button class="sync-alert" id="openSupportBtn"><span>${currentProductSync.text}</span><strong>Revisar</strong></button>`:'';
-  $('dashboardCard').innerHTML=`<div class="dashboard-top"><div><p class="eyebrow">${daysText(sat).toUpperCase()}</p><h2>Hoy · ${ctx.plan.name}</h2><p class="dashboard-sub">${ctx.plan.label}</p></div><div class="big-score ${cls}">${score??'—'}<span>${score==null?'readiness':'/100'}</span></div></div><div class="recommendation"><strong>Recomendación</strong><p>${guidance(ctx)}</p></div>${actions}${syncNotice}`;
+  $('dashboardCard').innerHTML=`<div class="dashboard-top"><div><p class="eyebrow">${daysText(sat).toUpperCase()}</p><h2>Hoy · ${ctx.plan.name}</h2><p class="dashboard-sub">${ctx.plan.label}</p></div><div class="big-score ${cls}">${score??'—'}<span>${score==null?'readiness':'/100'}</span></div></div>${v3BootstrapPending?`<p class="advice">${BOOTSTRAP_PENDING_MESSAGE}</p>`:`<div class="recommendation"><strong>Recomendación</strong><p>${guidance(ctx)}</p></div>${actions}`}${syncNotice}`;
   $('goWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:action[1]}})));
   $('freeWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'free'}})));
   $('openSupportBtn')?.addEventListener('click',()=>{switchView('settingsView');setTimeout(()=>$('v3SupportSection')?.scrollIntoView({block:'start',behavior:'smooth'}),0);});
@@ -156,6 +172,7 @@ function renderFootball(){const today=currentContext().dateKey,date=$('footballD
 function updateFootballLoad(){const d=+$('footballDuration').value||0,r=+$('footballRpe').value||0;$('footballLoadPreview').textContent=`Carga estimada: ${d&&r?d*r:'—'} AU`;}
 async function saveFootball(){
   if(!allowNewWork()||!v3Signals)return alert('Iniciá sesión para guardar la carga de fútbol.');
+  if(v3BootstrapPending)return alert(BOOTSTRAP_PENDING_MESSAGE);
   const ctx=footballContext(),sessionType=ctx.sessionType,legacy={duration:+$('footballDuration').value,rpe:+$('footballRpe').value,minutes:$('footballMinutes').value===''?0:+$('footballMinutes').value};
   const validation=validateFootball(legacy);if(!validation.valid)return alert(validation.message);
   const existing=(await v3Signals.list('football_sessions',{date:ctx.date})).find(row=>row.session_type===sessionType);
@@ -164,12 +181,14 @@ async function saveFootball(){
 }
 async function saveReadiness(){
   if(!allowNewWork()||!v3Signals)return alert('Iniciá sesión para guardar el check-in.');
+  if(v3BootstrapPending)return alert(BOOTSTRAP_PENDING_MESSAGE);
   const date=currentContext().dateKey,input={local_date:date,sleep:+$('sleep').value,energy:+$('energy').value,freshness:+$('freshness').value,pain:+$('pain').value,pain_area:$('painArea').value,notes:''};
   const existing=await v3Signals.readiness(date);await v3Signals.saveReadiness(input,existing?{id:existing.id,expectedLocalRevision:existing.local_revision}:undefined);
   clearPwaFormDrafts(['sleep','energy','freshness','pain','painArea']);await refreshV3Product();renderReadinessState();
 }
 async function saveMatch(){
   if(!allowNewWork()||!v3Signals)return alert('Iniciá sesión para guardar el partido.');
+  if(v3BootstrapPending)return alert(BOOTSTRAP_PENDING_MESSAGE);
   const date=footballContext().date,legacy={energy:+$('matchEnergy').value,legs:+$('legs').value,performance:+$('performance').value,notes:$('matchNotes').value},validation=validateMatch(legacy);if(!validation.valid)return alert(validation.message);
   const matches=await v3Signals.list('football_sessions',{date}),parent=matches.find(row=>row.session_type==='match')??null,existing=(await v3Signals.list('match_reviews',{date}))[0]??null;
   await v3Signals.saveMatchReview({local_date:date,football_session_id:parent?.id??null,...legacy,rpe:parent?.rpe??null,minutes_played:parent?.minutes_played??null},existing?{id:existing.id,expectedLocalRevision:existing.local_revision}:undefined);
@@ -178,7 +197,16 @@ async function saveMatch(){
 function hydrateToday(){const date=currentContext().dateKey,r=latestReadiness(date);if(r){$('sleep').value=r.sleep;$('energy').value=r.energy;$('freshness').value=r.freshness??6-r.fatigue;$('pain').value=r.pain;$('painArea').value=r.pain_area??r.painArea??'';}['sleep','energy','freshness','pain'].forEach(id=>$(id+'Val').textContent=$(id).value);const m=v3Context?.date===date?v3Context.matches?.[0]:data.matches.find(x=>x.date===date);if(m){$('matchEnergy').value=m.energy;$('legs').value=m.legs;$('performance').value=m.performance;$('matchNotes').value=m.notes||'';}['matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);}
 
 async function renderProgress(){
-  const token=++progressGeneration,model=await new UnifiedProgress({v2Reader:v2HistoryReader,repository:v3Repository,userId:storageOwner}).load();if(token!==progressGeneration)return;progressSnapshot=model;
+  const token=++progressGeneration,pending=v3BootstrapPending,waitingForIdentity=!v3Repository&&(v3Activation?.userId===storageOwner||!!cachedV3Identity())&&!!rolloutSnapshot()?.flags.v3_enabled;
+  if(pending||waitingForIdentity){
+    progressSnapshot=null;const message=pending?BOOTSTRAP_PENDING_MESSAGE:'Cargando los datos de tu cuenta…';
+    clearNode($('exerciseSelect'));appendTextElement($('exerciseSelect'),'option',message);
+    $('progressStatus').textContent=message;$('progressHeadline').textContent=message;
+    clearNode($('history'));clearNode($('historyOlderList'));$('historyOlder').classList.add('hidden');
+    for(const [id] of PROGRESS_AREAS)$(`progress${id[0].toUpperCase()}${id.slice(1)}Panel`).classList.add('hidden');
+    return;
+  }
+  const model=await new UnifiedProgress({v2Reader:v2HistoryReader,repository:v3Repository,userId:storageOwner}).load();if(token!==progressGeneration)return;progressSnapshot=model;
   const identities=new Map();for(const item of model.exercises)if(item.identity&&!identities.has(item.identity))identities.set(item.identity,item.name);const select=$('exerciseSelect'),current=select.value;clearNode(select);if(identities.size){[...identities].sort((a,b)=>a[1].localeCompare(b[1])).forEach(([id,name])=>{const option=select.ownerDocument.createElement('option');option.value=id;option.textContent=name;select.append(option);});if(identities.has(current))select.value=current;}else appendTextElement(select,'option','Sin datos');renderStrength();
   $('progressStatus').textContent=model.warnings.join(' ');renderProgressArea();renderProgressHistory(model);
 }
@@ -194,6 +222,11 @@ function renderAuth(){const signed=!!sync.user;$('signedOutBox').classList.toggl
 function setAuthMessage(msg,error=false){$('authMessage').textContent=msg;$('authMessage').className=error?'advice error-text':'advice';}
 function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active-view'));$(id).classList.add('active-view');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='progressView')setTimeout(()=>renderProgress().catch(()=>{}),0);window.scrollTo({top:0,behavior:'smooth'});}
 function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDate=currentContext().dateKey;hydrateToday();renderDashboard();renderReadinessState();renderWeek();renderWorkout();renderFootball();renderMatch();renderProgress().catch(()=>{});renderAuth();renderSessionSummary();restorePwaFormDrafts();['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);updateFootballLoad();startTimerIntervals();}
+async function retryV3Bootstrap(){
+  const repository=v3Repository;if(!repository||!v3BootstrapPending||navigator.onLine===false)return;
+  try{const result=await bootstrapV3Repository(repository);if(repository!==v3Repository)return;v3BootstrapPending=result.status==='pending';await refreshV3Product();}
+  catch(error){console.warn('La primera recuperación V3 sigue pendiente.',error);}
+}
 async function resetAll(){if(!allowNewWork())return;const scope=sync.user?'este dispositivo Y tu cuenta sincronizada':'este dispositivo';if(!confirm(`¿Borrar todos los registros de ${scope}?`))return;activeSession.clear();if(sync.user){try{await sync.deleteAll();}catch(error){alert('El borrado quedó pendiente de sincronizar: '+error.message);}location.reload();return;}data=emptyData();clearLocalData(storageOwner);location.reload();}
 
 ['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id).addEventListener('input',()=>{$(id+'Val').textContent=$(id).value;if(['sleep','energy','freshness','pain'].includes(id)){renderDashboard();renderReadinessState();}}));$('painArea').addEventListener('change',renderReadinessState);$('footballDate').addEventListener('change',()=>{['footballDuration','footballRpe','footballMinutes'].forEach(id=>$(id).value='');renderFootball();renderMatch();});['footballDuration','footballRpe'].forEach(id=>$(id).addEventListener('input',updateFootballLoad));
@@ -220,4 +253,4 @@ async function recoverOnlineAuth(){
   try{return await reconnectingAuth;}finally{reconnectingAuth=null;}
 }
 try{const user=rolloutSnapshot()?.flags.v3_enabled?(await reconnectV3Auth({sync,rollout:rolloutControl})).user:await sync.init();renderAuth();if(user){await sync.refreshReadOnly();await activateV3Product(user);renderAll();}}catch(error){console.warn(error);setAuthMessage('Supabase no está disponible. La app sigue funcionando en modo local.',true);renderAuth();if(navigator.onLine&&rolloutSnapshot()?.flags.v3_enabled)await recoverOnlineAuth();}
-window.addEventListener('online',()=>{if(rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().then(()=>v3Today&&refreshV3Product()).catch(()=>{});else{renderAuth();sync.refreshReadOnly().then(()=>renderAll()).catch(()=>{});}});window.addEventListener('offline',renderAuth);document.addEventListener('nico-fit:pwa-safety-changed',()=>{if(v3Today)refreshV3Product().catch(()=>{});});document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();if(v3Today)refreshV3Product().catch(()=>{});if(navigator.onLine&&!sync.user&&rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});}});setInterval(()=>{if(localDateKey()!==lastRenderedDate){renderAll();if(v3Today)refreshV3Product().catch(()=>{});}},60000);
+window.addEventListener('online',()=>{if(rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().then(()=>retryV3Bootstrap()).then(()=>v3Today&&refreshV3Product()).catch(()=>{});else{renderAuth();sync.refreshReadOnly().then(()=>renderAll()).catch(()=>{});}});window.addEventListener('offline',renderAuth);document.addEventListener('nico-fit:pwa-safety-changed',()=>{if(v3Today)refreshV3Product().catch(()=>{});});document.addEventListener('visibilitychange',()=>{if(!document.hidden){activeSession.reconcileTime();renderAll();if(v3Today)refreshV3Product().catch(()=>{});retryV3Bootstrap().catch(()=>{});if(navigator.onLine&&!sync.user&&rolloutSnapshot()?.flags.v3_enabled)recoverOnlineAuth().catch(()=>{});}});setInterval(()=>{if(localDateKey()!==lastRenderedDate){renderAll();if(v3Today)refreshV3Product().catch(()=>{});}},60000);

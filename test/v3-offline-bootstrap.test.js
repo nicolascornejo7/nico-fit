@@ -98,7 +98,7 @@ test('Auth network failure does not turn a cached identity into login_required',
 });
 
 test('manual V3 sync validates rollout and Auth before constructing the engine',async()=>{
-  const repository={userId},order=[];
+  const repository={userId,getBootstrapState:async()=>({state:'existing'})},order=[];
   class Adapter {constructor({client}){this.client=client;order.push('adapter');}}
   class Engine {constructor(options){this.options=options;order.push('engine');}async syncOnce(){order.push('sync');return {pushed:1,conflicts:0};}}
   const client={auth:{getUser:async()=>{order.push('auth');return {data:{user:{id:userId}},error:null};}}};
@@ -107,7 +107,7 @@ test('manual V3 sync validates rollout and Auth before constructing the engine',
 });
 
 test('manual V3 sync permits only the authorized staging and production projects',async()=>{
-  const repository={userId},created=[];
+  const repository={userId,getBootstrapState:async()=>({state:'existing'})},created=[];
   class Adapter {constructor({client}){this.client=client;}}
   class Engine {async syncOnce(){return {pushed:1,conflicts:0};}}
   const options=url=>({online:()=>true,storageEnabled:()=>true,syncEnabled:()=>true,refreshRollout:async()=>({source:'remote',remoteWritesAllowed:true}),fetchConfig:async()=>({url,publishableKey:'sb_publishable_fixture'}),loadSdk:async()=>({createClient:target=>{created.push(target);return {auth:{getUser:async()=>({data:{user:{id:userId}},error:null})}};}}),Adapter,Engine});

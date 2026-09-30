@@ -3,6 +3,7 @@ import {mayStartNewWork} from '../pwa-update-gate.js';
 import {rolloutReady} from './rollout-boot.js';
 import {rolloutAllowsLocalTraining} from './rollout-state.js';
 import {cachedV3Identity} from './offline-auth.js';
+import {bootstrapV3Repository} from './bootstrap.js';
 await rolloutReady;
 
 // Online Auth events and the SDK's persisted offline identity share the same user ID.
@@ -51,8 +52,12 @@ await rolloutReady;
       const [{V3LocalRepository},{V3TrainingUI},{V3TodayService},{syncV3Repository,pullV3Repository}]=await Promise.all([import('./repository.js'),import('./training-ui.js'),import('./today-service.js'),import('./sync-runtime.js')]);
       const opened=await V3LocalRepository.open({userId:expectedUser});
       if(token!==generation||expectedUser!==userId){opened.close();return;}
+      try{await bootstrapV3Repository(opened);}catch(error){console.warn('La primera recuperación V3 sigue pendiente.',error);}
+      if(token!==generation||expectedUser!==userId){opened.close();return;}
       document.dispatchEvent(new CustomEvent('nico-fit:v3-panel-open',{detail:'training'}));repository=opened;const today=new V3TodayService({repository}),engine=today.engine;
-      if(mode==='today')await today.startToday();else if(mode==='free')await today.startFree();
+      if((await opened.getBootstrapState()).state!=='pending'){
+        if(mode==='today')await today.startToday();else if(mode==='free')await today.startFree();
+      }
       const product=await today.summary();ui=new V3TrainingUI({root,engine,onClose:close,syncNow:()=>syncV3Repository(opened),pullOnly:()=>pullV3Repository(opened),readinessScore:product.readinessScore});root.classList.remove('hidden');setBackgroundInert(true);await ui.mount();
     }catch(error){if(token===generation){close();window.alert(error.message);}}
     finally{opening=false;}

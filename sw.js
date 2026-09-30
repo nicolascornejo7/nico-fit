@@ -1,5 +1,5 @@
 // Bump this ID together with the nico-fit-build meta tags for every release.
-const BUILD_ID='nico-fit-v60';
+const BUILD_ID='nico-fit-v61';
 const CACHE_NAME=BUILD_ID;
 const CACHE_PREFIX='nico-fit-v';
 const BUILD_NUMBER=Number(BUILD_ID.slice(CACHE_PREFIX.length));
@@ -12,7 +12,7 @@ const APP_ASSETS=[
   './js/pwa-update-gate.js','./js/pwa-update-safety.js','./js/pwa-form-drafts.js','./js/pwa-version.js',
   './js/v3/rollout-policy.js','./js/v3/rollout-state.js','./js/v3/rollout-control.js','./js/v3/rollout-boot.js',
   './js/safe-dom.js','./js/store.js','./js/sync.js','./js/validation.js',
-  './js/v3/audit-service.js','./js/v3/auth-reconnect.js','./js/v3/authorized-projects.js','./js/v3/base-exercise-catalog.js','./js/v3/client-storage.js','./js/v3/client-sync.js','./js/v3/product-sync-status.js','./js/v3/sync-runtime.js',
+  './js/v3/audit-service.js','./js/v3/auth-reconnect.js','./js/v3/authorized-projects.js','./js/v3/base-exercise-catalog.js','./js/v3/bootstrap.js','./js/v3/client-storage.js','./js/v3/client-sync.js','./js/v3/product-sync-status.js','./js/v3/sync-runtime.js',
   './js/v3/coach-context.js','./js/v3/coach-presentation.js','./js/v3/coach-rules.js',
   './js/v3/coach-service.js','./js/v3/coach-signals.js','./js/v3/conflict-entry.js',
   './js/v3/conflict-service.js','./js/v3/conflict-ui.js','./js/v3/diagnostic-model.js',

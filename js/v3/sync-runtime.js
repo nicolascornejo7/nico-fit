@@ -32,6 +32,10 @@ export async function prepareV3SyncRuntime(repository,{online=()=>globalThis.nav
 export async function syncV3Repository(repository,options={}){
   const runtime=await prepareV3SyncRuntime(repository,options);
   if(runtime.skipped)return runtime;
+  if((await repository.getBootstrapState()).state==='pending'){
+    const initial=await runtime.engine.pullOnly();
+    return initial.skipped?initial:{...initial,skipped:'initial_pull'};
+  }
   return runtime.engine.syncOnce();
 }
 

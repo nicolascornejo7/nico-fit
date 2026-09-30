@@ -60,6 +60,7 @@ export class V3SyncEngine{
     return withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:async()=>{
       const result={pulled:0,confirmed:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
       if(!await this.#pull(result,{pullOnly:true}))return {...result,skipped:'rollout_blocked'};
+      if((await this.repository.getBootstrapState()).state==='pending')await this.repository.markBootstrapHydrated();
       return result;
     }});
   }
@@ -72,6 +73,7 @@ export class V3SyncEngine{
     result.recovered=await this.repository.recoverInterruptedOperations();
     result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts});
     await this.#observe(attemptId,{phase:'pull'});if(!await this.#pull(result))return {...result,skipped:'rollout_blocked'};
+    if((await this.repository.getBootstrapState()).state==='pending')await this.repository.markBootstrapHydrated();
     await this.#observe(attemptId,{phase:'push'});if(!await this.#push(result,attemptId))return {...result,skipped:'rollout_blocked'};
     return result;
   }

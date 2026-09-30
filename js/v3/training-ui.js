@@ -6,6 +6,7 @@ import {buildV3SyncDiagnostic} from './sync-diagnostic.js';
 import {buildV3SessionDiagnostic} from './session-diagnostic.js';
 import {appBuildId} from '../pwa-version.js';
 import {completedRoutineSessions,completedExerciseHint} from './completed-today.js';
+import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -50,6 +51,10 @@ export class V3TrainingUI{
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
     await this.renderSync(shell);
     this.conflict=el('p','','advice v3-conflict');this.conflict.setAttribute('role','status');this.conflict.setAttribute('aria-live','polite');shell.append(this.conflict);
+    if((await this.engine.repository.getBootstrapState()).state==='pending'){
+      shell.append(el('p',BOOTSTRAP_PENDING_MESSAGE,'advice'));
+      return;
+    }
     this.coachSlot=null;
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
     if(!snapshot||snapshot.session.status!=='draft'){
@@ -133,6 +138,11 @@ export class V3TrainingUI{
   }
 
   async renderSync(shell){
+    if((await this.engine.repository.getBootstrapState()).state==='pending'){
+      const row=el('section','','card v3-sync-status');row.append(el('p','Recuperación inicial pendiente. Aún no se enviaron datos.','advice'));
+      if(this.pullOnly){const recovery=button('Recuperar del servidor (sin enviar)',()=>this.requestPullOnly());recovery.disabled=globalThis.navigator?.onLine===false||this.syncing;row.append(recovery);}
+      shell.append(row);return;
+    }
     const operational=await this.engine.repository.operationalSnapshot(),counts=operational.counts;
     const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado',clean=state==='sincronizado';
     const row=el('section','',clean?'v3-sync-status is-clean':'card v3-sync-status');row.append(el('p',clean?'✓ Sincronizado':`Sincronización: ${state}. Cola: ${operational.queue.operations}.`,clean?'v3-sync-indicator':'advice'));
@@ -174,7 +184,7 @@ export class V3TrainingUI{
     this.syncing=true;await this.render();this.message.textContent='Sincronizando…';
     try{
       const result=await this.syncNow();
-      if(!this.destroyed)this.message.textContent=result.skipped==='offline'?'Offline: la cola local se conserva.':result.skipped==='rollout_blocked'?'Sync pausado por configuración remota.':result.skipped==='disabled'?'Sync V3 desactivado.':result.conflicts?'Hay conflictos que requieren revisión.':'Sincronización confirmada.';
+      if(!this.destroyed)this.message.textContent=result.skipped==='offline'?'Offline: la cola local se conserva.':result.skipped==='rollout_blocked'?'Sync pausado por configuración remota.':result.skipped==='disabled'?'Sync V3 desactivado.':result.skipped==='initial_pull'?'Datos recuperados del servidor. No se envió la cola local.':result.conflicts?'Hay conflictos que requieren revisión.':'Sincronización confirmada.';
       return result;
     }catch(error){if(!this.destroyed)this.message.textContent=`Error de sync: ${error.message}`;if(!automatic)throw error;return {failed:true};}
     finally{this.syncing=false;if(!this.destroyed)await this.render();}

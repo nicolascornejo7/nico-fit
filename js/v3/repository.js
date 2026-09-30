@@ -86,13 +86,13 @@ export class V3LocalRepository{
     if(!enabled)throw new Error('V3 local storage is disabled. Enable the explicit feature flag first.');
     const owner=String(userId||'').trim();
     const database=await openUserDatabase({userId:owner,indexedDB});
-    const repository=new V3LocalRepository({userId:owner,database,cryptoImpl:globalThis.crypto});
+    const repository=new V3LocalRepository({userId:owner,database,cryptoImpl:globalThis.crypto,indexedDBFactory:indexedDB});
     await withV3SyncLock({repository,userId:owner,task:()=>repository.recoverInterruptedOperations()});
     return repository;
   }
 
-  constructor({userId,database,cryptoImpl=globalThis.crypto}){
-    this.userId=userId;this.database=database;this.crypto=cryptoImpl;
+  constructor({userId,database,cryptoImpl=globalThis.crypto,indexedDBFactory=globalThis.indexedDB}){
+    this.userId=userId;this.database=database;this.crypto=cryptoImpl;this.indexedDBFactory=indexedDBFactory;
   }
 
   close(){this.database.close();}
@@ -106,6 +106,20 @@ export class V3LocalRepository{
   async getTrainingState(){
     const entry=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get('training:state'));
     return entry?.value?clone(entry.value):null;
+  }
+
+  async getBootstrapState(){
+    const entry=await requestResult(this.database.transaction(INTERNAL_STORES.metadata).objectStore(INTERNAL_STORES.metadata).get('bootstrap:state'));
+    return entry?.owner_id===this.userId?clone(entry.value):{state:'existing'};
+  }
+
+  async markBootstrapHydrated(){
+    return runTransaction(this.database,[INTERNAL_STORES.metadata],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.metadata),entry=await requestResult(store.get('bootstrap:state'));
+      if(!entry||entry.owner_id!==this.userId||entry.value.state==='hydrated')return entry?.value?clone(entry.value):{state:'existing'};
+      const timestamp=nowIso();entry.value={...entry.value,state:'hydrated',hydratedAt:timestamp};entry.updated_at=timestamp;
+      await requestResult(store.put(entry));return clone(entry.value);
+    });
   }
 
   // Entity graph, outbox and local UI checkpoint commit atomically.

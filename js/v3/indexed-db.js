@@ -88,7 +88,15 @@ function upgrade(database,transaction){
 export async function openUserDatabase({userId,indexedDB=globalThis.indexedDB}={}){
   if(!indexedDB)throw new Error('IndexedDB is unavailable.');
   const name=databaseNameForUser(userId),request=indexedDB.open(name,DB_VERSION);
-  request.onupgradeneeded=()=>upgrade(request.result,request.transaction);
+  request.onupgradeneeded=event=>{
+    upgrade(request.result,request.transaction);
+    if(event.oldVersion===0){
+      const timestamp=new Date().toISOString();
+      request.transaction.objectStore(INTERNAL_STORES.metadata).put({
+        key:'bootstrap:state',owner_id:userId,value:{state:'pending',createdAt:timestamp},updated_at:timestamp
+      });
+    }
+  };
   const database=await requestResult(request);
   database.onversionchange=()=>database.close();
   return database;

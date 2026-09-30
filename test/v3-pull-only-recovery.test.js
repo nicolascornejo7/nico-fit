@@ -7,9 +7,11 @@ import {V3SyncEngine} from '../js/v3/sync-engine.js';
 import {remotePayloadForOperation} from '../js/v3/sync-protocol.js';
 import {UnifiedProgress} from '../js/v3/unified-progress.js';
 import {installRolloutControl} from '../js/v3/rollout-state.js';
-import {pullV3Repository} from '../js/v3/sync-runtime.js';
+import {pullV3Repository,syncV3Repository} from '../js/v3/sync-runtime.js';
 import {V3TrainingEngine} from '../js/v3/training-engine.js';
 import {V3TrainingUI} from '../js/v3/training-ui.js';
+import {bootstrapV3Repository,BOOTSTRAP_PENDING_MESSAGE} from '../js/v3/bootstrap.js';
+import {transactionDone} from '../js/v3/indexed-db.js';
 
 const USER='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STAMP='2026-09-29T18:37:09.000Z';
@@ -174,6 +176,7 @@ test('training entry starts a missing routine and continues an active draft with
   globalThis.document={createElement:tag=>new TestNode(tag)};
   try{
     const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-29T12:00:00-03:00')}),root=new TestNode('section'),ui=new V3TrainingUI({root,engine,onClose:()=>{}});
+    await repository.markBootstrapHydrated();
     await ui.render();
     assert.equal(descendants(root,node=>node.textContent==='Comenzar entrenamiento').length,1);
     const started=await engine.createSession({dayIndex:2,useRoutine:true});
@@ -211,4 +214,151 @@ test('recovery runtime uses authenticated authorized project and only invokes pu
   assert.deepEqual(calls,['rollout','auth','adapter','pull']);
   await assert.rejects(pullV3Repository({userId:USER},options('https://unauthorized.supabase.co')),/destino de sync V3/);
   assert.deepEqual(await pullV3Repository({userId:USER},{...options('https://xaklsoqyzwowtjwcpwmb.supabase.co'),refreshRollout:async()=>({source:'stale-offline',remoteWritesAllowed:false})}),{skipped:'rollout_blocked'});
+});
+
+test('normal runtime request on a fresh DB performs only initial pull before any push',async()=>{
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:USER,featureEnabled:true});
+  let pulls=0,syncs=0;
+  class Adapter {constructor(){}}
+  class Engine {
+    async pullOnly(){pulls++;await repository.markBootstrapHydrated();return {pulled:0,confirmed:0,pushed:0};}
+    async syncOnce(){syncs++;return {pushed:0};}
+  }
+  const options={online:()=>true,storageEnabled:()=>true,syncEnabled:()=>true,refreshRollout:async()=>({source:'remote',remoteWritesAllowed:true}),fetchConfig:async()=>({url:'https://xaklsoqyzwowtjwcpwmb.supabase.co',publishableKey:'sb_publishable_fixture'}),loadSdk:async()=>({createClient:()=>({auth:{getUser:async()=>({data:{user:{id:USER}},error:null})}})}),Adapter,Engine};
+  try{
+    const first=await syncV3Repository(repository,options);
+    assert.equal(first.skipped,'initial_pull');assert.equal(pulls,1);assert.equal(syncs,0);
+    const second=await syncV3Repository(repository,options);
+    assert.equal(second.skipped,undefined);assert.equal(pulls,1);assert.equal(syncs,1);
+  }finally{repository.close();}
+});
+
+test('fresh authenticated DB pulls existing account before defaults and renders recovered 9/15 session',async()=>{
+  const state={source:'remote',updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_sync_enabled:true,v3_routines_enabled:true,v3_training_enabled:true,v3_coach_enabled:false}};
+  const reset=installRolloutControl({snapshot:()=>state,refreshIfDue:async()=>state});
+  const source=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:USER,featureEnabled:true});
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:USER,featureEnabled:true});
+  try{
+    const defaults=await new V3RoutineService({repository:source,featureEnabled:true}).seedDefaults();
+    const remote=new ReadOnlyRemote();
+    for(const operation of await source.listOperations({status:'pending'}))remote.add(operation.entity,serverRecord(remotePayloadForOperation(operation,USER),2));
+    const completedId=remoteWorkout(remote,{routine:defaults[0]});
+    const sync=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+    assert.equal((await repository.getBootstrapState()).state,'pending');
+    let seededBeforePull=false;
+    const result=await bootstrapV3Repository(repository,{pullOnly:()=>sync.pullOnly(),routinesEnabled:()=>true,seedDefaults:async()=>{
+      seededBeforePull=remote.reads===0;
+      return new V3RoutineService({repository,featureEnabled:true}).seedDefaults();
+    }});
+    assert.equal(result.status,'hydrated');assert.equal(seededBeforePull,false);
+    assert.equal((await repository.getBootstrapState()).state,'hydrated');
+    assert.equal((await repository.listOperations()).length,0);
+    assert.equal((await repository.listConflicts()).length,0);
+    assert.deepEqual(remote.mutationEntities,[]);
+    assert.equal((await repository.get('workout_sessions',completedId)).status,'completed');
+    assert.equal((await repository.listRecords('session_exercises')).length,9);
+    assert.equal((await repository.listRecords('exercise_sets')).length,15);
+    const progress=await new UnifiedProgress({repository,v2Reader:{read:async()=>({workouts:[],sessions:[],readiness:[],football:[],matches:[]})}}).load();
+    assert.equal(progress.metrics.completedSessions,1);
+    assert.equal(progress.metrics.volume,2400);
+    const before=documentFixture();
+    try{
+      const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-29T12:00:00-03:00')});
+      const root=new TestNode('section');await new V3TrainingUI({root,engine,onClose:()=>{}}).render();
+      assert.equal(descendants(root,node=>node.textContent==='✓ Completado').length,1);
+      assert.equal(descendants(root,node=>node.textContent==='9 ejercicios · 15 series completadas').length,1);
+    }finally{globalThis.document=before;}
+  }finally{reset();source.close();repository.close();}
+});
+
+function documentFixture(){const prior=globalThis.document;globalThis.document={createElement:tag=>new TestNode(tag)};return prior;}
+
+test('fresh empty account seeds only after empty pull; offline and interrupted bootstrap remain pending',async()=>{
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:USER,featureEnabled:true});
+  const state={source:'remote',updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_sync_enabled:true,v3_routines_enabled:true}};
+  const reset=installRolloutControl({snapshot:()=>state,refreshIfDue:async()=>state});
+  try{
+    const remote=new ReadOnlyRemote(),sync=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+    const offline=await bootstrapV3Repository(repository,{online:()=>false,pullOnly:()=>{throw new Error('pull while offline');},seedDefaults:()=>{throw new Error('seed while offline');}});
+    assert.equal(offline.status,'pending');assert.equal(offline.reason,'offline');assert.equal((await repository.listOperations()).length,0);
+    const prior=documentFixture();
+    try{
+      const root=new TestNode('section'),engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true});
+      await new V3TrainingUI({root,engine,onClose:()=>{}}).render();
+      assert.equal(descendants(root,node=>node.textContent===BOOTSTRAP_PENDING_MESSAGE).length,1);
+      assert.equal(descendants(root,node=>node.textContent==='Comenzar entrenamiento').length,0);
+    }finally{globalThis.document=prior;}
+    await assert.rejects(bootstrapV3Repository(repository,{pullOnly:async()=>{throw new Error('network interrupted');},seedDefaults:()=>{throw new Error('seed before pull');}}),/network interrupted/);
+    assert.equal((await repository.getBootstrapState()).state,'pending');
+    let readsAtSeed=0;
+    const result=await bootstrapV3Repository(repository,{pullOnly:()=>sync.pullOnly(),routinesEnabled:()=>true,seedDefaults:async()=>{readsAtSeed=remote.reads;return new V3RoutineService({repository,featureEnabled:true}).seedDefaults();}});
+    assert.equal(result.status,'hydrated');assert.ok(readsAtSeed>0);
+    assert.equal((await repository.listOperations({status:'pending'})).length,48);
+    assert.equal((await repository.listRecords('workout_sessions')).length,0);
+    assert.deepEqual(remote.mutationEntities,[]);
+  }finally{reset();repository.close();}
+});
+
+test('concurrent bootstrap is single-flight and persisted hydration survives reopen and Auth callbacks',async()=>{
+  const factory=new IDBFactory();
+  await assert.rejects(V3LocalRepository.open({indexedDB:factory,userId:'',featureEnabled:true}),/authenticated user id/);
+  const repository=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+  let pulls=0,seeds=0;
+  const options={pullOnly:async()=>{pulls++;await new Promise(resolve=>setTimeout(resolve,10));await repository.markBootstrapHydrated();return {pulled:0,pushed:0};},routinesEnabled:()=>true,seedDefaults:async()=>{seeds++;}};
+  try{
+    const results=await Promise.all([bootstrapV3Repository(repository,options),bootstrapV3Repository(repository,options),bootstrapV3Repository(repository,options)]);
+    assert.deepEqual(results.map(row=>row.status),['hydrated','hydrated','hydrated']);
+    assert.equal(pulls,1);assert.equal(seeds,1);
+  }finally{repository.close();}
+  const reopened=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+  try{
+    assert.equal((await reopened.getBootstrapState()).state,'hydrated');
+    assert.equal((await bootstrapV3Repository(reopened,{pullOnly:()=>{throw new Error('unnecessary full pull');},seedDefaults:()=>{throw new Error('duplicate seed');}})).status,'hydrated');
+    assert.equal(pulls,1);assert.equal(seeds,1);
+  }finally{reopened.close();}
+});
+
+test('normal sync cannot push when initial pull fails and retry after reopen resumes hydration',async()=>{
+  const factory=new IDBFactory(),repository=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+  const state={source:'remote',updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_sync_enabled:true,v3_routines_enabled:true}};
+  const reset=installRolloutControl({snapshot:()=>state,refreshIfDue:async()=>state});
+  try{
+    await new V3RoutineService({repository,featureEnabled:true}).seedDefaults();
+    const remote=new ReadOnlyRemote();
+    remote.fetchChanges=async()=>{throw new Error('first pull failed');};
+    const sync=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+    await assert.rejects(sync.syncOnce(),/first pull failed/);
+    assert.equal((await repository.getBootstrapState()).state,'pending');
+    assert.deepEqual(remote.mutationEntities,[]);
+    assert.equal((await repository.listOperations({status:'pending'})).length,48);
+    repository.close();
+    const reopened=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+    try{
+      assert.equal((await reopened.getBootstrapState()).state,'pending');
+      const equivalent=new ReadOnlyRemote();
+      for(const operation of await reopened.listOperations({status:'pending'}))equivalent.add(operation.entity,serverRecord(remotePayloadForOperation(operation,USER)));
+      const resumed=new V3SyncEngine({repository:reopened,remote:equivalent,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+      const result=await resumed.syncOnce();
+      assert.equal(result.conflicts,0);assert.equal(result.pushed,48); // Existing sync counters include pull confirmations.
+      assert.deepEqual(equivalent.mutationEntities,[]);
+      assert.equal((await reopened.getBootstrapState()).state,'hydrated');
+      assert.equal((await reopened.listOperations({status:'pending'})).length,0);
+    }finally{reopened.close();}
+  }finally{reset();repository.close();}
+});
+
+test('existing V3 database with sessions is not reclassified as fresh on build reopen',async()=>{
+  const factory=new IDBFactory(),repository=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+  const legacyMarkerRemoval=repository.database.transaction('sync_metadata','readwrite');
+  legacyMarkerRemoval.objectStore('sync_metadata').delete('bootstrap:state');
+  await transactionDone(legacyMarkerRemoval);
+  const id=crypto.randomUUID();
+  await repository.commitLocalChanges([{entity:'workout_sessions',id,type:'insert',payload:{session_date:'2026-09-29',session_type:'free_workout',status:'draft',label:'Persisted'}}]);
+  repository.close();
+  const reopened=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
+  try{
+    assert.equal((await reopened.getBootstrapState()).state,'existing');
+    assert.equal((await bootstrapV3Repository(reopened,{pullOnly:()=>{throw new Error('unexpected pull');},seedDefaults:()=>{throw new Error('unexpected seed');}})).status,'existing');
+    assert.equal((await reopened.get('workout_sessions',id)).label,'Persisted');
+  }finally{reopened.close();}
 });
