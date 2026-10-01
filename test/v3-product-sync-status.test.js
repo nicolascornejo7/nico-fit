@@ -13,6 +13,7 @@ test('production and staging authorized runtimes with queue zero are synchronize
 
 test('pending queue, offline and real errors have distinct product states',()=>{
   assert.equal(productSyncStatus({authenticated:true,online:true,runtimeAuthorized:true,syncEnabled:true,queue:2}).reason,'queue');
+  assert.deepEqual(productSyncStatus({authenticated:true,online:true,runtimeAuthorized:true,syncEnabled:true,queue:2,failed:2}),{kind:'error',text:'2 operaciones fallidas de sincronización',reason:'failed'});
   assert.equal(productSyncStatus({authenticated:true,online:false,runtimeAuthorized:true,syncEnabled:true}).reason,'offline');
   assert.equal(productSyncStatus({authenticated:true,online:true,runtimeAuthorized:false,syncEnabled:true}).reason,'runtime');
   assert.equal(productSyncStatus({authenticated:true,online:true,runtimeAuthorized:true,syncEnabled:true,lastError:{kind:'transient'}}).reason,'error');

@@ -111,6 +111,90 @@ test('offline soft delete uploads a tombstone without physical deletion',async()
   assert.ok((await remote.fetchById('workout_sessions',id)).deleted_at);assert.ok((await repository.get('workout_sessions',id)).deleted_at);repository.close();
 });
 
+test('unconfirmed create then discard resolves without a remote mutation for sessions and catalog rows',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const session=await repository.create('workout_sessions',sessionPayload('Discarded'));
+    const catalog=await repository.create('exercise_catalog',{stable_key:'custom:discarded',canonical_name:'Descartado',measurement_kind:'reps'});
+    await repository.softDelete('workout_sessions',session.id);
+    await repository.softDelete('exercise_catalog',catalog.id);
+    const result=await engine(repository,remote).syncOnce();
+    assert.equal(remote.mutateCalls,0);assert.equal(result.reconciled,4);assert.equal(result.failed,0);
+    assert.equal((await repository.operationalSnapshot()).queue.operations,0);
+    assert.equal((await repository.get('workout_sessions',session.id)).sync_status,'synced');
+    assert.equal(await remote.fetchById('workout_sessions',session.id),null);
+  }finally{repository.close();}
+});
+
+test('the two permanently failed create/discard operations reconcile only after remote absence is checked',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const row=await repository.create('workout_sessions',{...sessionPayload('Musculación libre'),session_date:'2026-09-30',session_type:'free_workout'},{id:'d3a9307f-80cc-40d9-a355-e17e44d1dd7f'});
+    await repository.softDelete('workout_sessions',row.id);
+    assert.equal((await repository.listChildren('session_exercises',row.id,{includeDeleted:true})).length,0);
+    assert.equal((await repository.listRecords('exercise_sets',{includeDeleted:true})).length,0);
+    assert.equal(await remote.fetchById('workout_sessions',row.id),null);
+    for(const operation of await repository.listOperations())await repository.setOperationStatus(operation.operation_id,'failed',{error:'Remote row was not visible after mutation.'});
+    assert.equal((await repository.operationalSnapshot()).counts.failed,2);
+    const result=await engine(repository,remote).syncOnce();
+    assert.equal(result.reconciled,2);assert.equal(remote.mutateCalls,0);
+    assert.deepEqual((await repository.listOperations()).map(operation=>operation.status),['synced','synced']);
+    assert.equal((await repository.get('workout_sessions',row.id)).deleted_at!==null,true);
+  }finally{repository.close();}
+});
+
+test('a create that reached the server before acknowledgement still sends its later discard',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const row=await repository.create('workout_sessions',sessionPayload('Lost acknowledgement'));
+    const [insert]=await repository.listOperations();
+    await remote.mutate(insert,USER_A);
+    await repository.softDelete('workout_sessions',row.id);
+    const before=remote.mutateCalls,result=await engine(repository,remote).syncOnce();
+    assert.equal(result.reconciled,0);assert.equal(remote.mutateCalls,before+1);
+    assert.ok((await remote.fetchById('workout_sessions',row.id)).deleted_at);
+    assert.equal((await repository.operationalSnapshot()).queue.operations,0);
+  }finally{repository.close();}
+});
+
+test('unavailable remote lookup cannot silently reconcile a local create/discard',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const row=await repository.create('workout_sessions',sessionPayload('Needs proof'));
+    await repository.softDelete('workout_sessions',row.id);
+    remote.fetchById=async()=>{throw error('offline','NETWORK_ERROR',503);};
+    await assert.rejects(engine(repository,remote).syncOnce(),/offline/);
+    assert.equal(remote.mutateCalls,0);
+    assert.equal((await repository.operationalSnapshot()).queue.operations,2);
+  }finally{repository.close();}
+});
+
+test('confirmed create followed by discard sends a remote tombstone',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const row=await repository.create('workout_sessions',sessionPayload('Confirmed'));
+    await engine(repository,remote).syncOnce();
+    assert.equal((await remote.fetchById('workout_sessions',row.id)).deleted_at,null);
+    await repository.softDelete('workout_sessions',row.id);
+    await engine(repository,remote).syncOnce();
+    assert.ok((await remote.fetchById('workout_sessions',row.id)).deleted_at);
+    assert.equal(remote.mutateCalls,2);
+  }finally{repository.close();}
+});
+
+test('missing remote row for an ordinary update remains a real failure',async()=>{
+  const repository=await open(new IDBFactory()),remote=new MockRemote();
+  try{
+    const row=await repository.create('workout_sessions',sessionPayload('Confirmed'));
+    await engine(repository,remote).syncOnce();
+    remote.tables.workout_sessions.delete(row.id);
+    await repository.update('workout_sessions',row.id,{label:'Updated'});
+    const result=await engine(repository,remote).syncOnce();
+    assert.equal(result.reconciled,0);assert.equal(result.failed,1);
+    assert.equal((await repository.listOperations()).at(-1).status,'failed');
+  }finally{repository.close();}
+});
+
 test('two devices can sync changes to different entities',async()=>{
   const remote=new MockRemote(),a=await open(new IDBFactory()),b=await open(new IDBFactory());
   const session=await a.create('workout_sessions',sessionPayload('A'));

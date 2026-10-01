@@ -80,6 +80,15 @@ export function compactOperations(operations){
   return groups;
 }
 
+// An unconfirmed insert followed by a local tombstone has no remote row to
+// update. The caller must still verify absence by ID before acknowledging it.
+export function unpushedDiscard(group,localRecord){
+  return group?.operations?.length>=2&&group.operations[0].type==='insert'&&
+    group.operations.at(-1).type==='soft_delete'&&group.type==='soft_delete'&&
+    group.operations.every(operation=>operation.base_remote_version==null)&&
+    localRecord?.deleted_at!=null&&localRecord.remote_version==null;
+}
+
 export function classifySyncError(error){
   const code=String(error?.code||''),status=Number(error?.status||error?.statusCode||0);
   if(code==='PT409'||code==='55000'||status===409)return 'conflict';

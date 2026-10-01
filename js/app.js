@@ -64,7 +64,7 @@ function activateV3Product(user){
 function refreshProductSyncStatus(){
   if(v3BootstrapPending){currentProductSync={kind:'local',text:'Recuperación pendiente'};setSyncBadge(currentProductSync.kind,currentProductSync.text);return currentProductSync;}
   let runtimeAuthorized=false;try{runtimeAuthorized=!!assertAuthorizedV3Url(cachedPublicConfig()?.url);}catch{}
-  const rollout=rolloutSnapshot(),lastError=v3Operational?.lastError,lastSuccess=v3Operational?.lastSuccess,currentError=lastError&&(!lastSuccess||(lastError.sequence??0)>(lastSuccess.sequence??0))?lastError:null,status=productSyncStatus({authenticated:!!sync.user,online:navigator.onLine!==false,runtimeAuthorized,syncEnabled:!!rollout?.flags.v3_sync_enabled,queue:v3Operational?.queue.operations??0,conflicts:v3Operational?.counts.conflict??0,lastError:currentError});currentProductSync=status;setSyncBadge(status.kind,status.text);return status;
+  const rollout=rolloutSnapshot(),lastError=v3Operational?.lastError,lastSuccess=v3Operational?.lastSuccess,currentError=lastError&&(!lastSuccess||(lastError.sequence??0)>(lastSuccess.sequence??0))?lastError:null,status=productSyncStatus({authenticated:!!sync.user,online:navigator.onLine!==false,runtimeAuthorized,syncEnabled:!!rollout?.flags.v3_sync_enabled,queue:v3Operational?.queue.operations??0,conflicts:v3Operational?.counts.conflict??0,failed:v3Operational?.counts.failed??0,lastError:currentError});currentProductSync=status;setSyncBadge(status.kind,status.text);return status;
 }
 async function refreshV3Product(){if(!v3Today)return;[v3Context,v3Operational]=await Promise.all([v3Today.summary(),v3Repository.operationalSnapshot()]);refreshProductSyncStatus();renderAll(false);}
 function switchStorageOwner(user){

@@ -1,11 +1,19 @@
 import {ENTITY_STORES,SIGNAL_STORES,ROUTINE_STORES} from './indexed-db.js';
 import {isV3SyncEnabled,isV3SignalsSyncEnabled,isV3RoutinesSyncEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
-import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs} from './sync-protocol.js';
+import {classifySyncError,compactOperations,remoteConfirmsOperation,retryDelayMs,unpushedDiscard} from './sync-protocol.js';
 import {safeDiagnosticError} from './diagnostic-model.js';
 import {rolloutAllowsRemote,rolloutFlag} from './rollout-state.js';
 
 const PULL_ORDER=['exercise_catalog','workout_sessions','session_exercises','exercise_sets'];
+const DEPENDENTS={
+  workout_sessions:[['session_exercises','session_id']],
+  session_exercises:[['exercise_sets','session_exercise_id']],
+  exercise_catalog:[['session_exercises','exercise_catalog_id'],['routine_exercises','exercise_catalog_id']],
+  routine_templates:[['routine_versions','routine_id'],['workout_sessions','routine_id']],
+  routine_versions:[['routine_exercises','routine_version_id'],['workout_sessions','routine_version_id']],
+  football_sessions:[['match_reviews','football_session_id']]
+};
 
 function effectiveOperation(group){
   return {
@@ -40,7 +48,8 @@ export class V3SyncEngine{
       const remoteUserId=await this.remote.authenticatedUserId();
       if(remoteUserId!==this.repository.userId)throw Object.assign(new Error('Authenticated Supabase user does not match the local V3 repository.'),{status:401});
       const result=await withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:()=>this.#runLocked(attemptId)});
-      await this.#observe(attemptId,{status:result.skipped==='locked'?'locked':result.failed?'failed':'completed',phase:result.skipped==='locked'?'locked':'finished',finishedAt:stamp(),result});
+      if(!result.skipped)result.unresolvedFailed=(await this.repository.operationalSnapshot()).counts.failed;
+      await this.#observe(attemptId,{status:result.skipped==='locked'?'locked':result.failed?'failed':result.unresolvedFailed?'attention_required':'completed',phase:result.skipped==='locked'?'locked':'finished',finishedAt:stamp(),result});
       return result;
     }catch(error){
       const snapshot=await this.repository.operationalSnapshot().catch(()=>({attempts:[]})),phase=snapshot.attempts.find(row=>row.attemptId===attemptId)?.phase||'auth';
@@ -69,13 +78,53 @@ export class V3SyncEngine{
   async #observe(attemptId,patch){try{await this.repository.recordSyncAttempt(attemptId,patch);}catch{}}
 
   async #runLocked(attemptId){
-    const result={pulled:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
+    const result={pulled:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0,reconciled:0};
     result.recovered=await this.repository.recoverInterruptedOperations();
     result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts});
+    if(!await rolloutAllowsRemote())return {...result,skipped:'rollout_blocked'};
+    await this.#reconcileUnpushedDiscards(result);
     await this.#observe(attemptId,{phase:'pull'});if(!await this.#pull(result))return {...result,skipped:'rollout_blocked'};
     if((await this.repository.getBootstrapState()).state==='pending')await this.repository.markBootstrapHydrated();
     await this.#observe(attemptId,{phase:'push'});if(!await this.#push(result,attemptId))return {...result,skipped:'rollout_blocked'};
     return result;
+  }
+
+  async #reconcileUnpushedDiscards(result){
+    const enabledEntities=new Set(this.#entities());
+    const unresolved=(await this.repository.listOperations()).filter(operation=>
+      ['pending','syncing','failed'].includes(operation.status)&&enabledEntities.has(operation.entity));
+    const byRecord=new Map();
+    for(const operation of unresolved){
+      const key=`${operation.entity}:${operation.record_id}`;
+      if(!byRecord.has(key))byRecord.set(key,[]);
+      byRecord.get(key).push(operation);
+    }
+    for(const operations of byRecord.values())for(const group of compactOperations(operations)){
+      if(group.operations.length<2||group.operations[0].type!=='insert'||group.type!=='soft_delete')continue;
+      const local=await this.repository.get(group.entity,group.recordId);
+      if(!unpushedDiscard(group,local))continue;
+      let dependents=false;
+      for(const [entity,key] of DEPENDENTS[group.entity]||[]){
+        if((await this.repository.listRecords(entity,{includeDeleted:true})).some(row=>row[key]===group.recordId)){dependents=true;break;}
+      }
+      if(dependents)continue;
+      // fetchById must succeed. A network/auth failure cannot prove absence.
+      const remote=await this.remote.fetchById(group.entity,group.recordId);
+      if(!remote){
+        await this.repository.acknowledgeOperations(group.operationIds);
+        result.reconciled+=group.operationIds.length;
+        continue;
+      }
+      this.#assertRemoteOwner(group.entity,remote);
+      if(remoteConfirmsOperation(group.operations[0],remote,this.repository.userId)){
+        await this.repository.acknowledgeOperations([group.operationIds[0]],{remoteRecord:remote});
+        for(const operation of group.operations.slice(1))if(operation.status==='failed')await this.repository.retryOperation(operation.operation_id);
+      }else{
+        await this.repository.recordConflict({entity:group.entity,recordId:group.recordId,operationIds:group.operationIds,
+          reason:'remote_change_vs_local_change',localPayload:group.payload,remotePayload:remote});
+        result.conflicts+=1;
+      }
+    }
   }
 
   async #pull(result,{pullOnly=false}={}){

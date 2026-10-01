@@ -145,7 +145,8 @@ export class V3TrainingUI{
     }
     const operational=await this.engine.repository.operationalSnapshot(),counts=operational.counts;
     const state=counts.conflict?'conflicto':counts.failed?'error':this.syncing?'sincronizando':counts.pending||counts.syncing?'pendiente':'sincronizado',clean=state==='sincronizado';
-    const row=el('section','',clean?'v3-sync-status is-clean':'card v3-sync-status');row.append(el('p',clean?'✓ Sincronizado':`Sincronización: ${state}. Cola: ${operational.queue.operations}.`,clean?'v3-sync-indicator':'advice'));
+    const breakdown=`${counts.pending} pendientes · ${counts.failed} fallidas · ${counts.conflict} en conflicto · ${counts.synced} sincronizadas`;
+    const row=el('section','',clean?'v3-sync-status is-clean':'card v3-sync-status');row.append(el('p',clean?'✓ Sincronizado':`Sincronización: ${state}. ${breakdown}.`,clean?'v3-sync-indicator':'advice'));
     if(!clean){const action=button('Sincronizar ahora',()=>this.requestSync());action.disabled=!this.syncNow||globalThis.navigator?.onLine===false||this.syncing;row.append(action);
       if(this.pullOnly){const recovery=button('Recuperar del servidor (sin enviar)',()=>this.requestPullOnly());recovery.disabled=globalThis.navigator?.onLine===false||this.syncing;row.append(recovery);}}
     shell.append(row);
@@ -184,7 +185,7 @@ export class V3TrainingUI{
     this.syncing=true;await this.render();this.message.textContent='Sincronizando…';
     try{
       const result=await this.syncNow();
-      if(!this.destroyed)this.message.textContent=result.skipped==='offline'?'Offline: la cola local se conserva.':result.skipped==='rollout_blocked'?'Sync pausado por configuración remota.':result.skipped==='disabled'?'Sync V3 desactivado.':result.skipped==='initial_pull'?'Datos recuperados del servidor. No se envió la cola local.':result.conflicts?'Hay conflictos que requieren revisión.':'Sincronización confirmada.';
+      if(!this.destroyed)this.message.textContent=result.skipped==='offline'?'Offline: la cola local se conserva.':result.skipped==='rollout_blocked'?'Sync pausado por configuración remota.':result.skipped==='disabled'?'Sync V3 desactivado.':result.skipped==='initial_pull'?'Datos recuperados del servidor. No se envió la cola local.':result.conflicts?'Hay conflictos que requieren revisión.':result.unresolvedFailed?'Quedan operaciones fallidas que requieren revisión.':'Sincronización confirmada.';
       return result;
     }catch(error){if(!this.destroyed)this.message.textContent=`Error de sync: ${error.message}`;if(!automatic)throw error;return {failed:true};}
     finally{this.syncing=false;if(!this.destroyed)await this.render();}
@@ -204,7 +205,7 @@ export class V3TrainingUI{
   }
 
   async renderExercises(shell,snapshot,state){
-    const list=el('div','','v3-exercises');shell.append(list),catalog=await this.engine.catalog();
+    const list=el('div','','v3-exercises');shell.append(list);const catalog=await this.engine.catalog();
     for(const [index,exercise] of snapshot.exercises.entries()){
       const card=el('section','','card v3-exercise-card');list.append(card);
       const heading=el('div','','v3-exercise-heading');heading.append(el('h3',`${index+1}. ${exercise.exercise_name_snapshot}`));
