@@ -9,7 +9,7 @@ const catalog=keys.map((stable_key,index)=>({id:String(index),stable_key,canonic
 const item=key=>catalog.find(row=>row.stable_key===key);
 
 test('all existing stable catalog keys have explicit profiles and recommendations stay within matching patterns',()=>{
-  assert.equal(keys.length,30);
+  assert.equal(keys.length,31);
   for(const current of catalog){
     const profile=exerciseProfile(current);assert.ok(profile,`missing profile: ${current.stable_key}`);
     assert.ok(profile.movement_pattern&&profile.primary_muscles.length&&profile.equipment.length&&profile.laterality&&profile.role&&profile.fatigue);
@@ -40,4 +40,15 @@ test('unknown custom exercises do not acquire text-based recommendations',()=>{
   const custom={id:'custom',stable_key:'custom:unknown',canonical_name:'Peso muerto casero',measurement_kind:'reps',metadata:{custom:true}};
   assert.deepEqual(recommendedAlternatives(custom,catalog),[]);
   assert.equal(compatiblePrescription(custom,item('peso-muerto-rumano')),false);
+});
+test('rear-delt fly has explicit profile and no invented equivalent',()=>{
+  const bird=item('pajaros-mancuernas'),profile=exerciseProfile(bird);
+  assert.equal(profile.movement_pattern,'horizontal_abduction');
+  assert.deepEqual(profile.primary_muscles,['rear_deltoids']);
+  assert.deepEqual(profile.secondary_muscles,['upper_back']);
+  assert.deepEqual(profile.equipment,['dumbbell']);
+  assert.equal(profile.laterality,'bilateral');
+  assert.equal(profile.role,'accessory');
+  assert.equal(profile.fatigue,1);
+  assert.deepEqual(recommendedAlternatives(bird,catalog),[]);
 });

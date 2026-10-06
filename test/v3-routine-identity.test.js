@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {IDBFactory} from 'fake-indexeddb';
 import {V3LocalRepository} from '../js/v3/repository.js';
-import {V3RoutineService} from '../js/v3/routine-service.js';
+import {V3RoutineService,defaultRoutineId} from '../js/v3/routine-service.js';
 import {V3TrainingEngine} from '../js/v3/training-engine.js';
 import {V3SyncEngine} from '../js/v3/sync-engine.js';
 import {V3ConflictService} from '../js/v3/conflict-service.js';
@@ -16,6 +16,10 @@ import {isV3RoutinesEnabled,isV3RoutinesSyncEnabled,isV3TrainingEnabled,isV3Sync
 import {remoteConfirmsOperation,remotePayloadForOperation} from '../js/v3/sync-protocol.js';
 import {v3Progression} from '../js/v3/training-progression.js';
 import {applyCoachRules} from '../js/v3/coach-rules.js';
+import {UnifiedProgress} from '../js/v3/unified-progress.js';
+import {stableClientUuid} from '../js/v3/import-v2.js';
+import {WEEKLY_PROGRAM_V64} from '../js/v3/weekly-program-v64.js';
+import {exerciseProfile,recommendedAlternatives} from '../js/v3/exercise-recommendations.js';
 import {installRolloutControl} from '../js/v3/rollout-state.js';
 const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 let resetRollout;
@@ -65,11 +69,73 @@ test('duplicate ordinal from Supabase is persisted as conflict and is not renumb
 test('remote ordinal winner is recorded before IndexedDB unique index can reject it',async()=>{const {repository,service,graph,exercises}=await setup(),remote=new Remote(),engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});await engine.syncOnce();const loser=await service.createVersion(graph.template.id,{exercises}),winnerId=crypto.randomUUID(),stamp='2099-01-01T00:00:00.000Z';remote.tables.routine_versions[winnerId]={...loser.version,id:winnerId,user_id:A,version:1,created_at:stamp,updated_at:stamp};delete remote.tables.routine_versions[winnerId].owner_id;delete remote.tables.routine_versions[winnerId].remote_version;delete remote.tables.routine_versions[winnerId].local_revision;delete remote.tables.routine_versions[winnerId].sync_status;const result=await engine.syncOnce();assert.ok(result.conflicts>=1);const conflict=(await new V3ConflictService({repository,locks:null}).list()).find(row=>row.record_id===loser.version.id);assert.equal(conflict.origin,'routine_version_number_collision');assert.equal(conflict.remote.version,1);assert.equal(await repository.get('routine_versions',winnerId),null);repository.close();});
 test('explicit null versus zero, reps versus seconds and invalid prescriptions',()=>{assert.equal(routinePrescription({...rx,step:null,target_rir:null,rest:null}).step,null);assert.equal(routinePrescription({...rx,step:0,target_rir:0,rest:0}).step,0);assert.equal(routinePrescription({...rx,measurement_kind:'seconds',min:30,max:45}).measurement_kind,'seconds');for(const input of [{...rx,target_rir:8},{...rx,rest:-1},{...rx,min:null},{...rx,sets:null},{...rx,min:20,max:10},{...rx,measurement_kind:'mixed'}])assert.throws(()=>routinePrescription(input));});
 test('default Tuesday/Thursday/Friday mapping is deterministic and idempotent across reload/users',async()=>{const db=new IDBFactory(),repository=await open(db),service=new V3RoutineService({repository,featureEnabled:true});const first=await service.seedDefaults(),count=(await repository.listOperations()).length;await service.seedDefaults();assert.equal((await repository.listOperations()).length,count);assert.deepEqual(first.map(row=>row.version.day_index),[2,4,5]);repository.close();const reopened=await open(db),second=await new V3RoutineService({repository:reopened,featureEnabled:true}).seedDefaults();assert.deepEqual(second.map(row=>row.template.id),first.map(row=>row.template.id));const other=await open(db,B),third=await new V3RoutineService({repository:other,featureEnabled:true}).seedDefaults();assert.notEqual(third[0].template.id,first[0].template.id);assert.equal(await other.get('routine_templates',first[0].template.id),null);reopened.close();other.close();});
+test('v64 publishes exact weekly version 2 while preserving all version 1 graphs',async()=>{
+ const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});
+ try{
+  const published=await service.seedDefaults();
+  for(const graph of published){
+   const day=graph.version.day_index,source=WEEKLY_PROGRAM_V64[day],v1Id=await stableClientUuid(`v3:routine-version:${graph.template.id}:1`),old=await service.version(v1Id);
+   assert.equal(graph.version.version_number,2);assert.equal(old.version.version_number,1);
+   assert.equal(graph.snapshot.routine_version_id,graph.version.id);
+   assert.deepEqual(graph.exercises.map(row=>row.id),await Promise.all(source.exercises.map((_,position)=>stableClientUuid(`v3:routine-version:${graph.template.id}:2:exercise:${position}`))));
+   assert.deepEqual(graph.exercises.map(row=>[row.prescription_snapshot.sets,row.prescription_snapshot.min,row.prescription_snapshot.max,row.prescription_snapshot.target_rir,row.prescription_snapshot.rest]),source.exercises.map(row=>[row.sets,row.min,row.max,row.target_rir,row.rest]));
+   assert.deepEqual(old.snapshot.exercises.map(row=>row.exercise_name_snapshot),({2:['Sentadilla o prensa','Peso muerto rumano','Press banca','Dominadas o jalón','Zancada búlgara','Elevación de gemelos','Plancha / Pallof press'],4:['Press inclinado con mancuernas','Remo','Press militar','Dominadas / jalón','Curl femoral','Copenhagen plank','Nordic curl','Core'],5:['Movilidad tobillo/cadera/aductores','Sentadilla ligera','Peso muerto rumano ligero','Saltos verticales','Press banca ligero','Remo','Gemelos','Core']})[day]);
+  }
+  assert.deepEqual(published.map(row=>row.exercises.length),[7,10,5]);
+  assert.deepEqual(published[1].exercises.slice(6,8).map(row=>row.exercise_name_snapshot),['Curl de bíceps con barra','Extensión de tríceps en polea']);
+  assert.equal(published[2].exercises.reduce((sum,row)=>sum+row.prescription_snapshot.sets,0),7);
+ }finally{repository.close();}
+});
+test('v1 completed session and progress stay unchanged when v64 becomes current; Coach separates versions',async()=>{
+ const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true}),defaults=await service.seedDefaults(),v1Id=await stableClientUuid(`v3:routine-version:${defaults[0].template.id}:1`);
+ try{
+  const training=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-29T15:00:00Z')});
+  const old=await training.createSession({dayIndex:2,routineVersionId:v1Id});
+  await training.saveSet(old.exercises[0].id,{load_kg:80,reps:6,rir:2,is_completed:true});
+  await training.finishSession({rpe:7});
+  const historic=await training.snapshot(old.session.id),before=structuredClone(historic.session.routine_snapshot);
+  const progress=()=>new UnifiedProgress({repository,v2Reader:{read:async()=>({workouts:[],sessions:[],readiness:[],football:[],matches:[]})}}).load();
+  const initial=await progress();await service.seedDefaults();
+  const current=await training.createSession({dayIndex:2});
+  assert.equal(current.session.routine_version,2);assert.notEqual(current.session.routine_version_id,v1Id);
+  assert.deepEqual((await training.snapshot(old.session.id)).session.routine_snapshot,before);
+  assert.deepEqual((await service.version(v1Id)).snapshot,before);
+  assert.deepEqual((await progress()).sessions,initial.sessions);
+  assert.deepEqual((await progress()).exercises,initial.exercises);
+  const signals={readinessScore:90,pain:0,freshness:5,sleep:5,energy:5,daysToMatch:4,dayIndex:2,footballTrend:{changePercent:0},gymTrend:{changePercent:0},warnings:[],patterns:[],history:[historic]};
+  assert.equal(applyCoachRules(signals,current).exerciseAdjustments.length,7);
+  assert.match(applyCoachRules(signals,current).warnings.join(' '),/Sin sesión anterior/);
+  assert.equal(applyCoachRules({...signals,history:[current]},historic).exerciseAdjustments.length,7);
+ }finally{repository.close();}
+});
+test('v64 covers the body while Friday stays low volume; new shoulder exercise can be replaced only in-session',async()=>{
+ const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});
+ try{
+  const versions=await service.seedDefaults(),catalog=await repository.listRecords('exercise_catalog');
+  const muscles=new Set(versions.flatMap(graph=>graph.exercises.flatMap(row=>{
+   const item=catalog.find(ex=>ex.id===row.exercise_catalog_id),profile=exerciseProfile(item);
+   return [...profile.primary_muscles,...profile.secondary_muscles];
+  })));
+  for(const muscle of ['quadriceps','hamstrings','glutes','calves','chest','lats','upper_back','deltoids','rear_deltoids','biceps','triceps','core'])assert.ok(muscles.has(muscle),muscle);
+  assert.equal(versions[2].exercises.reduce((sum,row)=>sum+row.prescription_snapshot.sets,0),7);
+  assert.ok(versions[2].exercises.every(row=>exerciseProfile(catalog.find(ex=>ex.id===row.exercise_catalog_id)).fatigue<=2));
+  const bird=catalog.find(row=>row.stable_key==='pajaros-mancuernas');assert.ok(bird);
+  assert.deepEqual(recommendedAlternatives(bird,catalog),[]);
+  const training=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-10-01T15:00:00Z')});
+  const started=await training.createSession({dayIndex:4}),ex=started.exercises.find(row=>row.exercise_catalog_id===bird.id),original=structuredClone(started.session.routine_snapshot);
+  const replacement=(await training.catalog()).find(row=>row.stable_key==='remo-mancuerna');
+  const changed=await training.replaceExercise(ex.id,replacement.id);
+  assert.equal(changed.exercise_catalog_id,replacement.id);
+  assert.equal(changed.prescription_snapshot.replaced_exercise_name,'Pájaros con mancuernas');
+  assert.deepEqual((await training.snapshot()).session.routine_snapshot,original);
+  assert.equal((await service.version(versions[1].version.id)).exercises.find(row=>row.id===versions[1].exercises[5].id).exercise_catalog_id,bird.id);
+ }finally{repository.close();}
+});
 test('deterministic routine inserts compare only explicit functional fields',async()=>{
  const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});await service.seedDefaults();
  try{
   const operations=(await repository.listOperations()).filter(row=>row.entity.startsWith('routine_'));
-  assert.equal(operations.length,29);
+  assert.equal(operations.length,54);
   for(const operation of operations){
    const remote={...remotePayloadForOperation(operation,A),created_at:'2026-09-25T10:00:00.000Z',updated_at:'2026-09-25T10:00:00.000Z',version:2};
    assert.equal(remoteConfirmsOperation(operation,remote,A),true,operation.entity);
@@ -84,30 +150,31 @@ test('deterministic routine inserts compare only explicit functional fields',asy
   assert.equal(remoteConfirmsOperation(exercise,{...remotePayloadForOperation(exercise,A),position:99},A),false);
  }finally{repository.close();}
 });
-test('two devices reconcile all 29 deterministic routine defaults without conflicts',async()=>{
+test('two devices reconcile all deterministic routine defaults without conflicts',async()=>{
  const remote=new Remote(),first=await open(),second=await open();
  try{
   const firstService=new V3RoutineService({repository:first,featureEnabled:true}),secondService=new V3RoutineService({repository:second,featureEnabled:true});
   await firstService.seedDefaults();
-  const initial=await new V3SyncEngine({repository:first,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).syncOnce();
-  assert.equal(initial.conflicts,0);
+  const firstSync=new V3SyncEngine({repository:first,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+  for(let attempt=0;attempt<3&&(await first.listOperations({status:'pending'})).length;attempt++)assert.equal((await firstSync.syncOnce()).conflicts,0);
+  assert.equal((await first.listOperations({status:'pending'})).length,0);
   assert.equal(Object.keys(remote.tables.routine_templates).length,3);
-  assert.equal(Object.keys(remote.tables.routine_versions).length,3);
-  assert.equal(Object.keys(remote.tables.routine_exercises).length,23);
+  assert.equal(Object.keys(remote.tables.routine_versions).length,6);
+  assert.equal(Object.keys(remote.tables.routine_exercises).length,45);
   for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of Object.values(remote.tables[entity])){
    row.created_at='2026-09-25T10:00:00.000Z';row.updated_at='2026-09-25T10:00:00.000Z';row.version=2;
   }
   await secondService.seedDefaults();
   const before=(await second.listOperations()).filter(row=>row.entity.startsWith('routine_'));
-  assert.equal(before.length,29);
+  assert.equal(before.length,54);
   for(const operation of before){
    const expected=remotePayloadForOperation(operation,A),actual=await remote.fetchById(operation.entity,operation.record_id);
    const differing=[...new Set([...Object.keys(expected),...Object.keys(actual)])].filter(key=>JSON.stringify(expected[key])!==JSON.stringify(actual[key]));
    assert.ok(differing.length>0);
    assert.equal(differing.every(key=>['created_at','updated_at','version'].includes(key)),true,`${operation.entity}: ${differing.join(', ')}`);
   }
-  const reconciled=await new V3SyncEngine({repository:second,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).syncOnce();
-  assert.equal(reconciled.conflicts,0);
+  const secondSync=new V3SyncEngine({repository:second,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+  for(let attempt=0;attempt<3&&(await second.listOperations({status:'pending'})).length;attempt++)assert.equal((await secondSync.syncOnce()).conflicts,0);
   assert.equal((await second.listConflicts()).length,0);
   assert.equal((await second.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
   for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of await second.listRecords(entity,{includeDeleted:true}))assert.equal(row.remote_version,2);
@@ -117,7 +184,30 @@ test('two devices reconcile all 29 deterministic routine defaults without confli
   assert.equal((await second.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
  }finally{first.close();second.close();}
 });
-test('controlled legacy trace preserves sessions and marks ambiguous prescriptions pending review',async()=>{const repository=await open(),legacyEngine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false,now:()=>new Date('2026-09-15T12:00:00Z')}),session=await legacyEngine.createSession({dayIndex:2}),service=new V3RoutineService({repository,featureEnabled:true});const ambiguous=structuredClone(session);ambiguous.session.id='ambiguous';ambiguous.exercises[0].prescription_snapshot.sets=99;const before=await repository.get('workout_sessions',session.session.id);const rows=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(rows[0].migration_status,'migrated');assert.equal(rows[1].migration_status,'pending_review');assert.equal(rows[1].target_id,null);const again=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(again[0].created,false);assert.deepEqual(await repository.get('workout_sessions',session.session.id),before);repository.close();});
+test('an existing remote v1 account pulls first and publishes only v64 additions',async()=>{
+ const source=await open(),target=await open(),remote=new Remote();
+ try{
+  await new V3RoutineService({repository:source,featureEnabled:true}).seedDefaults();
+  const operations=await source.listOperations();
+  const ids=new Set(await Promise.all([2,4,5].map(async day=>stableClientUuid(`v3:routine-version:${await defaultRoutineId(A,day)}:1`))));
+  const catalogIds=new Set(operations.filter(op=>op.entity==='routine_exercises'&&ids.has(op.payload.routine_version_id)).map(op=>op.payload.exercise_catalog_id));
+  const v1=operations.filter(op=>op.entity==='routine_templates'||op.entity==='routine_versions'&&ids.has(op.record_id)||op.entity==='routine_exercises'&&ids.has(op.payload.routine_version_id)||op.entity==='exercise_catalog'&&catalogIds.has(op.record_id));
+  for(const operation of v1){const row={...remotePayloadForOperation(operation,A),version:1,updated_at:'2026-09-29T19:24:30.000Z'};remote.tables[operation.entity]??={};remote.tables[operation.entity][row.id]=row;}
+  const sync=new V3SyncEngine({repository:target,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});
+  assert.equal((await sync.pullOnly()).pushed,0);
+  const old=await Promise.all([...ids].map(id=>target.get('routine_versions',id)));
+  assert.ok(old.every(row=>row?.remote_version===1));
+  const before=old.map(row=>structuredClone(row.prescription_snapshot));
+  const defaults=await new V3RoutineService({repository:target,featureEnabled:true}).seedDefaults();
+  assert.ok(defaults.every(row=>row.version.version_number===2));
+  assert.deepEqual((await Promise.all([...ids].map(id=>target.get('routine_versions',id)))).map(row=>row.prescription_snapshot),before);
+  assert.equal((await target.listOperations()).filter(op=>op.entity==='routine_versions'&&op.payload.version_number===1).length,0);
+  for(let attempt=0;attempt<3&&(await target.listOperations({status:'pending'})).length;attempt++)assert.equal((await sync.syncOnce()).conflicts,0);
+  assert.equal((await target.listOperations({status:'pending'})).length,0);
+  assert.equal(Object.keys(remote.tables.routine_versions).length,6);
+ }finally{source.close();target.close();}
+});
+test('controlled legacy trace preserves sessions and marks ambiguous prescriptions pending review',async()=>{const repository=await open(),legacyEngine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false,now:()=>new Date('2026-09-15T12:00:00Z')}),session=await legacyEngine.createSession({dayIndex:2}),service=new V3RoutineService({repository,featureEnabled:true});const ambiguous=structuredClone(session);ambiguous.session.id='ambiguous';ambiguous.exercises[0].prescription_snapshot.sets=99;const before=await repository.get('workout_sessions',session.session.id);const rows=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(rows[0].migration_status,'migrated');assert.equal(rows[0].target_id,await stableClientUuid(`v3:routine-version:${await defaultRoutineId(A,2)}:1`));assert.equal(rows[1].migration_status,'pending_review');assert.equal(rows[1].target_id,null);const again=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(again[0].created,false);assert.deepEqual(await repository.get('workout_sessions',session.session.id),before);repository.close();});
 test('historical exercise without catalog identity remains readable after staging download',async()=>{const repository=await open(),session=await repository.create('workout_sessions',{session_date:'2026-09-15',status:'completed',started_at:'2026-09-15T12:00:00Z',ended_at:'2026-09-15T13:00:00Z',label:'Histórica'});await repository.create('session_exercises',{session_id:session.id,exercise_catalog_id:null,position:0,exercise_name_snapshot:'Ejercicio histórico',prescription_snapshot:rx,notes:''});const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true});const snapshot=await engine.snapshot(session.id);assert.equal(snapshot.exercises[0].catalog,null);assert.equal(snapshot.exercises[0].exercise_name_snapshot,'Ejercicio histórico');repository.close();});
 test('sync explicit routine graph before session and paginate back into another isolated device',async()=>{const {repository,graph,training}=await setup(),remote=new Remote();const session=await training.createSession({routineVersionId:graph.version.id});const engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null,pageSize:1});assert.equal((await engine.syncOnce()).failed,0);assert.ok(remote.calls.indexOf('routine_versions')<remote.calls.indexOf('workout_sessions'));const other=await open(),download=new V3SyncEngine({repository:other,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null,pageSize:1});await download.syncOnce();assert.deepEqual((await other.get('workout_sessions',session.session.id)).routine_snapshot,session.session.routine_snapshot);assert.equal((await new V3RoutineService({repository:other,featureEnabled:true}).version(graph.version.id,{forTraining:true})).exercises.length,2);assert.equal((await repository.listOperations()).every(row=>row.status==='synced'),true);repository.close();other.close();});
 test('fresh remote routine rollout includes the complete routine and session graph without a local sync flag',async()=>{

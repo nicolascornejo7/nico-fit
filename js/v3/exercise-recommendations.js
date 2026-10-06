@@ -26,6 +26,7 @@ export const EXERCISE_PROFILES=Object.freeze({
   'jalon-al-pecho':profile('vertical_pull',['lats','upper_back'],['biceps'],['machine'],'bilateral','main_strength',2),
   'press-militar':profile('vertical_press',['deltoids'],['triceps'],['barbell','dumbbell'],'bilateral','main_strength',2),
   'elevacion-lateral':profile('shoulder_abduction',['deltoids'],[],['dumbbell'],'bilateral','accessory',1),
+  'pajaros-mancuernas':profile('horizontal_abduction',['rear_deltoids'],['upper_back'],['dumbbell'],'bilateral','accessory',1),
   'curl-biceps-barra':profile('elbow_flexion',['biceps'],['forearms'],['barbell'],'bilateral','accessory',1),
   'curl-martillo':profile('elbow_flexion',['biceps'],['brachialis','forearms'],['dumbbell'],'bilateral','accessory',1),
   'fondos-triceps':profile('dip',['triceps'],['chest','front_deltoids'],['bodyweight'],'bilateral','accessory',2),
@@ -38,7 +39,7 @@ export const EXERCISE_PROFILES=Object.freeze({
   'saltos-verticales':profile('vertical_jump',['quadriceps','glutes'],['calves'],['bodyweight'],'bilateral','power',2)
 });
 
-const muscleLabels={quadriceps:'cuádriceps',glutes:'glúteos',hamstrings:'isquios',chest:'pecho',lats:'dorsales',upper_back:'espalda alta',biceps:'bíceps',triceps:'tríceps',deltoids:'hombros',calves:'gemelos',core:'core',adductors:'aductores'};
+const muscleLabels={quadriceps:'cuádriceps',glutes:'glúteos',hamstrings:'isquios',chest:'pecho',lats:'dorsales',upper_back:'espalda alta',rear_deltoids:'deltoide posterior',biceps:'bíceps',triceps:'tríceps',deltoids:'hombros',calves:'gemelos',core:'core',adductors:'aductores'};
 const explicitProfile=metadata=>metadata&&typeof metadata.movement_pattern==='string'&&Array.isArray(metadata.primary_muscles)&&metadata.primary_muscles.length&&Array.isArray(metadata.secondary_muscles)&&Array.isArray(metadata.equipment)&&['bilateral','unilateral'].includes(metadata.laterality)&&typeof metadata.role==='string'&&[1,2,3].includes(metadata.fatigue)?metadata:null;
 
 export function exerciseProfile(item){return explicitProfile(item?.metadata)||EXERCISE_PROFILES[item?.stable_key]||null;}

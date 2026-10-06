@@ -3,6 +3,8 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {stableClientUuid} from './import-v2.js';
 import {requiredText} from './training-validation.js';
 import {routinePrescription,sameRoutineValue} from './routine-validation.js';
+import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
+import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 const assertRoutineWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_routines_enabled')===false)throw new Error('Rutinas V3 desactivadas o actualización requerida.');};
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -60,16 +62,37 @@ export class V3RoutineService{
     const result=[];
     for(const dayIndex of [2,4,5]){
       const id=await defaultRoutineId(this.repository.userId,dayIndex),source=routineForDay(dayIndex),versionId=await stableClientUuid(`v3:routine-version:${id}:1`);
-      if(await this.repository.get('routine_templates',id)){result.push(await this.version(versionId));continue;}
-      // Seed only the known stable plan IDs. No matching by name or weekday history.
-      const changes=[],exercises=[],catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true});for(const item of source.exercises){const existing=catalog.find(row=>row.stable_key===item.stable_key),catalogId=existing?.id??await routineCatalogId(this.repository.userId,item.stable_key);if(existing?.deleted_at)throw new Error('Catálogo inicial borrado: revisión explícita requerida.');if(!existing)changes.push(insert('exercise_catalog',catalogId,{stable_key:item.stable_key,canonical_name:item.canonical_name,measurement_kind:item.measurement_kind,metadata:{source:'validated-v2-plan'}}));exercises.push({exercise_catalog_id:catalogId,exercise_name_snapshot:item.canonical_name,prescription_snapshot:routinePrescription(item.prescription)});}
-      // Catalog and template are committed together; build the known seed graph without rereading missing rows.
-      const template={id,name:source.label,stable_key:`validated-day-${dayIndex}`,is_active:true,derived_from_routine_id:null},rows=[];
-      for(const [position,ex] of exercises.entries())rows.push({id:await stableClientUuid(`v3:routine-version:${id}:1:exercise:${position}`),position,...ex});
-      const snapshot={schema_version:1,routine_id:id,routine_version:1,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};
-      await this.repository.commitLocalChanges([...changes,insert('routine_templates',id,template),insert('routine_versions',versionId,{routine_id:id,version_number:1,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id:rowId,...row})=>insert('routine_exercises',rowId,{...row,routine_version_id:versionId}))]);
-      await this.repository.recordMigrationDecision({sourceKey:`v3:routine-seed:${dayIndex}:1`,entity:'routine_templates',status:'migrated',note:'Known validated V2 plan; no historic sessions inferred.',sourcePayload:source});result.push(await this.version(versionId));
+      if(!await this.repository.get('routine_templates',id)){
+        // Preserve the original V1 graph and its deterministic IDs for historic sessions.
+        const changes=[],exercises=[],catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true});for(const item of source.exercises){const existing=catalog.find(row=>row.stable_key===item.stable_key),catalogId=existing?.id??await routineCatalogId(this.repository.userId,item.stable_key);if(existing?.deleted_at)throw new Error('Catálogo inicial borrado: revisión explícita requerida.');if(!existing)changes.push(insert('exercise_catalog',catalogId,{stable_key:item.stable_key,canonical_name:item.canonical_name,measurement_kind:item.measurement_kind,metadata:{source:'validated-v2-plan'}}));exercises.push({exercise_catalog_id:catalogId,exercise_name_snapshot:item.canonical_name,prescription_snapshot:routinePrescription(item.prescription)});}
+        const template={id,name:source.label,stable_key:`validated-day-${dayIndex}`,is_active:true,derived_from_routine_id:null},rows=[];
+        for(const [position,ex] of exercises.entries())rows.push({id:await stableClientUuid(`v3:routine-version:${id}:1:exercise:${position}`),position,...ex});
+        const snapshot={schema_version:1,routine_id:id,routine_version:1,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};
+        await this.repository.commitLocalChanges([...changes,insert('routine_templates',id,template),insert('routine_versions',versionId,{routine_id:id,version_number:1,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id:rowId,...row})=>insert('routine_exercises',rowId,{...row,routine_version_id:versionId}))]);
+        await this.repository.recordMigrationDecision({sourceKey:`v3:routine-seed:${dayIndex}:1`,entity:'routine_templates',status:'migrated',note:'Known validated V2 plan; no historic sessions inferred.',sourcePayload:source});
+      }
+      result.push(await this.#seedWeeklyVersion(dayIndex,id));
     }
     return result;
+  }
+  async #seedWeeklyVersion(dayIndex,templateId){
+    const versionId=await stableClientUuid(`v3:routine-version:${templateId}:2`),existing=await this.repository.get('routine_versions',versionId);
+    if(existing)return this.version(versionId);
+    const versions=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).filter(row=>row.routine_id===templateId);
+    if(versions.some(row=>row.version_number===2))throw new Error('La versión 2 ya pertenece a otra prescripción; revisión explícita requerida.');
+    const source=WEEKLY_PROGRAM_V64[dayIndex],catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true}),changes=[],rows=[];
+    for(const [position,item] of source.exercises.entries()){
+      const base=BASE_EXERCISES.find(row=>row.stable_key===item.stable_key),legacy=routineForDay(dayIndex).exercises.find(row=>row.stable_key===item.stable_key);
+      const existingCatalog=catalog.find(row=>row.stable_key===item.stable_key);
+      if(existingCatalog?.deleted_at)throw new Error('Catálogo requerido borrado: revisión explícita requerida.');
+      if(existingCatalog&&existingCatalog.measurement_kind!=='mixed'&&existingCatalog.measurement_kind!==item.measurement_kind)throw new Error('Unidad de catálogo incompatible con v64.');
+      const catalogId=existingCatalog?.id??(base?await baseCatalogId(this.repository.userId,item.stable_key):await routineCatalogId(this.repository.userId,item.stable_key));
+      if(!existingCatalog){if(!base&&!legacy)throw new Error('Ejercicio v64 ausente del catálogo explícito.');changes.push(insert('exercise_catalog',catalogId,base??{stable_key:item.stable_key,canonical_name:legacy.canonical_name,measurement_kind:item.measurement_kind,metadata:{source:'validated-v2-plan'}}));catalog.push({id:catalogId,stable_key:item.stable_key});}
+      const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:legacy?.prescription.step??0,measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes,source:'weekly-program-v64'});
+      rows.push({id:await stableClientUuid(`v3:routine-version:${templateId}:2:exercise:${position}`),position,exercise_catalog_id:catalogId,exercise_name_snapshot:base?.canonical_name??legacy.canonical_name,prescription_snapshot:prescription});
+    }
+    const snapshot={schema_version:1,routine_id:templateId,routine_version:2,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};
+    await this.repository.commitLocalChanges([...changes,insert('routine_versions',versionId,{routine_id:templateId,version_number:2,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id,...row})=>insert('routine_exercises',id,{...row,routine_version_id:versionId}))]);
+    return this.version(versionId);
   }
 }

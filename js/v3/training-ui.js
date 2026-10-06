@@ -225,6 +225,7 @@ export class V3TrainingUI{
       heading.append(el('span',`${completed}/${Math.max(rx.sets||1,exercise.sets.length)}`,'v3-exercise-progress'));card.append(heading);
       if(rx.replaced_exercise_name)card.append(el('p',`En lugar de: ${rx.replaced_exercise_name}`,'v3-replaced-from'));
       card.append(el('p',`${rx.sets||1} × ${rx.min??'—'}${rx.max!=null&&rx.max!==rx.min?`–${rx.max}`:''} ${rx.measurement_kind==='seconds'?'s':'reps'} · Descanso ${rx.rest??rx.rest_seconds??0} s`,'muted'));
+      if(rx.notes)card.append(el('p',rx.notes,'muted'));
       const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){

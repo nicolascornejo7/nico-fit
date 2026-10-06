@@ -24,7 +24,7 @@ async function fixture(entity='football_sessions',extra={}){
 async function routineConflicts(mutate=()=>{}){
   const db=new IDBFactory(),repository=await V3LocalRepository.open({indexedDB:db,userId:A,featureEnabled:true}),service=new V3RoutineService({repository,featureEnabled:true});await service.seedDefaults();
   const operations=(await repository.listOperations()).filter(row=>row.entity.startsWith('routine_'));
-  assert.equal(operations.length,29);
+  assert.equal(operations.length,54);
   for(const [index,operation] of operations.entries()){
     const remote={...remotePayloadForOperation(operation,A),created_at:'2026-09-25T10:00:00.000Z',updated_at:'2026-09-25T10:00:00.000Z',version:2};mutate(remote,operation,index,operations);
     await repository.recordConflict({entity:operation.entity,recordId:operation.record_id,operationIds:[operation.operation_id],reason:'remote_change_vs_local_change',localPayload:operation.payload,remotePayload:remote});
@@ -78,18 +78,18 @@ test('archived operations cannot contaminate failed/retry entity status',async()
 test('updated remote snapshot rejects stale decision and preserves audit-free state',async()=>{const f=await fixture();await f.repository.recordConflict({entity:'football_sessions',recordId:f.local.id,reason:'remote_version_conflict',remotePayload:{...f.remote,version:8}});await assert.rejects(f.service.resolve(f.view,'accept_remote'),/Conflict changed/);assert.equal((await f.service.history()).length,0);f.repository.close();});
 test('ambiguous source review cannot be bypassed by a refreshed remote snapshot',async()=>{const f=await fixture();await f.repository.update('football_sessions',f.local.id,{migration_status:'pending_review'});const view=(await f.service.list())[0];assert.deepEqual(view.strategies,['defer']);await assert.rejects(f.service.resolve(view,'keep_local'));f.repository.close();});
 test('remote version guard rejects changes sharing the same millisecond timestamp',async()=>{const f=await fixture(),transaction=f.repository.database.transaction(INTERNAL_STORES.conflicts,'readwrite'),done=transactionDone(transaction),store=transaction.objectStore(INTERNAL_STORES.conflicts),conflict=await requestResult(store.get(f.view.conflict_id));conflict.remote_payload.version=8;await requestResult(store.put(conflict));await done;assert.equal((await f.service.list())[0].updated_at,f.view.updated_at);await assert.rejects(f.service.resolve(f.view,'accept_remote'),/Conflict changed/);assert.equal((await f.service.history()).length,0);f.repository.close();});
-test('manual routine reconciliation resolves all 29 semantically equivalent deterministic inserts',async()=>{
+test('manual routine reconciliation resolves all semantically equivalent deterministic inserts',async()=>{
   const f=await routineConflicts();try{
-    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:29,remaining:0});assert.equal(await f.service.count(),0);
+    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:54,resolved:54,remaining:0});assert.equal(await f.service.count(),0);
     assert.equal((await f.repository.listOperations()).filter(row=>row.entity.startsWith('routine_')&&row.status!=='synced').length,0);
-    assert.equal((await f.service.history()).filter(row=>row.strategy==='reconcile_equivalent'&&row.confirmation==='server_confirmed').length,29);
+    assert.equal((await f.service.history()).filter(row=>row.strategy==='reconcile_equivalent'&&row.confirmation==='server_confirmed').length,54);
     for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of await f.repository.listRecords(entity,{includeDeleted:true}))assert.equal(row.remote_version,2);
     assert.deepEqual(await f.service.reconcileEquivalentRoutines(),{examined:0,resolved:0,remaining:0});
   }finally{f.repository.close();}
 });
 test('manual routine reconciliation leaves any functional difference open',async()=>{
   let changed=false;const f=await routineConflicts((remote,operation)=>{if(!changed&&operation.entity==='routine_templates'){remote.name='Nombre funcional distinto';changed=true;}});try{
-    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:28,remaining:1});const [remaining]=await f.service.list({status:'open'});assert.equal(remaining.entity,'routine_templates');assert.equal(remaining.remote.name,'Nombre funcional distinto');
+    const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:54,resolved:53,remaining:1});const [remaining]=await f.service.list({status:'open'});assert.equal(remaining.entity,'routine_templates');assert.equal(remaining.remote.name,'Nombre funcional distinto');
   }finally{f.repository.close();}
 });
 test('owner, tombstone, FK, order and prescription mismatches remain open',async()=>{
@@ -100,5 +100,5 @@ test('owner, tombstone, FK, order and prescription mismatches remain open',async
     if(operation.entity==='routine_exercises'&&!changed.has('order')){remote.position=99;changed.add('order');return;}
     if(operation.entity==='routine_exercises'&&!changed.has('prescription')){remote.prescription_snapshot={...remote.prescription_snapshot,sets:99};changed.add('prescription');}
   });
-  try{const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:29,resolved:24,remaining:5});assert.equal((await f.service.list({status:'open'})).length,5);}finally{f.repository.close();}
+  try{const result=await f.service.reconcileEquivalentRoutines();assert.deepEqual(result,{examined:54,resolved:49,remaining:5});assert.equal((await f.service.list({status:'open'})).length,5);}finally{f.repository.close();}
 });

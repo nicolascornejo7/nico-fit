@@ -17,6 +17,7 @@ export const BASE_EXERCISES=Object.freeze([
   ['remo-mancuerna','Remo con mancuerna','reps','Espalda','upper'],
   ['press-militar','Press militar','reps','Hombros','upper'],
   ['elevacion-lateral','Elevación lateral','reps','Hombros','upper'],
+  ['pajaros-mancuernas','Pájaros con mancuernas','reps','Hombros','upper'],
   ['curl-biceps-barra','Curl de bíceps con barra','reps','Bíceps','upper'],
   ['curl-martillo','Curl martillo','reps','Bíceps','upper'],
   ['fondos-triceps','Fondos de tríceps','reps','Tríceps','upper'],
