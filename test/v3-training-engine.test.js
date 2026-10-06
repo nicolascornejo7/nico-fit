@@ -160,14 +160,18 @@ test('invalid completion leaves the timer and queue untouched',async()=>{
   assert.equal((await repository.listOperations()).length,before);repository.close();
 });
 
-test('replacement changes only the current occurrence and preserves position and prescription',async()=>{
+test('replacement changes only the current occurrence and clears incompatible prescription',async()=>{
   const {repository,engine}=await setup(),original=await engine.createSession();
   const exercise=original.exercises[0],catalog=await engine.catalog(),alternative=catalog.find(item=>item.id!==exercise.exercise_catalog_id&&item.measurement_kind===exercise.catalog.measurement_kind);
   await engine.saveDraft(`${exercise.id}:slot:0`,{reps:'8',load_kg:'80'});
   const beforeOps=(await repository.listOperations()).length,replaced=await engine.replaceExercise(exercise.id,alternative.id);
   assert.equal(replaced.id,exercise.id);assert.equal(replaced.position,exercise.position);
   assert.equal(replaced.exercise_catalog_id,alternative.id);assert.equal(replaced.exercise_name_snapshot,alternative.canonical_name);
-  assert.deepEqual(replaced.prescription_snapshot,exercise.prescription_snapshot);
+  assert.equal(replaced.prescription_snapshot.sets,1);
+  assert.equal(replaced.prescription_snapshot.min,null);assert.equal(replaced.prescription_snapshot.max,null);
+  assert.equal(replaced.prescription_snapshot.rest,null);
+  assert.equal(replaced.prescription_snapshot.replaced_exercise_name,exercise.exercise_name_snapshot);
+  assert.equal(replaced.prescription_snapshot.name,alternative.canonical_name);
   assert.equal(engine.getState().drafts[`${exercise.id}:slot:0`],undefined);
   assert.equal((await repository.listOperations()).length,beforeOps+1);
   assert.equal((await engine.snapshot()).exercises[0].exercise_catalog_id,alternative.id);
@@ -177,9 +181,22 @@ test('replacement changes only the current occurrence and preserves position and
   const second=await engine.replaceExercise(exercise.id,exercise.exercise_catalog_id),after=(await engine.snapshot()).exercises;
   assert.equal(after[0].exercise_catalog_id,alternative.id);assert.equal(after[0].sets.length,1);
   assert.equal(second.exercise_catalog_id,exercise.exercise_catalog_id);assert.equal(second.position,1);
-  assert.equal(second.prescription_snapshot.sets,Math.max(1,exercise.prescription_snapshot.sets-1));
+  assert.equal(second.prescription_snapshot.sets,1);
   assert.equal(after[1].id,second.id);assert.equal(after[1].sets.length,0);
   assert.equal((await engine.createSession()).exercises[0].exercise_catalog_id,exercise.exercise_catalog_id);
+  repository.close();
+});
+
+test('an equivalent substitution keeps targets and rest while the routine and other sessions stay intact',async()=>{
+  const {repository,engine}=await setup(),original=await engine.createSession();
+  const bench=original.exercises.find(item=>item.catalog?.stable_key==='press-banca');
+  const inclined=(await engine.catalog()).find(item=>item.stable_key==='press-inclinado-mancuernas');
+  const replacement=await engine.replaceExercise(bench.id,inclined.id);
+  for(const key of ['sets','min','max','rest','step','target_rir'])assert.equal(replacement.prescription_snapshot[key],bench.prescription_snapshot[key]);
+  assert.equal(replacement.prescription_snapshot.replaced_exercise_name,'Press banca');
+  assert.equal(replacement.prescription_snapshot.name,inclined.canonical_name);
+  const next=await engine.createSession();
+  assert.equal(next.exercises.find(item=>item.position===bench.position).exercise_catalog_id,bench.exercise_catalog_id);
   repository.close();
 });
 

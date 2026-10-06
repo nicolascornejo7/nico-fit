@@ -7,7 +7,7 @@ import {V3TrainingUI} from '../js/v3/training-ui.js';
 import {installRolloutControl} from '../js/v3/rollout-state.js';
 
 class Element{
-  constructor(tag){this.tag=tag;this.children=[];this.value='';this.hidden=false;this.listeners={};this.textContent='';}
+  constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.value='';this.hidden=false;this.listeners={};this.textContent='';}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
   setAttribute(name,value){this[name]=value;}

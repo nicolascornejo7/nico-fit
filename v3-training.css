@@ -51,6 +51,10 @@
 .v3-add-set{margin-top:10px}
 .v3-replace-exercise{padding:6px 0 12px}
 .v3-replace-exercise[hidden]{display:none}
+.v3-recommended-exercises{display:grid;gap:8px;margin:8px 0 12px}
+.v3-recommended-option{display:grid;gap:3px;width:100%;text-align:left}
+.v3-recommended-option small,.v3-replaced-from{color:#dedede;font-size:12px}
+.v3-browse-exercises[hidden]{display:none}
 .v3-rest-bar{position:fixed;z-index:4;left:max(14px,env(safe-area-inset-left));right:max(14px,env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:600px;margin:auto;padding:10px 12px;border:1px solid #a62a36;border-radius:16px;background:#271013;box-shadow:0 12px 32px #000a}
 .v3-rest-bar strong{font-variant-numeric:tabular-nums;font-size:18px}
 .v3-rest-bar button{flex:0 0 auto}

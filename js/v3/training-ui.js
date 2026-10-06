@@ -7,6 +7,7 @@ import {buildV3SessionDiagnostic} from './session-diagnostic.js';
 import {appBuildId} from '../pwa-version.js';
 import {completedRoutineSessions,completedExerciseHint} from './completed-today.js';
 import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
+import {recommendedAlternatives} from './exercise-recommendations.js';
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -30,14 +31,24 @@ const confirmDiscard=label=>globalThis.confirm?.(`¿Descartar “${label}”? Se
 export class V3TrainingUI{
   constructor({root,engine,onClose,syncNow=null,pullOnly=null,readinessScore=null}){this.root=root;this.engine=engine;this.onClose=onClose;this.syncNow=syncNow;this.pullOnly=pullOnly;this.readinessScore=readinessScore;this.destroyed=false;this.busy=false;this.lastCompleted=null;this.lastFinishDiagnostic=null;this.viewedCompletedId=null;this.syncing=false;this.onOnline=()=>this.requestSync({automatic:true});}
 
-  async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);globalThis.window?.addEventListener('online',this.onOnline);}
+  async mount(){await this.engine.recover();await this.render();if(this.destroyed)return;const current=this.engine.getState()?.currentExerciseId,card=current&&this.anchorNode({exerciseId:current});if(card)card.scrollIntoView?.({block:'center'});else this.heading?.focus();this.timer=setInterval(()=>this.refreshStatus().catch(()=>{}),1000);globalThis.window?.addEventListener('online',this.onOnline);}
   destroy(){this.destroyed=true;clearInterval(this.timer);globalThis.window?.removeEventListener('online',this.onOnline);this.root.replaceChildren();}
 
-  async run(task){
+  anchorNode({exerciseId,position,kind}={}){
+    if(!exerciseId)return null;
+    const card=[...this.root.querySelectorAll('.v3-exercise-card')].find(node=>node.dataset.exerciseId===exerciseId);
+    if(!card)return null;
+    if(kind==='set')return [...card.querySelectorAll('.v3-inline-set')].find(node=>Number(node.dataset.position)===position)||card;
+    if(kind==='add-set')return card.querySelector('.v3-add-set')||card;
+    return card;
+  }
+
+  async run(task,{anchor=null,focusHeading=true}={}){
     if(this.busy||this.destroyed)return;
     if(!mayStartNewWork()){this.message.textContent='Esta pestaña debe actualizarse antes de iniciar trabajo nuevo.';return;}
+    const before=anchor?this.anchorNode(anchor)?.getBoundingClientRect().top:null;
     this.busy=true;this.setDisabled(true);
-    try{await task();if(!this.destroyed){await this.render();this.heading?.focus();}}
+    try{await task();if(!this.destroyed){await this.render();const after=anchor&&this.anchorNode(anchor);if(before!=null&&after){const focus=anchor.kind==='set'?after.querySelector('.v3-set-complete'):after;focus?.focus?.({preventScroll:true});globalThis.window?.scrollBy?.(0,after.getBoundingClientRect().top-before);}else if(focusHeading)this.heading?.focus();}}
     catch(error){if(!this.destroyed){this.message.textContent=error.message;this.message.focus();}}
     finally{this.busy=false;if(!this.destroyed)this.setDisabled(false);}
   }
@@ -84,7 +95,7 @@ export class V3TrainingUI{
     this.restTime=null;
     const remaining=this.engine.restRemaining();if(!remaining)return;
     const bar=el('aside','','v3-rest-bar');bar.setAttribute('role','timer');bar.setAttribute('aria-label','Descanso entre series');
-    this.restTime=el('strong',`Descanso ${duration(remaining)}`);bar.append(this.restTime,button('Omitir',()=>this.run(()=>this.engine.skipRest()),'ghost'));
+    this.restTime=el('strong',`Descanso ${duration(remaining)}`);bar.append(this.restTime,button('Omitir',()=>this.run(()=>this.engine.skipRest(),{anchor:{exerciseId:this.engine.getState()?.currentExerciseId},focusHeading:false}),'ghost'));
     this.root.append(bar);
   }
 
@@ -126,6 +137,7 @@ export class V3TrainingUI{
     card.append(el('p',`Volumen: ${metrics.volume.toFixed(1)} kg`,'muted'));
     for(const exercise of exercises){
       const section=el('section','','v3-completed-exercise');card.append(section);
+      if(exercise.prescription_snapshot?.replaced_exercise_name)section.append(el('p',`En lugar de: ${exercise.prescription_snapshot.replaced_exercise_name}`,'muted'));
       section.append(el('h4',exercise.exercise_name_snapshot));
       const hint=completedExerciseHint(exercise,snapshot);if(hint)section.append(el('p',hint,'muted'));
       if(!exercise.sets.length){section.append(el('p','Sin series registradas.','muted'));continue;}
@@ -207,10 +219,11 @@ export class V3TrainingUI{
   async renderExercises(shell,snapshot,state){
     const list=el('div','','v3-exercises');shell.append(list);const catalog=await this.engine.catalog();
     for(const [index,exercise] of snapshot.exercises.entries()){
-      const card=el('section','','card v3-exercise-card');list.append(card);
+      const card=el('section','','card v3-exercise-card');card.dataset.exerciseId=exercise.id;card.tabIndex=-1;list.append(card);
       const heading=el('div','','v3-exercise-heading');heading.append(el('h3',`${index+1}. ${exercise.exercise_name_snapshot}`));
       const rx=exercise.prescription_snapshot,completed=exercise.sets.filter(set=>set.is_completed).length;
       heading.append(el('span',`${completed}/${Math.max(rx.sets||1,exercise.sets.length)}`,'v3-exercise-progress'));card.append(heading);
+      if(rx.replaced_exercise_name)card.append(el('p',`En lugar de: ${rx.replaced_exercise_name}`,'v3-replaced-from'));
       card.append(el('p',`${rx.sets||1} × ${rx.min??'—'}${rx.max!=null&&rx.max!==rx.min?`–${rx.max}`:''} ${rx.measurement_kind==='seconds'?'s':'reps'} · Descanso ${rx.rest??rx.rest_seconds??0} s`,'muted'));
       const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
@@ -218,21 +231,25 @@ export class V3TrainingUI{
         actions.append(button(`${title} ${exercise.exercise_name_snapshot}`,()=>this.run(()=>{const ids=snapshot.exercises.map(ex=>ex.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];return this.engine.reorderExercises(ids);})));
       }
       actions.append(button('Repetir ejercicio',()=>this.run(()=>this.engine.repeatExercise(exercise.id))));
-      const swap=button('Cambiar ejercicio',()=>{replacement.hidden=!replacement.hidden;if(!replacement.hidden)search.focus();});
+      const swap=button('Cambiar ejercicio',()=>{replacement.hidden=!replacement.hidden;});
       actions.append(swap,button('Eliminar ejercicio y sus series',()=>this.run(()=>this.engine.deleteExercise(exercise.id))));menu.append(actions);
       const replacement=el('div','','v3-replace-exercise');replacement.hidden=true;
       replacement.append(el('p',exercise.sets.length?'Las series registradas conservarán el ejercicio original. El reemplazo aparecerá a continuación.':'Se cambia sólo en esta sesión; la rutina base queda intacta.','muted'));
-      const search=field(replacement,'Buscar alternativa',{type:'search'}),choice=select(replacement,'Ejercicio alternativo',[['','Elegí un ejercicio']]);
-      const region=exercise.catalog?.metadata?.body_region;
-      const ordered=[...catalog].filter(item=>item.id!==exercise.exercise_catalog_id).sort((a,b)=>{
-        const aMatch=region&&a.metadata?.body_region===region&&a.measurement_kind===exercise.catalog?.measurement_kind;
-        const bMatch=region&&b.metadata?.body_region===region&&b.measurement_kind===exercise.catalog?.measurement_kind;
-        return Number(!!bMatch)-Number(!!aMatch)||a.canonical_name.localeCompare(b.canonical_name);
-      });
+      replacement.append(el('h4','Alternativas recomendadas'));
+      const recommended=el('div','','v3-recommended-exercises');replacement.append(recommended);
+      const alternatives=recommendedAlternatives(exercise.catalog,catalog);
+      if(alternatives.length)for(const item of alternatives){
+        const option=button(item.exercise.canonical_name,()=>this.run(()=>this.engine.replaceExercise(exercise.id,item.exercise.id),{anchor:{exerciseId:exercise.id}}),'ghost v3-recommended-option');
+        option.append(el('small',item.reason));recommended.append(option);
+      }else recommended.append(el('p','No hay equivalencias verificadas en el catálogo.','muted'));
+      const browse=el('div','','v3-browse-exercises');browse.hidden=true;
+      const search=field(browse,'Buscar en el catálogo',{type:'search'}),choice=select(browse,'Ejercicio alternativo',[['','Elegí un ejercicio']]);
+      const ordered=[...catalog].filter(item=>item.id!==exercise.exercise_catalog_id).sort((a,b)=>a.canonical_name.localeCompare(b.canonical_name,'es'));
       const refill=()=>{const prior=choice.value,query=search.value.trim().toLocaleLowerCase('es');choice.replaceChildren();
-        for(const [id,name] of [['','Elegí un ejercicio'],...ordered.filter(item=>item.canonical_name.toLocaleLowerCase('es').includes(query)).map(item=>[item.id,`${region&&item.metadata?.body_region===region?'Sugerido · ':''}${item.canonical_name}`])]){const option=el('option',name);option.value=id;choice.append(option);}if([...choice.options].some(option=>option.value===prior))choice.value=prior;
+        for(const [id,name] of [['','Elegí un ejercicio'],...ordered.filter(item=>item.canonical_name.toLocaleLowerCase('es').includes(query)).map(item=>[item.id,item.canonical_name])]){const option=el('option',name);option.value=id;choice.append(option);}if([...choice.options].some(option=>option.value===prior))choice.value=prior;
       };search.addEventListener('input',refill);refill();
-      replacement.append(button('Confirmar cambio',()=>{if(!choice.value){this.message.textContent='Elegí un ejercicio alternativo.';return;}this.run(()=>this.engine.replaceExercise(exercise.id,choice.value));},'ghost'));
+      browse.append(button('Confirmar cambio',()=>{if(!choice.value){this.message.textContent='Elegí un ejercicio alternativo.';return;}this.run(()=>this.engine.replaceExercise(exercise.id,choice.value),{anchor:{exerciseId:exercise.id}});},'ghost'));
+      replacement.append(button('Buscar otro ejercicio',()=>{browse.hidden=false;search.focus();},'ghost'),browse);
       menu.append(replacement);
       await this.renderSets(card,exercise,state);
       card.append(menu);
@@ -257,7 +274,7 @@ export class V3TrainingUI{
     for(let position=0;position<count;position++){
       const set=exercise.sets.find(item=>item.position===position),key=`${exercise.id}:${set?.id||`slot:${position}`}`;
       const draft=state.drafts?.[key]||(!set&&position===0?state.drafts?.[`${exercise.id}:new`]:null)||set||{};
-      const row=el('div','','v3-inline-set');rows.append(row);row.append(el('strong',`S${position+1}`,'v3-set-number'));
+      const row=el('div','','v3-inline-set');row.dataset.position=String(position);rows.append(row);row.append(el('strong',`S${position+1}`,'v3-set-number'));
       const input=(label,value,{max=1000,step='1',placeholder=''}={})=>{
         const wrapper=el('label','','v3-inline-field'),caption=el('span',label);const node=el('input');node.type='number';node.inputMode='decimal';node.min='0';node.max=String(max);node.step=step;node.value=value??'';node.placeholder=placeholder;
         node.setAttribute('aria-label',`Serie ${position+1}: ${label}`);wrapper.append(caption,node);row.append(wrapper);return node;
@@ -267,18 +284,19 @@ export class V3TrainingUI{
       const rir=input('RIR',draft.rir,{max:5,step:'.1',placeholder:rx.target_rir!=null?String(rx.target_rir):''});
       const read=isCompleted=>({load_kg:load.value,reps:reps?.value??null,duration_seconds:seconds?.value??null,rir:rir.value,is_completed:isCompleted});
       for(const node of [load,reps,seconds,rir].filter(Boolean))node.addEventListener('input',()=>this.engine.saveDraft(key,read(!!set?.is_completed)).catch(error=>{if(!this.destroyed)this.message.textContent=error.message;}));
-      const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key})),'v3-set-complete');
+      const anchor={exerciseId:exercise.id,position,kind:'set'};
+      const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key}),{anchor}),'v3-set-complete');
       complete.setAttribute('aria-pressed',String(!!set?.is_completed));complete.setAttribute('aria-label',`${set?.is_completed?'Desmarcar':'Completar'} serie ${position+1} de ${exercise.exercise_name_snapshot}`);row.append(complete);
       const menu=document.createElement('details');menu.className='v3-set-menu';const summary=el('summary','⋯');summary.setAttribute('aria-label',`Más acciones para serie ${position+1}`);menu.append(summary);
-      const actions=el('div','','v3-actions');actions.append(button(set?'Guardar cambios':'Guardar sin completar',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!!set?.is_completed),{setId:set?.id,position,draftKey:key}))));
-      if(set)actions.append(button('Borrar serie',()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id)),'danger-btn'));
-      else actions.append(button('Descartar cambios',()=>this.run(()=>this.engine.discardDraft(key))));
+      const actions=el('div','','v3-actions');actions.append(button(set?'Guardar cambios':'Guardar sin completar',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!!set?.is_completed),{setId:set?.id,position,draftKey:key}),{anchor})));
+      if(set)actions.append(button('Borrar serie',()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id),{anchor}),'danger-btn'));
+      else actions.append(button('Descartar cambios',()=>this.run(()=>this.engine.discardDraft(key),{anchor})));
       menu.append(actions);row.append(menu);
     }
     card.append(button('+ Agregar serie',()=>this.run(()=>{
       if(count>=100)throw new Error('Máximo de 100 series por ejercicio.');
       return this.engine.saveUIState({extraSets:{...state.extraSets,[exercise.id]:(state.extraSets?.[exercise.id]||0)+1}});
-    }),'ghost v3-add-set'));
+    },{anchor:{exerciseId:exercise.id,kind:'add-set'}}),'ghost v3-add-set'));
     card.append(suggestion);
   }
 

@@ -7,6 +7,7 @@ import {sessionMetrics,estimatedPRs} from './training-metrics.js';
 import {v3Progression} from './training-progression.js';
 import {rolloutFlag,rolloutBlocksNewWork,rolloutAllowsLocalTraining} from './rollout-state.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
+import {compatiblePrescription} from './exercise-recommendations.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -138,7 +139,12 @@ export class V3TrainingEngine{
     if(!catalog||catalog.deleted_at)throw new Error('Ejercicio de catálogo no disponible.');
     if(catalog.id===exercise.exercise_catalog_id)return exercise;
     const prescription=clone(exercise.prescription_snapshot);
-    if(prescription.measurement_kind!==catalog.measurement_kind){prescription.min=null;prescription.max=null;}
+    if(!compatiblePrescription(exercise.catalog,catalog)){
+      Object.assign(prescription,{sets:1,min:null,max:null,rest:null,rest_seconds:null,target_rir:null,step:0,rx:''});
+    }
+    prescription.replaced_exercise_name ||=exercise.exercise_name_snapshot;
+    prescription.replaced_exercise_catalog_id ||=exercise.exercise_catalog_id;
+    Object.assign(prescription,{id:catalog.stable_key,name:catalog.canonical_name,source:'session-substitution'});
     prescription.measurement_kind=catalog.measurement_kind;
     if(exercise.sets.length){
       // A performed occurrence is historical evidence. Keep it, and insert the
