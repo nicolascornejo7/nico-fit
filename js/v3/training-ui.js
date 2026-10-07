@@ -8,6 +8,11 @@ import {appBuildId} from '../pwa-version.js';
 import {completedRoutineSessions,completedExerciseHint} from './completed-today.js';
 import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
+import {V3CoachService} from './coach-service.js';
+import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
+import {BASE_EXERCISES} from './base-exercise-catalog.js';
+
+const TUESDAY_PLAN_LABELS={normal:'Rutina completa',reduced:'Trabajo de piernas reducido',leg_recovery:'Recuperación de piernas',general_short:'Sesión breve por disponibilidad general'};
 
 const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=String(text);if(className)node.className=className;return node;};
 const button=(text,action,className='ghost')=>{const node=el('button',text,className);node.type='button';node.addEventListener('click',action);return node;};
@@ -49,7 +54,7 @@ export class V3TrainingUI{
     const before=anchor?this.anchorNode(anchor)?.getBoundingClientRect().top:null;
     this.busy=true;this.setDisabled(true);
     try{await task();if(!this.destroyed){await this.render();const after=anchor&&this.anchorNode(anchor);if(before!=null&&after){const focus=anchor.kind==='set'?after.querySelector('.v3-set-complete'):after;focus?.focus?.({preventScroll:true});globalThis.window?.scrollBy?.(0,after.getBoundingClientRect().top-before);}else if(focusHeading)this.heading?.focus();}}
-    catch(error){if(!this.destroyed){this.message.textContent=error.message;this.message.focus();}}
+    catch(error){if(!this.destroyed){if(error.code==='COACH_PLAN_CHANGED')await this.render();this.message.textContent=error.message;this.message.focus();}}
     finally{this.busy=false;if(!this.destroyed)this.setDisabled(false);}
   }
   setDisabled(value){for(const node of this.root.querySelectorAll('button,input,select,textarea'))node.disabled=value;}
@@ -75,6 +80,7 @@ export class V3TrainingUI{
     }
     shell.append(el('h3',snapshot.session.label));shell.append(el('p',`${snapshot.session.session_type==='free_workout'?'Musculación libre · ':''}Fecha de la sesión: ${snapshot.session.session_date}`,'muted'));
     if(snapshot.session.routine_snapshot?.name)shell.append(el('p',snapshot.session.routine_snapshot.name,'muted'));
+    this.renderAdaptation(shell,snapshot);
     this.clock=el('strong',duration(sessionMetrics(snapshot).durationSeconds));shell.append(this.clock);
     const tabs=el('nav','','v3-actions');tabs.setAttribute('aria-label','Vistas del entrenamiento');
     for(const [id,title] of [['active','Sesión activa'],['exercises','Ejercicios'],['summary','Resumen']]){
@@ -103,7 +109,6 @@ export class V3TrainingUI{
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
     const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),hasRoutine=[2,4,5].includes(dayIndex),dayLabel={2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
     const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex}):[];
-    if(!completed.length&&this.engine.routines)await this.engine.routines.seedDefaults();
     const primary=el('section','','card v3-training-primary');shell.append(primary);primary.append(el('h3',hasRoutine?'Entrenamiento de hoy':'Hoy no hay rutina programada'));
     if(completed.length){
       const latest=await this.engine.snapshot(completed[0].id),metrics=sessionMetrics(latest);
@@ -112,7 +117,22 @@ export class V3TrainingUI{
       if(completed.length>1){const others=document.createElement('details');others.className='v3-completed-more';others.append(el('summary',`Otras sesiones completadas hoy (${completed.length-1})`));for(const session of completed.slice(1))others.append(button(`Ver sesión de ${formatLocalTime(session.started_at)}`,()=>{this.viewedCompletedId=session.id;return this.render();}));primary.append(others);}
     }else{
       primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
-      if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+      if(hasRoutine&&dayIndex===2&&this.engine.routines){
+        try{
+          const decision=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.engine.now}).tuesdayPlan();
+          const plan=el('section','','v3-tuesday-plan');primary.append(plan);
+          plan.append(el('h4',decision.selectedVariant==='normal'?'Hoy corresponde la rutina completa':decision.selectedVariant==='general_short'?'Hoy conviene una sesión breve':decision.legLoadVariant==='normal'?'Hoy ajusté la rutina por tu disponibilidad general':'Hoy reduje el trabajo de piernas'));
+          plan.append(el('p',`${TUESDAY_PLAN_LABELS[decision.selectedVariant]} · ${decision.totalSets} series`,'advice'));
+          for(const reason of decision.reasons)plan.append(el('p',reason,'muted'));
+          for(const exercise of WEEKLY_PROGRAM_V64[2].exercises){
+            const target=decision.affected.find(row=>row.stableKey===exercise.stable_key);
+            if(target?.sets!==exercise.sets){const name=BASE_EXERCISES.find(row=>row.stable_key===exercise.stable_key)?.canonical_name??exercise.stable_key;plan.append(el('p',`${name}: ${exercise.sets} → ${target?.sets??0} series`,'muted'));}
+          }
+          if(decision.restRecommended)plan.append(el('p','Coach recomienda descansar. Si decidís entrenar, se usará la sesión breve.','advice'));
+          primary.append(button(decision.restRecommended?'Entrenar breve igualmente':'Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true,adaptTuesday:true,expectedCoachEvidenceKey:decision.evidenceKey})),'primary wide'));
+          if(decision.selectedVariant!=='normal')primary.append(button('Usar rutina completa igualmente',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true,adaptTuesday:true,overrideCoach:true,expectedCoachEvidenceKey:decision.evidenceKey})),'ghost wide'));
+        }catch(error){primary.append(el('p',`No se pudo evaluar el martes: ${error.message}`,'advice'));}
+      }else if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
     }
     const free=el('section','','card v3-free-workout');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Registrá sólo lo que realmente hagas, cualquier día.','muted'));
     const today=localDateKey(this.engine.now()),freeOptions=document.createElement('details');freeOptions.className='v3-start-options';freeOptions.append(el('summary','Ajustar fecha o nombre'));
@@ -131,6 +151,7 @@ export class V3TrainingUI{
     const {session}=snapshot,exercises=snapshot.exercises.filter(item=>!item.deleted_at),metrics=sessionMetrics(snapshot),card=el('section','','card v3-completed-session');
     shell.append(button('‹ Volver a Entrenar',()=>{this.viewedCompletedId=null;return this.render();}));
     card.append(el('h3',session.label||'Entrenamiento realizado'),el('p','✓ Completado','v3-completed-label'));
+    this.renderAdaptation(card,snapshot);
     card.append(el('p',`Fecha: ${session.session_date} · ${exercises.length} ejercicios · ${metrics.completedSets} series completadas`,'muted'));
     const start=formatLocalTime(session.started_at),end=formatLocalTime(session.ended_at);
     if(start||end)card.append(el('p',`Horario: ${start||'—'}–${end||'—'} · Duración ${duration(session.duration_seconds??metrics.durationSeconds)}`,'muted'));
@@ -147,6 +168,16 @@ export class V3TrainingUI{
       }
     }
     shell.append(card);
+  }
+
+  renderAdaptation(container,snapshot){
+    const adaptation=snapshot.exercises.find(item=>!item.deleted_at&&item.prescription_snapshot?.coach_adaptation)?.prescription_snapshot.coach_adaptation;
+    if(!adaptation)return;
+    const details=document.createElement('details');details.className='v3-coach-adaptation';
+    details.append(el('summary',`Plan aplicado: ${TUESDAY_PLAN_LABELS[adaptation.selected_variant]||adaptation.selected_variant}${adaptation.override?' · elección manual':''}`));
+    for(const reason of adaptation.reasons||[])details.append(el('p',reason,'muted'));
+    if(adaptation.omitted?.length)details.append(el('p',`Ejercicios omitidos: ${adaptation.omitted.map(key=>BASE_EXERCISES.find(row=>row.stable_key===key)?.canonical_name??key).join(', ')}.`,'muted'));
+    container.append(details);
   }
 
   async renderSync(shell){

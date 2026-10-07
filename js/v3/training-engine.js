@@ -8,6 +8,8 @@ import {v3Progression} from './training-progression.js';
 import {rolloutFlag,rolloutBlocksNewWork,rolloutAllowsLocalTraining} from './rollout-state.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {compatiblePrescription} from './exercise-recommendations.js';
+import {V3CoachService} from './coach-service.js';
+import {effectiveTuesdayExercises} from './tuesday-adaptation.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -66,7 +68,7 @@ export class V3TrainingEngine{
     await this.repository.commitLocalChanges([],{trainingState:this.state});return snapshot;
   });}
 
-  createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine'}={}){return this.#run(async()=>{
+  createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine',adaptTuesday=false,overrideCoach=false,expectedCoachEvidenceKey=null}={}){return this.#run(async()=>{
     if(!rolloutAllowsLocalTraining()||rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
     if(!['routine','free_workout'].includes(sessionType))throw new Error('Tipo de sesión inválido.');
     if(sessionType==='free_workout'&&(useRoutine||routineVersionId))throw new Error('La musculación libre no usa una rutina.');
@@ -74,6 +76,7 @@ export class V3TrainingEngine{
     if(dayIndex!=null&&(!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>6))throw new Error('Día de rutina inválido.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)||localDateKey(new Date(`${sessionDate}T12:00:00`))!==sessionDate)throw new Error('Fecha inválida.');
     if(sessionDate>localDateKey(now))throw new Error('No podés registrar una sesión en una fecha futura.');
+    if(adaptTuesday&&(sessionType!=='routine'||!useRoutine||routineVersionId||sessionDate!==localDateKey(now)||new Date(`${sessionDate}T12:00:00`).getDay()!==2))throw new Error('La adaptación requiere la rutina programada del martes de hoy.');
     const routine=routineForDay(dayIndex??new Date(`${sessionDate}T12:00:00`).getDay()),id=this.crypto.randomUUID();
     if(routineVersionId&&!this.routines)throw new Error('Habilitá explícitamente rutinas V3 para elegir una versión.');
     let concrete=null;
@@ -81,12 +84,19 @@ export class V3TrainingEngine{
       if(routineVersionId)concrete=await this.routines.version(routineVersionId,{forTraining:true});
       else{const defaults=await this.routines.seedDefaults(),selected=defaults.find(item=>item.version.day_index===routine.dayIndex);concrete=await this.routines.version(selected.version.id,{forTraining:true});}
     }
+    let decision=null;
+    if(adaptTuesday){
+      if(concrete?.version.version_number!==2||concrete.version.day_index!==2)throw new Error('La adaptación requiere la versión 2 del martes.');
+      decision=await new V3CoachService({engine:this,featureEnabled:true,now:this.now}).tuesdayPlan({override:overrideCoach,now});
+      if(expectedCoachEvidenceKey!=null&&decision.evidenceKey!==expectedCoachEvidenceKey){const error=new Error('Los datos del lunes o el check-in cambiaron. Revisá el plan actualizado antes de comenzar.');error.code='COACH_PLAN_CHANGED';throw error;}
+    }
     if(sessionType==='free_workout')await this.#ensureBaseCatalog();
     const session={session_date:sessionDate,label:requiredText(label??concrete?.snapshot.name??(sessionType==='free_workout'?'Musculación libre':routine.label),'Nombre de sesión'),session_type:sessionType,status:'draft',started_at:now.toISOString(),ended_at:null,duration_seconds:null,rpe:null,notes:''};
     if(concrete)Object.assign(session,{routine_id:concrete.template.id,routine_version:concrete.version.version_number,routine_version_id:concrete.version.id,routine_snapshot:clone(concrete.snapshot)});
     const changes=[insert('workout_sessions',id,session)],catalog=await this.#catalogRows();
     const exerciseIds=[];
-    const items=concrete?concrete.snapshot.exercises.map(ex=>({catalog_id:ex.exercise_catalog_id,canonical_name:ex.exercise_name_snapshot,prescription:ex.prescription_snapshot})):(useRoutine?routine.exercises:[]);
+    const sourceExercises=decision?effectiveTuesdayExercises(concrete.snapshot,decision,catalog):concrete?.snapshot.exercises;
+    const items=sourceExercises?sourceExercises.map(ex=>({catalog_id:ex.exercise_catalog_id,canonical_name:ex.exercise_name_snapshot,prescription:ex.prescription_snapshot})):(useRoutine?routine.exercises:[]);
     for(const [position,item] of items.entries()){
       let entry=catalog.find(ex=>(item.catalog_id?ex.id===item.catalog_id:ex.stable_key===item.stable_key)&&!ex.deleted_at);
       if(concrete&&!entry)throw new Error('Catálogo cambiado mientras se iniciaba la sesión; revisar la versión.');

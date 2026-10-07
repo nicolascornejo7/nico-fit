@@ -3,6 +3,7 @@ import {localDateKey} from '../plan.js';
 import {isV3CoachEnabled} from './feature-flags.js';
 import {calculateCoachSignals} from './coach-signals.js';
 import {applyCoachRules} from './coach-rules.js';
+import {tuesdayDecision} from './tuesday-adaptation.js';
 
 // Only the explicitly owned V2 profile supplies readiness/football; no writes.
 export class V3CoachService{
@@ -12,4 +13,8 @@ export class V3CoachService{
     this.engine=engine;this.readContext=readContext;this.now=now;
   }
   async today(snapshot){const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));const signals=calculateCoachSignals({date:localDateKey(this.now()),readiness:context.readiness,football:context.football,matches:context.matches,history:await this.engine.history()});signals.warnings.push(...(context.warnings??[]));if(context.hasConflicts){signals.readinessScore=null;}return {recommendation:applyCoachRules(signals,snapshot),signals};}
+  async tuesdayPlan({override=false,now=this.now()}={}){
+    const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));
+    return tuesdayDecision({history:await this.engine.history(),readiness:context.readiness,now,override,signalsConflicted:context.hasConflicts});
+  }
 }
