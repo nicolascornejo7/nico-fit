@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#090909" />
+  <meta name="theme-color" content="#0B0B0C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v68" />
+  <meta name="nico-fit-build" content="nico-fit-v69" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -18,12 +18,14 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-lockup">
-        <img class="brand-logo" src="icons/nico-fit-logo-square.png" alt="Nico Fit" width="46" height="46" />
-        <div><p class="eyebrow">GYM + FÚTBOL</p><h1>Nico Fit</h1></div>
+        <img class="brand-logo" src="icons/nico-fit-logo-square.png" alt="Nico Fit" width="44" height="44" />
+        <div><p id="topDate" class="eyebrow">GYM + FÚTBOL</p><h1 id="topHeadline">Nico Fit</h1></div>
       </div>
       <div class="top-actions">
-        <span id="syncBadge" class="sync-badge local">Solo local</span>
-        <button id="profileBtn" class="icon-btn" aria-label="Cuenta">👤</button>
+        <button id="profileBtn" class="icon-btn avatar-btn" aria-label="Perfil, cuenta y sincronización">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+          <span id="syncBadge" class="sync-badge local">Solo local</span>
+        </button>
       </div>
     </header>
 
@@ -77,11 +79,6 @@
           </label>
           <button id="saveReadiness" class="primary wide">Guardar estado</button>
           <p id="readinessAdvice" class="advice" role="status" aria-live="polite"></p>
-        </section>
-
-        <section class="card">
-          <div class="section-head"><h2>Semana</h2><span class="muted">Objetivo: llegar fresco al sábado</span></div>
-          <div id="weekGrid" class="week-grid"></div>
         </section>
 
         <details id="footballQuickCard" class="card football-entry">
@@ -171,6 +168,13 @@
         <section class="card progress-history-card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Últimos registros</span></div><div id="history" class="history"></div><details id="historyOlder" class="progress-history-more"><summary>Ver historial anterior</summary><div id="historyOlderList" class="history"></div></details></section>
       </section>
 
+      <section id="weekView" class="view">
+        <section class="card week-card">
+          <div class="section-head"><div><p class="eyebrow">SEMANA</p><h2>Plan de lunes a domingo</h2></div><span class="muted">Objetivo: llegar fresco al sábado</span></div>
+          <div id="weekGrid" class="week-grid"></div>
+        </section>
+      </section>
+
       <section id="settingsView" class="view">
         <section class="card">
           <div class="section-head"><div><p class="eyebrow">AJUSTES</p><h2>Cuenta y datos</h2></div></div>
@@ -211,10 +215,10 @@
   </div>
 
   <nav class="bottom-nav" aria-label="Navegación principal">
-    <button data-view="homeView" class="nav-btn active"><span>⌂</span>Inicio</button>
-    <button data-view="workoutView" class="nav-btn" aria-label="Explorar entrenamientos"><span>🏋</span>Explorar</button>
-    <button data-view="progressView" class="nav-btn"><span>↗</span>Progreso</button>
-    <button data-view="settingsView" class="nav-btn"><span>⚙</span>Ajustes</button>
+    <button data-view="homeView" class="nav-btn active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Hoy</button>
+    <button data-view="workoutView" class="nav-btn" aria-label="Entrenar: abrir entrenamientos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Entrenar</button>
+    <button data-view="progressView" class="nav-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Progreso</button>
+    <button data-view="weekView" class="nav-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Semana</button>
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

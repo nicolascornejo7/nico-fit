@@ -1,4 +1,5 @@
 export const V3_RECOVERY_TIMEOUT_MS=45000;
+export const V3_RECOVERY_SETTLE_MS=1000;
 
 export class V3RecoveryError extends Error{
   constructor(code,{stage='recovery',cause=null,message}={}){
@@ -44,8 +45,14 @@ export function createV3RecoveryAttempt({timeoutMs=V3_RECOVERY_TIMEOUT_MS,onTrac
 export async function runV3Recovery(work,options={}){
   const attempt=createV3RecoveryAttempt(options);let rejectAbort;const aborted=new Promise((_,reject)=>{rejectAbort=()=>reject(recoveryError(attempt.signal.reason,{stage:attempt.stage,timedOut:true}));});
   attempt.signal.addEventListener('abort',rejectAbort,{once:true});
-  try{const result=await Promise.race([Promise.resolve().then(()=>work(attempt)),aborted]);attempt.throwIfAborted();return result;}
-  catch(error){const normalized=recoveryError(error,{stage:attempt.stage,timedOut:attempt.signal.aborted});attempt.trace('recovery:error',{code:normalized.code});throw normalized;}
+  const running=Promise.resolve().then(()=>work(attempt));
+  try{const result=await Promise.race([running,aborted]);attempt.throwIfAborted();return result;}
+  catch(error){
+    // Give the aborted work a short window to unwind (lock/lease release) so an
+    // immediate retry does not find the lock still held.
+    if(attempt.signal.aborted)await Promise.race([running.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,V3_RECOVERY_SETTLE_MS))]);
+    const normalized=recoveryError(error,{stage:attempt.stage,timedOut:attempt.signal.aborted});attempt.trace('recovery:error',{code:normalized.code});throw normalized;
+  }
   finally{attempt.signal.removeEventListener('abort',rejectAbort);attempt.dispose();}
 }
 

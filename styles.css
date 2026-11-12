@@ -54,3 +54,103 @@ body{background:radial-gradient(circle at 88% -10%,#491016 0,transparent 31%),li
 .muscle-row.ok .muscle-fill{background:#3fbf6f}.muscle-row.high .muscle-fill{background:#e6b422}.muscle-sets{text-align:right}
 .v3-pr-badge{align-self:center;font-size:11px;font-weight:800;padding:2px 6px;border-radius:8px;background:#e6b422;color:#1a1300}
 .v3-set-record{box-shadow:inset 3px 0 0 #e6b422}
+
+/* ===== Redesign v69 · Matchday Dark =====================================
+   Same identity (black, crimson, white) with calmer surfaces, one primary
+   action per screen, large numbers and a 4-tab navigation. Base rules above
+   keep touch targets, safe areas and focus; this layer only restyles. */
+:root{--bg:#0b0b0c;--surface:#151517;--surface2:#1e1e22;--surface3:#0f0f11;--line:#26262a;--line2:#333338;--text:#f5f5f5;--muted:#a1a1aa;--soft:#d4d4d8;--accent:#e5243b;--accent-strong:#e5243b;--accent2:#ff6b7a;--success:#3fbf6f;--warn:#e6b422;--danger:#e2404f;--nav:#0e0e10;--radius:22px;--display:"Space Grotesk",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+html,body{background:var(--bg)}
+body{background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.app-shell{max-width:640px;padding:12px 16px calc(110px + env(safe-area-inset-bottom))}
+h1,h2,h3{font-family:var(--display);letter-spacing:-.01em}
+.eyebrow{color:var(--muted);font-weight:700;letter-spacing:.08em;font-size:12px}
+.muted{color:var(--muted)}
+.advice{color:var(--soft)}
+
+/* Top bar: date + days to the match, avatar with a sync dot. */
+.topbar{background:linear-gradient(180deg,var(--bg) 70%,rgba(11,11,12,0));backdrop-filter:none;margin-bottom:8px;padding-top:max(10px,env(safe-area-inset-top))}
+.brand-lockup{gap:12px}.brand-logo{width:44px;height:44px;border-radius:12px;box-shadow:none}
+.brand-lockup .eyebrow{color:var(--muted)}.topbar h1{font-size:22px;margin:2px 0 0;font-weight:700}
+.header-explore{display:none!important}
+.avatar-btn{position:relative;width:44px;height:44px;border-radius:22px!important;background:var(--surface)!important;border:1px solid var(--line2)!important;color:var(--text)!important;display:grid;place-items:center;padding:0!important}
+.avatar-btn .sync-badge{position:absolute;top:3px;right:3px;width:12px;height:12px;padding:0;border-radius:6px;border:2px solid var(--bg);overflow:hidden;font-size:0;color:transparent;max-width:none}
+.avatar-btn .sync-badge.local{background:#71717a}.avatar-btn .sync-badge.synced{background:var(--success)}.avatar-btn .sync-badge.pending{background:var(--warn)}
+
+/* Cards and controls. */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:none;padding:18px}
+.section-head h2{font-size:20px}
+.primary,.ghost,.icon-btn,.danger-btn{border-radius:16px;font-weight:700;font-family:inherit}
+.primary{background:var(--accent);color:#fff;box-shadow:none}
+.primary:disabled{opacity:.55}
+.ghost,.icon-btn{background:var(--surface2);color:var(--text);border:1px solid var(--line2)}
+.wide{min-height:52px;font-size:16px}
+.danger-btn{background:#3a0e15;color:#ffd1d7;border:1px solid #7a2630}
+.tag,.score-pill{border-radius:999px;font-weight:700;font-size:12px}
+.tag{background:#3a0e15;color:#ffd1d7;border-color:#5a1a24}
+.score-pill.neutral{background:var(--surface2);color:var(--soft);border-color:var(--line2)}
+.score-pill.good{background:#12331f;color:#b8f6cc;border-color:#1f5a36}.score-pill.mid{background:#3b2d13;color:#ffe4a3;border-color:#6b5320}.score-pill.low{background:#43171b;color:#ffd0d4;border-color:#7a2630}
+.field-label{color:var(--soft);font-size:13px}
+.field-label input,.field-label select,select,textarea,.set-row input,.auth-grid input{background:var(--surface3);border:1px solid var(--line2);color:var(--text);border-radius:12px;padding:12px}
+.readiness-grid label{color:var(--soft);font-size:14px}.readiness-grid input{accent-color:var(--accent)}
+.metric-callout,.stats>div,.summary-metrics div,.progress-summary>div{background:var(--surface2);border-color:var(--line);color:var(--soft)}
+.history-item{border-color:var(--line)}
+
+/* Hoy: outlook card, coach card, one primary action. */
+.dashboard-card{background:none!important;border:0!important;padding:0!important;box-shadow:none!important;display:grid;gap:14px;margin-bottom:14px;overflow:visible}
+.today-card{border-radius:var(--radius);padding:18px;background:var(--surface);border:1px solid var(--line);display:grid;gap:12px}
+.today-card h2{margin:0;font-size:24px;line-height:1.15}
+.outlook-head{display:flex;align-items:center;gap:10px}.outlook-label{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--muted)}
+.outlook-card .weekly-light{width:12px;height:12px;flex:0 0 12px;border-radius:6px;background:var(--success);box-shadow:0 0 12px #3fbf6f80}
+.outlook-card.yellow .weekly-light{background:var(--warn);box-shadow:0 0 12px #e6b42280}.outlook-card.red .weekly-light{background:var(--danger);box-shadow:0 0 12px #e2404f80}
+.outlook-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.outlook-facts.single{grid-template-columns:minmax(0,1fr)}
+.fact{background:var(--surface2);border-radius:14px;padding:12px 10px;display:grid;gap:4px}.fact strong{font-size:24px;font-weight:800;line-height:1}.fact span{font-size:12px;color:var(--muted)}
+.fact.good strong{color:#b8f6cc}.fact.mid strong{color:#ffe4a3}.fact.low strong{color:#ffd0d4}
+.outlook-reason{margin:0;font-size:14px;line-height:1.45;color:var(--soft)}
+.today-card .weekly-outlook{margin:0;padding:0;border:0;background:none}
+.today-card details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--soft);font-weight:600;font-size:14px}
+.today-card details ul{margin:4px 0 0;padding-left:18px;font-size:13px;color:var(--soft);line-height:1.5}
+.weekly-split{font-size:13px;color:var(--muted);margin:0 0 6px}
+.coach-card{background:linear-gradient(160deg,#3a0e15 0%,#1a0b0e 100%);border-color:#5a1a24}
+.coach-card .eyebrow{color:#ffb3bc}.coach-summary{margin:0;font-size:14px;line-height:1.45;color:#e4e4e7}
+.coach-why p{margin:0 0 6px;font-size:14px;color:#e4e4e7}
+.coach-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:4px}.coach-actions .ghost{background:#ffffff14;border-color:#ffffff26}
+.dashboard-card .wide+.wide{margin-top:0}
+.sync-alert{border-radius:16px}
+
+/* Semana: vertical day list with the match as destination. */
+.week-card{padding:16px}
+.week-grid{display:grid;grid-template-columns:minmax(0,1fr)!important;gap:8px}
+.day{display:flex;align-items:center;gap:12px;min-height:0!important;padding:12px 14px;text-align:left;border-radius:18px;background:var(--surface2);border:1px solid var(--line);outline:0!important}
+.day-date{width:46px;height:50px;flex:0 0 46px;border-radius:12px;display:grid;place-content:center;text-align:center;background:var(--surface);color:var(--soft)}
+.day-date small{font-size:11px;font-weight:700}.day-date b{font-size:18px;font-weight:800}
+.day-body{display:grid;gap:2px;min-width:0;flex:1}.day-body strong{font-size:15px;text-transform:none}.day-body span{margin:0!important;font-size:12px!important;color:var(--muted)!important}
+.day-badge{font-style:normal;font-size:12px;font-weight:700;padding:5px 9px;border-radius:999px;white-space:nowrap}
+.day.past{opacity:.72}
+.day.today{background:#1e1013;border-color:var(--accent)}.day.today .day-date{background:var(--accent);color:#fff}.day.today .day-badge{background:var(--accent);color:#fff}
+.day.match{border-color:#5a1a24}.day.match .day-date{background:#3a0e15;color:#ffd1d7}.day.match .day-badge{background:#3a0e15;color:#ffd1d7}
+
+/* Progreso: segmented control with four areas. */
+.progress-areas{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:4px!important;padding:4px;border-radius:14px;background:var(--surface2);border:1px solid var(--line)}
+.progress-areas button{border:0!important;background:transparent!important;color:var(--muted)!important;border-radius:10px!important;font-size:13px}
+.progress-areas button.active{background:var(--accent)!important;color:#fff!important}
+.muscle-bar{background:#222226}.muscle-range{background:#23402d}.muscle-fill{background:var(--accent)}
+.v3-pr-badge{background:#f5c542;color:#2a1f00}.v3-set-record{box-shadow:none;background:#2a2310;border-radius:14px}
+
+/* Bottom navigation: four tabs, SVG icons, crimson active icon. */
+.bottom-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:min(640px,100%);background:var(--nav);border-top:1px solid #1f1f23;border-left:0;border-right:0;border-radius:0;padding:6px 10px calc(8px + env(safe-area-inset-bottom))}
+.nav-btn{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border-radius:12px}
+.nav-btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.nav-btn.active{color:#fff;background:transparent;font-weight:700}.nav-btn.active svg{stroke:var(--accent)}
+
+/* Overlays. */
+.rest-overlay{background:rgba(0,0,0,.72)}.rest-card,.modal-card{background:var(--surface);border-color:var(--line)}
+.rest-time{font-family:var(--display)}
+.pwa-update-panel,.pwa-update-reminder{background:var(--surface);border-color:var(--accent)}
+@media(max-width:680px){.app-shell{padding:8px 14px calc(110px + env(safe-area-inset-bottom))}.today-card h2{font-size:22px}.fact strong{font-size:22px}}
+.day .day-date{display:grid;place-content:center;gap:0;margin:0;color:var(--soft);font-size:inherit;line-height:1.1}.day.today .day-date{color:#fff}.day.match .day-date{color:#ffd1d7}
+.day .day-body{display:grid;margin:0;color:inherit;font-size:inherit}
+.week-card .section-head{flex-direction:column;align-items:flex-start;gap:4px}
+.outlook-card.neutral h2{font-size:22px}
+.progress-areas button{font-size:12px!important;padding-inline:2px!important;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(min-width:400px){.progress-areas button{font-size:13px!important}}

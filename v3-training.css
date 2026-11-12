@@ -59,3 +59,33 @@
 .v3-rest-bar strong{font-variant-numeric:tabular-nums;font-size:18px}
 .v3-rest-bar button{flex:0 0 auto}
 @media(max-width:360px){.v3-inline-set{grid-template-columns:30px repeat(3,minmax(0,1fr)) 44px}.v3-inline-set .v3-set-menu{grid-column:1/-1;justify-self:end}.v3-inline-set .v3-set-menu[open]{justify-self:stretch}}
+
+/* ===== Redesign v69 · Matchday Dark (active training) =================== */
+.v3-training-screen{background:#0b0b0c;color:#f5f5f5}
+.v3-training-shell{max-width:640px}
+.v3-training-header h2{font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.01em}
+.v3-back-button{border-radius:22px!important;background:#151517!important;border:1px solid #333338!important}
+.v3-training-screen .card{background:#151517;border:1px solid #26262a;border-radius:22px;box-shadow:none}
+.v3-exercise-card{padding:18px!important;display:grid;gap:10px}
+.v3-exercise-heading h3{font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif;font-size:20px;line-height:1.2}
+.v3-exercise-progress{padding:4px 9px;border-radius:999px;background:#12331f;color:#b8f6cc}
+.v3-exercise-card>.muted,.v3-exercise-card>p{margin:0!important}
+.v3-plyo-hint{display:inline-block;justify-self:start;padding:6px 10px;border-radius:999px;background:#3a0e15;color:#ffd1d7!important;font-size:12px;font-weight:600}
+.v3-inline-sets{gap:8px}
+.v3-inline-field span{color:#a1a1aa;font-weight:600}
+.v3-inline-field input{min-height:48px;border:1px solid #333338;border-radius:12px;background:#0f0f11;color:#f5f5f5;font-size:18px;font-weight:700}
+.v3-inline-field input::placeholder{font-size:14px;font-weight:600;color:#71717a}
+.v3-inline-field input:focus{border-color:#e5243b;outline:0}
+.v3-set-number{background:#1e1e22!important;color:#d4d4d8!important}
+.v3-inline-set .v3-set-complete{width:48px;min-width:48px;min-height:48px;border-radius:12px!important;border:1px solid #3a3a40!important;background:#1e1e22!important;color:#71717a!important;font-size:22px!important}
+.v3-inline-set .v3-set-complete[aria-pressed=true]{background:#3fbf6f!important;border-color:#3fbf6f!important;color:#06210f!important}
+.v3-set-record{background:#2a2310!important;border-radius:14px;padding:6px}
+.v3-pr-badge{grid-column:2/-1;justify-self:start;background:#f5c542;color:#2a1f00;border-radius:8px;padding:3px 8px;font-size:11px;font-weight:800}
+.v3-progression-note summary,.v3-exercise-menu summary,.v3-set-menu summary{color:#d4d4d8}
+.v3-rest-bar{background:#e5243b!important;color:#fff!important;border:0!important;border-radius:20px!important;box-shadow:0 12px 30px #0009}
+.v3-rest-bar strong{font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif;font-size:26px}
+.v3-rest-bar button{background:#ffffff26!important;color:#fff!important;border:0!important;border-radius:12px!important}
+.v3-rest-bar button:last-child{background:#fff!important;color:#b0182b!important}
+.v3-training-screen .primary{background:#e5243b;border-radius:16px;box-shadow:none}
+.v3-training-screen .ghost{background:#1e1e22;border:1px solid #333338;border-radius:16px;color:#f5f5f5}
+.v3-coach-card{background:linear-gradient(160deg,#3a0e15 0%,#1a0b0e 100%)!important;border-color:#5a1a24!important}

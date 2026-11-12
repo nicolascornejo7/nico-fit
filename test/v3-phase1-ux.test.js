@@ -13,7 +13,7 @@ test('daily training actions state their intent and the option hub is explicit',
   assert.match(app,/mode:'open'/);
   assert.match(entry,/textContent='Explorar'/);
   assert.match(entry,/aria-label','Explorar entrenamientos'/);
-  assert.match(index,/aria-label="Explorar entrenamientos"/);
+  assert.match(index,/data-view="workoutView" class="nav-btn" aria-label="Entrenar: abrir entrenamientos"/);
 });
 
 test('check-in states distinguish never saved, pending changes, and today saved',async()=>{
