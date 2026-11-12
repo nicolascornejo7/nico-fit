@@ -1,5 +1,6 @@
 import {v3Progression} from './training-progression.js';
 import {exerciseFamily} from './exercise-family.js';
+import {plyoProfile,PLYO_LIMITS} from './plyometrics.js';
 
 const TITLES={normal:'Entrenar normal',maintain:'Mantener carga',progress:'Progresar carga de forma controlada',reduce:'Reducir volumen y mantener margen',activation:'Convertir la sesión en activación',recovery:'Priorizar descanso y recuperación'};
 
@@ -22,6 +23,10 @@ export function applyCoachRules(signals,snapshot){
   if(dayIndex===0){level='recovery';add('domingo: preservar el día de recuperación.');}
   const recentFreeLegs=(signals.freeWorkoutLoads||[]).filter(row=>row.family==='legs'&&row.daysAgo<=3&&row.completedSets>=3&&(row.volume>=1000||row.rpe>=7));
   if(recentFreeLegs.length)add(`sesión libre de piernas registrada hace ${Math.min(...recentFreeLegs.map(row=>row.daysAgo))} día(s): se restringe progresión de piernas según las series, volumen y RPE realmente registrados.`);
+  const plyo=signals.plyo;
+  if(plyo?.sets)add(`pliometría 7d: ${plyo.contacts} contactos (alta ${plyo.byIntensity.high}) y ${plyo.sprintMeters} m de sprint.`);
+  if(plyo?.overWeekly||plyo?.overHigh)add('pliometría por encima del tope semanal orientativo: reducir saltos antes del partido.');
+  if(signals.weekly?.acwr!=null)add(`carga 7d ${signals.weekly.acute} AU = ${signals.weekly.acwr}× tu promedio de 4 semanas.`);
   if(pain>=4)warnings.push('Si la molestia persiste o aumenta, buscá orientación profesional. No es un diagnóstico.');
   const exercises=(snapshot?.exercises??[]).filter(ex=>!ex.deleted_at),adjustments=[];
   const sameType=signals.history.filter(item=>(snapshot?.session.routine_id?item.session.routine_id===snapshot.session.routine_id&&item.session.routine_version===snapshot.session.routine_version:new Date(`${item.session.session_date}T12:00:00Z`).getUTCDay()===dayIndex)&&!item.session.reconstructed&&item.session.id!==snapshot?.session.id&&(!snapshot||item.session.started_at<snapshot.session.started_at))
@@ -47,6 +52,12 @@ export function applyCoachRules(signals,snapshot){
       const result=v3Progression({exercise,history:[previous],session:snapshot.session,readinessScore:score,now:new Date(`${signals.date}T12:00:00`),occurrenceIndex:ordinal});
       if(base!=null&&Number(result.kg)>base){action='progress_load';suggestedLoad=Number(result.kg);}explanations.push(result.text);
     }else explanations.push(conflict?'Conflicto de sincronización pendiente: no se habilita progresión hasta revisar los datos.':'Sin objetivos completos, RIR/RPE conocidos y readiness suficiente no se habilita progresión.');
+    const plyoRx=plyoProfile(exercise.catalog);
+    if(plyoRx&&!['rest'].includes(action)){
+      if(plyoRx.intensity==='high'&&daysToMatch>0&&daysToMatch<=PLYO_LIMITS.highFreeDaysBeforeMatch){action='avoid_high_plyo';suggestedSets=0;targetRir=4;explanations.push(`Partido en ${daysToMatch} ${daysToMatch===1?'día':'días'}: sin pliometría ni sprints intensos.`);}
+      else if(daysToMatch===1){action='activation';suggestedSets=Math.min(rx.sets,2);explanations.push(`Activación: hasta ${PLYO_LIMITS.activationContactsDayBefore} contactos, máxima calidad.`);}
+      else if(plyo?.overWeekly||plyo?.overHigh&&plyoRx.intensity==='high'){action='reduce_sets';suggestedSets=Math.max(1,rx.sets-1);explanations.push('Tope semanal de contactos alcanzado: una serie menos.');}
+    }
     if(conflict){action=level==='normal'?'maintain_load':action;if(action==='progress_load'){action='maintain_load';suggestedLoad=base;}warnings.push('Conflicto local: revisión pendiente; no se habilitan aumentos con esos datos.');}
     adjustments.push({exerciseId:exercise.id,action,suggestedLoad,suggestedSets,targetRir,explanation:explanations.join(' ')});
   }

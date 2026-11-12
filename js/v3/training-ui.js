@@ -12,6 +12,7 @@ import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
+import {plyoHint} from './plyometrics.js';
 
 const TUESDAY_PLAN_LABELS={normal:'Rutina completa',reduced:'Trabajo de piernas reducido',leg_recovery:'Recuperación de piernas',general_short:'Sesión breve por disponibilidad general'};
 
@@ -258,6 +259,7 @@ export class V3TrainingUI{
       if(rx.replaced_exercise_name)card.append(el('p',`En lugar de: ${rx.replaced_exercise_name}`,'v3-replaced-from'));
       card.append(el('p',`${rx.sets||1} × ${rx.min??'—'}${rx.max!=null&&rx.max!==rx.min?`–${rx.max}`:''} ${rx.measurement_kind==='seconds'?'s':'reps'} · Descanso ${rx.rest??rx.rest_seconds??0} s`,'muted'));
       if(rx.notes)card.append(el('p',rx.notes,'muted'));
+      const plyoText=plyoHint(exercise.catalog);if(plyoText)card.append(el('p',plyoText,'v3-plyo-hint'));
       const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){

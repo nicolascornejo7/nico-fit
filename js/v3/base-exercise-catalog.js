@@ -1,4 +1,5 @@
 import {stableClientUuid} from './import-v2.js';
+import {PLYO_CATALOG} from './plyometrics.js';
 
 // This is a small, local-first starter catalog. It has stable keys but does not
 // prescribe a routine or infer a user's past training.
@@ -23,7 +24,8 @@ export const BASE_EXERCISES=Object.freeze([
   ['fondos-triceps','Fondos de tríceps','reps','Tríceps','upper'],
   ['extension-triceps-polea','Extensión de tríceps en polea','reps','Tríceps','upper'],
   ['plancha-pallof','Plancha / Pallof press','seconds','Core','core'],
-  ['rueda-abdominal','Rueda abdominal','reps','Core','core']
+  ['rueda-abdominal','Rueda abdominal','reps','Core','core'],
+  ...PLYO_CATALOG.map(([key,name,category])=>[key,name,'reps',category,'legs'])
 ].map(([stable_key,canonical_name,measurement_kind,category,body_region])=>Object.freeze({stable_key,canonical_name,measurement_kind,metadata:Object.freeze({source:'v3-base-catalog',category,body_region})})));
 
 export const baseCatalogId=(userId,stableKey)=>stableClientUuid(`v3:base-catalog:${userId}:${stableKey}`);

@@ -1,10 +1,11 @@
 import {localDateKey} from '../plan.js';
 import {exerciseProfile} from './exercise-recommendations.js';
 import {calculateCoachSignals} from './coach-signals.js';
+import {plyoProfile} from './plyometrics.js';
 
 // Product heuristics, deliberately expressed as set counts rather than a
 // purported physiological score. Keep thresholds together for review.
-export const TUESDAY_LOAD_THRESHOLDS=Object.freeze({moderate:3,high:6,easyRir:4,hardRir:1,hardSets:3,calfSets:5,jumpSets:4,lowReadiness:60,restReadiness:40});
+export const TUESDAY_LOAD_THRESHOLDS=Object.freeze({moderate:3,high:6,easyRir:4,hardRir:1,hardSets:3,calfSets:5,jumpSets:4,lowReadiness:60,restReadiness:40,footballLoad:600,footballRpe:8,footballMinutes:45});
 const CLASSES=['none','low','moderate','high'];
 const PRIMARY=new Set(['knee_dominant','hip_hinge','knee_extension','knee_flexion']);
 const LEG_MUSCLES=new Set(['quadriceps','hamstrings','glutes']);
@@ -43,7 +44,7 @@ export function mondayLegLoad({history=[],now=new Date(),date=localDateKey(now)}
         if(!profile){unknown.push(row);continue;}
         if(PRIMARY.has(profile.movement_pattern)&&profile.primary_muscles.some(muscle=>LEG_MUSCLES.has(muscle)))primary.push(row);
         else if(profile.movement_pattern==='calf_raise')calves.push(row);
-        else if(profile.movement_pattern==='vertical_jump')jumps.push(row);
+        else if(plyoProfile(exercise.catalog)||profile.movement_pattern==='vertical_jump')jumps.push(row);
       }
     }
     if(included)sessions.push({id:session.id,status:session.status,date:session.session_date,rpe:session.rpe??null});
@@ -56,10 +57,23 @@ export function mondayLegLoad({history=[],now=new Date(),date=localDateKey(now)}
   return {class:load,monday,primarySets:primary.length,calfSets:calves.length,jumpSets:jumps.length,unknownSets:unknown.length,byExercise,sessions,sets:[...primary,...calves,...jumps],unknown};
 }
 
-export function tuesdayDecision({history=[],readiness=[],now=new Date(),override=false,signalsConflicted=false}={}){
+// Monday team football also loads the legs. Only an intense or long session
+// shifts Tuesday; a regular Monday practice is already part of the plan.
+export function mondayFootballLoad({football=[],monday}){
+  const T=TUESDAY_LOAD_THRESHOLDS;
+  const rows=football.filter(row=>!row.deleted_at&&!row.deletedAt&&row.date===monday&&Number.isFinite(row.duration)&&row.duration>0&&Number.isFinite(row.rpe)&&row.rpe>=1&&row.rpe<=10);
+  const load=rows.reduce((sum,row)=>sum+row.duration*row.rpe,0),maxRpe=rows.length?Math.max(...rows.map(row=>row.rpe)):null;
+  const intense=load>=T.footballLoad||rows.some(row=>row.rpe>=T.footballRpe&&row.duration>=T.footballMinutes);
+  return {sessions:rows.length,load,maxRpe,intense};
+}
+
+export function tuesdayDecision({history=[],readiness=[],football=[],now=new Date(),override=false,signalsConflicted=false}={}){
   const date=localDateKey(now);
   if(now.getDay()!==2)throw new Error('La adaptación sólo corresponde al martes local.');
   const legLoad=mondayLegLoad({history,now,date});
+  const mondayFootball=mondayFootballLoad({football,monday:legLoad.monday});
+  legLoad.gymClass=legLoad.class;legLoad.football=mondayFootball;
+  if(mondayFootball.intense)legLoad.class=legLoad.class==='none'||legLoad.class==='low'?'moderate':shift(legLoad.class,1);
   const signals=calculateCoachSignals({date,readiness,history});
   const score=signalsConflicted?null:signals.readinessScore;
   const severe=score!=null&&score<TUESDAY_LOAD_THRESHOLDS.restReadiness||signals.pain>=7||signals.sleep===1&&signals.energy===1;
@@ -74,7 +88,8 @@ export function tuesdayDecision({history=[],readiness=[],now=new Date(),override
   const evidence=Object.entries(legLoad.byExercise).map(([name,sets])=>`${sets} serie${sets===1?'':'s'} de ${name}`).join(' y ');
   const reasons=[];
   if(evidence)reasons.push(`Ayer completaste ${evidence}.`);
-  else reasons.push('No hay series de piernas clasificables registradas para el lunes en este dispositivo.');
+  else if(!mondayFootball.sessions)reasons.push('No hay series de piernas clasificables registradas para el lunes en este dispositivo.');
+  if(mondayFootball.sessions)reasons.push(`Ayer registraste fútbol: ${Math.round(mondayFootball.load)} AU (RPE máx. ${mondayFootball.maxRpe})${mondayFootball.intense?', sesión exigente para las piernas':''}.`);
   if(low)reasons.push('El check-in de hoy indica disponibilidad general baja.');
   if(severe)reasons.push('El check-in aconseja descanso; si entrenás, la sesión será breve.');
   if(legLoad.unknownSets)reasons.push(`${legLoad.unknownSets} ${legLoad.unknownSets===1?'serie de ejercicio sin perfil no se clasificó':'series de ejercicios sin perfil no se clasificaron'}.`);
@@ -83,7 +98,7 @@ export function tuesdayDecision({history=[],readiness=[],now=new Date(),override
   if(override)reasons.push('Elegiste usar la rutina completa.');
   // The preview and the actual session creation must use the same evidence.
   // Exclude the selected override and clock time so either button can verify it.
-  const evidenceKey=JSON.stringify({date,sets:legLoad.sets.map(row=>[row.setId,row.exerciseId,row.name,row.pattern,row.rir,row.kg]).sort((a,b)=>a[0].localeCompare(b[0])),unknown:legLoad.unknown.map(row=>[row.setId,row.exerciseId,row.name]).sort((a,b)=>a[0].localeCompare(b[0])),readiness:[signals.rawReadiness?.id??null,signals.rawReadiness?.sleep??null,signals.rawReadiness?.energy??null,score,signals.pain,signals.freshness,signalsConflicted],recommendedVariant});
+  const evidenceKey=JSON.stringify({date,football:[mondayFootball.sessions,mondayFootball.load,mondayFootball.intense],sets:legLoad.sets.map(row=>[row.setId,row.exerciseId,row.name,row.pattern,row.rir,row.kg]).sort((a,b)=>a[0].localeCompare(b[0])),unknown:legLoad.unknown.map(row=>[row.setId,row.exerciseId,row.name]).sort((a,b)=>a[0].localeCompare(b[0])),readiness:[signals.rawReadiness?.id??null,signals.rawReadiness?.sleep??null,signals.rawReadiness?.energy??null,score,signals.pain,signals.freshness,signalsConflicted],recommendedVariant});
   return {schemaVersion:1,date,decidedAt:now.toISOString(),evidenceKey,legLoadVariant:legVariant,readinessAdjustment:severe?'rest_recommended':low?'low':'none',recommendedVariant,selectedVariant,override:!!override,restRecommended:severe,readiness:{id:signals.rawReadiness?.id??null,score,pain:signals.pain,freshness:signals.freshness},legLoad,reasons,affected,totalSets:count};
 }
 

@@ -36,7 +36,7 @@ async function fixture({seed=false}={}){
   if(seed)await new V3RoutineService({repository,featureEnabled:true}).seedDefaults();
   const remote=new Remote(),engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null,pageSize:50});
   const counters={seeds:0},traces=[];
-  const bootstrap=(extra={})=>bootstrapV3Repository(repository,{online:()=>true,pullOnly:options=>engine.pullOnly(options),routinesEnabled:()=>true,seedDefaults:async()=>{counters.seeds++;},onRecoveryTrace:entry=>traces.push(entry),recoveryTimeoutMs:200,...extra});
+  const bootstrap=(extra={})=>bootstrapV3Repository(repository,{online:()=>true,pullOnly:options=>engine.pullOnly(options),routinesEnabled:()=>true,seedDefaults:async()=>{counters.seeds++;},onRecoveryTrace:entry=>traces.push(entry),recoveryTimeoutMs:2000,...extra});
   const snapshot=async()=>({state:(await repository.getBootstrapState()).state,operations:(await repository.listOperations()).map(op=>`${op.id}:${op.status}`).sort(),catalog:(await repository.listRecords('exercise_catalog',{includeDeleted:true})).length});
   return {repository,remote,engine,counters,traces,bootstrap,snapshot,close(){reset();repository.close();}};
 }

@@ -36,7 +36,18 @@ export const EXERCISE_PROFILES=Object.freeze({
   'core':profile('general_core',['core'],[],['unspecified'],'bilateral','accessory',1),
   'copenhagen-plank':profile('adductor_stability',['adductors'],['core'],['bodyweight'],'unilateral','prevention',2),
   'movilidad-prepartido':profile('mobility',['hips','ankles','adductors'],[],['bodyweight'],'bilateral','activation',1),
-  'saltos-verticales':profile('vertical_jump',['quadriceps','glutes'],['calves'],['bodyweight'],'bilateral','power',2)
+  'saltos-verticales':profile('vertical_jump',['quadriceps','glutes'],['calves'],['bodyweight'],'bilateral','power',2),
+  'salto-cajon':profile('vertical_jump',['quadriceps','glutes'],['calves'],['plyo_box'],'bilateral','power',1),
+  'pogo-saltos':profile('reactive_jump',['calves'],['quadriceps'],['bodyweight'],'bilateral','power',1),
+  'salto-longitud':profile('horizontal_jump',['glutes','quadriceps'],['hamstrings','calves'],['bodyweight'],'bilateral','power',2),
+  'saltos-laterales':profile('lateral_jump',['glutes','adductors'],['quadriceps','calves'],['bodyweight'],'unilateral','power',2),
+  'bounds':profile('horizontal_jump',['glutes','hamstrings'],['quadriceps','calves'],['bodyweight'],'unilateral','power',3),
+  'saltos-vallas':profile('reactive_jump',['quadriceps','calves'],['glutes'],['hurdles'],'bilateral','power',3),
+  'drop-jump':profile('reactive_jump',['quadriceps','calves'],['glutes'],['plyo_box'],'bilateral','power',3),
+  'sprint-10m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',2),
+  'sprint-20m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',3),
+  'sprint-30m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',3),
+  'cambios-direccion':profile('change_of_direction',['adductors','quadriceps'],['glutes','calves'],['cones'],'bilateral','speed',2)
 });
 
 const muscleLabels={quadriceps:'cuádriceps',glutes:'glúteos',hamstrings:'isquios',chest:'pecho',lats:'dorsales',upper_back:'espalda alta',rear_deltoids:'deltoide posterior',biceps:'bíceps',triceps:'tríceps',deltoids:'hombros',calves:'gemelos',core:'core',adductors:'aductores'};
