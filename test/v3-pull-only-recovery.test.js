@@ -12,6 +12,7 @@ import {V3TrainingEngine} from '../js/v3/training-engine.js';
 import {V3TrainingUI} from '../js/v3/training-ui.js';
 import {bootstrapV3Repository,BOOTSTRAP_PENDING_MESSAGE} from '../js/v3/bootstrap.js';
 import {transactionDone} from '../js/v3/indexed-db.js';
+import {V3RecoveryError,runV3Recovery} from '../js/v3/recovery.js';
 
 const USER='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STAMP='2026-09-29T18:37:09.000Z';
@@ -288,7 +289,7 @@ test('fresh empty account seeds only after empty pull; offline and interrupted b
       assert.equal(descendants(root,node=>node.textContent===BOOTSTRAP_PENDING_MESSAGE).length,1);
       assert.equal(descendants(root,node=>node.textContent==='Comenzar entrenamiento').length,0);
     }finally{globalThis.document=prior;}
-    await assert.rejects(bootstrapV3Repository(repository,{pullOnly:async()=>{throw new Error('network interrupted');},seedDefaults:()=>{throw new Error('seed before pull');}}),/network interrupted/);
+    await assert.rejects(bootstrapV3Repository(repository,{pullOnly:async()=>{throw new Error('network interrupted');},seedDefaults:()=>{throw new Error('seed before pull');}}),error=>error.code==='RECOVERY_NETWORK'&&error.cause?.message==='network interrupted');
     assert.equal((await repository.getBootstrapState()).state,'pending');
     let readsAtSeed=0;
     const result=await bootstrapV3Repository(repository,{pullOnly:()=>sync.pullOnly(),routinesEnabled:()=>true,seedDefaults:async()=>{readsAtSeed=remote.reads;return new V3RoutineService({repository,featureEnabled:true}).seedDefaults();}});
@@ -316,6 +317,29 @@ test('concurrent bootstrap is single-flight and persisted hydration survives reo
     assert.equal((await bootstrapV3Repository(reopened,{pullOnly:()=>{throw new Error('unnecessary full pull');},seedDefaults:()=>{throw new Error('duplicate seed');}})).status,'hydrated');
     assert.equal(pulls,1);assert.equal(seeds,1);
   }finally{reopened.close();}
+});
+
+test('timed out bootstrap aborts the pull, preserves pending data, releases single-flight, and retries',async()=>{
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:USER,featureEnabled:true});
+  let calls=0,aborts=0,seeds=0;
+  const pullOnly=({signal}={})=>{
+    calls++;
+    if(calls===1)return new Promise((_,reject)=>signal.addEventListener('abort',()=>{aborts++;reject(signal.reason);},{once:true}));
+    return repository.markBootstrapHydrated().then(()=>({pulled:0,pushed:0}));
+  };
+  try{
+    await assert.rejects(bootstrapV3Repository(repository,{pullOnly,recoveryTimeoutMs:15,routinesEnabled:()=>true,seedDefaults:async()=>{seeds++;}}),error=>error instanceof V3RecoveryError&&error.code==='RECOVERY_TIMEOUT');
+    assert.equal(aborts,1);assert.equal(seeds,0);assert.equal((await repository.getBootstrapState()).state,'pending');assert.equal((await repository.listOperations()).length,0);
+    const retried=await bootstrapV3Repository(repository,{pullOnly,recoveryTimeoutMs:100,routinesEnabled:()=>true,seedDefaults:async()=>{seeds++;}});
+    assert.equal(retried.status,'hydrated');assert.equal(calls,2);assert.equal(seeds,1);
+  }finally{repository.close();}
+});
+
+test('recovery timeout during configuration aborts before Auth and remains retryable',async()=>{
+  const repository={userId:USER};let configAborted=0,authCalls=0;
+  const options={online:()=>true,storageEnabled:()=>true,syncEnabled:()=>true,refreshRollout:async()=>({source:'remote',remoteWritesAllowed:true}),fetchConfig:({signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>{configAborted++;reject(signal.reason);},{once:true})),loadSdk:async()=>({createClient:()=>({auth:{getUser:async()=>{authCalls++;return {data:{user:{id:USER}},error:null};}}})}),Adapter:class{},Engine:class{}};
+  await assert.rejects(runV3Recovery(recovery=>pullV3Repository(repository,{...options,recovery,signal:recovery.signal}),{timeoutMs:15}),error=>error.code==='RECOVERY_TIMEOUT');
+  assert.equal(configAborted,1);assert.equal(authCalls,0);
 });
 
 test('normal sync cannot push when initial pull fails and retry after reopen resumes hydration',async()=>{

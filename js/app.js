@@ -25,6 +25,7 @@ import {cachedPublicConfig} from './v3/public-config.js';
 import {assertAuthorizedV3Url} from './v3/authorized-projects.js';
 import {productSyncStatus} from './v3/product-sync-status.js';
 import {bootstrapV3Repository,BOOTSTRAP_PENDING_MESSAGE} from './v3/bootstrap.js';
+import {recoveryUserMessage} from './v3/recovery.js';
 import {cachedV3Identity} from './v3/offline-auth.js';
 
 await rolloutReady;
@@ -32,7 +33,7 @@ await rolloutReady;
 let storageOwner='guest',data=loadLocalData(storageOwner),lastRenderedDate=localDateKey();
 let sessionTick=null,restTick=null,restoreExercisePosition=true;
 let v3Repository=null,v3Signals=null,v3Today=null,v3Context=null,v3Generation=0;
-let v3Activation=null,v3BootstrapPending=false;
+let v3Activation=null,v3BootstrapPending=false,v3RecoveryNotice='',v3RecoveryRetrying=false;
 let progressSnapshot=null,progressGeneration=0,progressArea='strength',readinessMetric='score',v3Operational=null,currentProductSync={kind:'local',text:'Solo local'};
 const v2HistoryReader=new V2HistoryReader({getData:()=>data});
 const $=id=>document.getElementById(id);
@@ -48,12 +49,13 @@ function activateV3Product(user){
   const owner=user?.id??null;
   if(v3Repository?.userId===owner)return v3BootstrapPending?retryV3Bootstrap():Promise.resolve();
   if(v3Activation?.userId===owner)return v3Activation.promise;
-  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;v3Operational=null;progressSnapshot=null;v3BootstrapPending=!!owner;
+  const token=++v3Generation;v3Repository?.close();v3Repository=null;v3Signals=null;v3Today=null;v3Context=null;v3Operational=null;progressSnapshot=null;v3BootstrapPending=!!owner;v3RecoveryNotice='';
   const promise=(async()=>{
     if(!owner){renderAll(false);return;}
     const repository=await V3LocalRepository.open({userId:owner});if(token!==v3Generation){repository.close();return;}
     let bootstrap;
-    try{bootstrap=await bootstrapV3Repository(repository);}catch(error){console.warn('No se pudo completar la primera recuperación V3.',error);bootstrap={status:'pending'};}
+    try{bootstrap=await bootstrapV3Repository(repository);}catch(error){console.warn('No se pudo completar la primera recuperación V3.',error?.code??error);v3RecoveryNotice=recoveryUserMessage(error);bootstrap={status:'pending'};}
+    if(bootstrap.status==='pending'&&!v3RecoveryNotice)v3RecoveryNotice=pendingReasonMessage(bootstrap.reason);
     if(token!==v3Generation){repository.close();return;}
     v3BootstrapPending=bootstrap.status==='pending';v3Repository=repository;v3Signals=new V3SignalsUI({repository,syncNow:syncV3Repository});v3Today=new V3TodayService({repository});await refreshV3Product();
   })();
@@ -73,7 +75,7 @@ function switchStorageOwner(user){
   captureActiveDrafts();storageOwner=user?.id||'guest';data=loadLocalData(storageOwner);activeSession.setOwner(storageOwner);restoreExercisePosition=true;persistAndRender(false);
   currentProductSync=user?{kind:'local',text:'Comprobando sincronización…'}:{kind:'local',text:'Solo local'};setSyncBadge(currentProductSync.kind,currentProductSync.text);
   document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:user?.id||null}}));
-  activateV3Product(user).catch(error=>{console.warn(error);setAuthMessage('No se pudo abrir el almacenamiento de entrenamiento.',true);});
+  activateV3Product(user).catch(error=>{console.warn(error);if(user){currentProductSync={kind:'local',text:'Recuperación pendiente'};setSyncBadge(currentProductSync.kind,currentProductSync.text);}setAuthMessage('No se pudo abrir el almacenamiento de entrenamiento.',true);});
 }
 document.addEventListener('nico-fit:auth-request',()=>document.dispatchEvent(new CustomEvent('nico-fit:auth',{detail:{userId:sync.user?.id||null}})));
 document.addEventListener('nico-fit:pwa-safety-request',event=>{event.detail.critical ||= sync.busy;event.detail.userId=storageOwner;});
@@ -102,7 +104,8 @@ function guidance(ctx=currentContext()){
 function renderDashboard(){
   const ctx=currentContext(),r=latestReadiness(ctx.dateKey),score=readinessScore(r),[cls,label]=readinessLevel(score),sat=daysUntilSaturday(ctx.now),hasActive=!!v3Context?.activeSession;
   const hasRoutine=ctx.plan.type==='Gimnasio',action=hasActive?['Continuar entrenamiento','today']:hasRoutine?['Comenzar rutina','today']:['Explorar entrenamientos','open'],actions=storageOwner!=='guest'?`<button class="primary wide" id="goWorkoutBtn">${action[0]}</button><button class="ghost wide" id="freeWorkoutBtn">Musculación libre</button>`:'',syncNotice=storageOwner!=='guest'&&currentProductSync.kind!=='synced'?`<button class="sync-alert" id="openSupportBtn"><span>${currentProductSync.text}</span><strong>Revisar</strong></button>`:'';
-  $('dashboardCard').innerHTML=`<div class="dashboard-top"><div><p class="eyebrow">${daysText(sat).toUpperCase()}</p><h2>Hoy · ${ctx.plan.name}</h2><p class="dashboard-sub">${ctx.plan.label}</p></div><div class="big-score ${cls}">${score??'—'}<span>${score==null?'readiness':'/100'}</span></div></div>${v3BootstrapPending?`<p class="advice">${BOOTSTRAP_PENDING_MESSAGE}</p>`:`<div class="recommendation"><strong>Recomendación</strong><p>${guidance(ctx)}</p></div>${actions}`}${syncNotice}`;
+  $('dashboardCard').innerHTML=`<div class="dashboard-top"><div><p class="eyebrow">${daysText(sat).toUpperCase()}</p><h2>Hoy · ${ctx.plan.name}</h2><p class="dashboard-sub">${ctx.plan.label}</p></div><div class="big-score ${cls}">${score??'—'}<span>${score==null?'readiness':'/100'}</span></div></div>${v3BootstrapPending?`<p class="advice">${v3RecoveryNotice||BOOTSTRAP_PENDING_MESSAGE}</p>${storageOwner!=='guest'&&v3Repository?`<button class="primary wide" id="retryRecoveryBtn"${v3RecoveryRetrying||navigator.onLine===false?' disabled':''}>${v3RecoveryRetrying?'Recuperando…':'Sincronizar ahora'}</button>`:''}`:`<div class="recommendation"><strong>Recomendación</strong><p>${guidance(ctx)}</p></div>${actions}`}${syncNotice}`;
+  $('retryRecoveryBtn')?.addEventListener('click',()=>{retryV3Bootstrap().catch(()=>{});});
   $('goWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:action[1]}})));
   $('freeWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'free'}})));
   $('openSupportBtn')?.addEventListener('click',()=>{switchView('settingsView');setTimeout(()=>$('v3SupportSection')?.scrollIntoView({block:'start',behavior:'smooth'}),0);});
@@ -222,10 +225,18 @@ function renderAuth(){const signed=!!sync.user;$('signedOutBox').classList.toggl
 function setAuthMessage(msg,error=false){$('authMessage').textContent=msg;$('authMessage').className=error?'advice error-text':'advice';}
 function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active-view'));$(id).classList.add('active-view');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===id));if(id==='progressView')setTimeout(()=>renderProgress().catch(()=>{}),0);window.scrollTo({top:0,behavior:'smooth'});}
 function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDate=currentContext().dateKey;hydrateToday();renderDashboard();renderReadinessState();renderWeek();renderWorkout();renderFootball();renderMatch();renderProgress().catch(()=>{});renderAuth();renderSessionSummary();restorePwaFormDrafts();['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id+'Val').textContent=$(id).value);updateFootballLoad();startTimerIntervals();}
+function pendingReasonMessage(reason){
+  if(reason==='offline')return recoveryUserMessage({code:'RECOVERY_NETWORK'});
+  if(reason==='locked')return recoveryUserMessage({code:'RECOVERY_LOCK'});
+  return '';
+}
 async function retryV3Bootstrap(){
-  const repository=v3Repository;if(!repository||!v3BootstrapPending||navigator.onLine===false)return;
-  try{const result=await bootstrapV3Repository(repository);if(repository!==v3Repository)return;v3BootstrapPending=result.status==='pending';await refreshV3Product();}
-  catch(error){console.warn('La primera recuperación V3 sigue pendiente.',error);}
+  const repository=v3Repository;if(!repository||!v3BootstrapPending||v3RecoveryRetrying)return;
+  if(navigator.onLine===false){v3RecoveryNotice=pendingReasonMessage('offline');renderDashboard();return;}
+  v3RecoveryRetrying=true;renderDashboard();
+  try{const result=await bootstrapV3Repository(repository);if(repository!==v3Repository)return;v3BootstrapPending=result.status==='pending';v3RecoveryNotice=v3BootstrapPending?pendingReasonMessage(result.reason):'';}
+  catch(error){console.warn('La primera recuperación V3 sigue pendiente.',error?.code??error);if(repository===v3Repository)v3RecoveryNotice=recoveryUserMessage(error);}
+  finally{v3RecoveryRetrying=false;if(repository===v3Repository)await refreshV3Product();}
 }
 async function resetAll(){if(!allowNewWork())return;const scope=sync.user?'este dispositivo Y tu cuenta sincronizada':'este dispositivo';if(!confirm(`¿Borrar todos los registros de ${scope}?`))return;activeSession.clear();if(sync.user){try{await sync.deleteAll();}catch(error){alert('El borrado quedó pendiente de sincronizar: '+error.message);}location.reload();return;}data=emptyData();clearLocalData(storageOwner);location.reload();}
 

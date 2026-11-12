@@ -7,6 +7,7 @@ import {buildV3SessionDiagnostic} from './session-diagnostic.js';
 import {appBuildId} from '../pwa-version.js';
 import {completedRoutineSessions,completedExerciseHint} from './completed-today.js';
 import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
+import {recoveryUserMessage} from './recovery.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
@@ -243,7 +244,7 @@ export class V3TrainingUI{
       result=await this.pullOnly();
       message=result.skipped?'Recuperación pausada: no se cambió el servidor.':result.conflicts?'Datos descargados; algunas semillas requieren revisión. No se envió la cola.':'Datos recuperados del servidor. No se envió la cola.';
       return result;
-    }catch(error){message=`No se completó la recuperación: ${error.message}`;return {failed:true};}
+    }catch(error){message=recoveryUserMessage(error);return {failed:true};}
     finally{this.syncing=false;if(!this.destroyed){await this.render();this.message.textContent=message;}}
   }
 

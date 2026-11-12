@@ -6,22 +6,29 @@ import {SupabaseV3Adapter} from './supabase-v3-adapter.js';
 import {V3SyncEngine} from './sync-engine.js';
 import {assertAuthorizedV3Url} from './authorized-projects.js';
 import {configureV3Observability} from './observability-runtime.js';
+import {recoveryFetch} from './recovery.js';
 
 export function assertAuthorizedSyncUrl(value){
   try{return assertAuthorizedV3Url(value);}catch(error){throw new Error(error.message.replace('destino V3','destino de sync V3'));}
 }
 
-export async function prepareV3SyncRuntime(repository,{online=()=>globalThis.navigator?.onLine!==false,storageEnabled=()=>isV3LocalStorageEnabled(),syncEnabled=()=>isV3SyncEnabled(),refreshRollout=refreshV3Rollout,fetchConfig=()=>fetchPublicConfig(),loadSdk=()=>ensureSupabaseSdk(),Adapter=SupabaseV3Adapter,Engine=V3SyncEngine,register=configureV3Observability}={}){
+export async function prepareV3SyncRuntime(repository,{online=()=>globalThis.navigator?.onLine!==false,storageEnabled=()=>isV3LocalStorageEnabled(),syncEnabled=()=>isV3SyncEnabled(),refreshRollout=refreshV3Rollout,fetchConfig=options=>fetchPublicConfig(options),loadSdk=()=>ensureSupabaseSdk(),Adapter=SupabaseV3Adapter,Engine=V3SyncEngine,register=configureV3Observability,recovery=null,signal=recovery?.signal}={}){
   if(!repository)throw new Error('Falta el repositorio local V3.');
   if(!online())return {skipped:'offline'};
   if(!storageEnabled()||!syncEnabled())return {skipped:'disabled'};
   const rollout=await refreshRollout();
+  recovery?.throwIfAborted();
   if(!rollout||rollout.source!=='remote'||!rollout.remoteWritesAllowed)return {skipped:'rollout_blocked'};
-  const config=await fetchConfig();
+  recovery?.trace('config:start');
+  const config=await fetchConfig({signal});
+  recovery?.trace('config:ready');recovery?.throwIfAborted();
   const syncUrl=assertAuthorizedSyncUrl(config.url);
   const sdk=await loadSdk();
-  const client=sdk.createClient(syncUrl,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  recovery?.throwIfAborted();
+  const client=sdk.createClient(syncUrl,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true},...(signal?{global:{fetch:recoveryFetch(globalThis.fetch.bind(globalThis),signal)}}:{})});
+  recovery?.trace('auth:start');
   const {data,error}=await client.auth.getUser();
+  recovery?.trace('auth:ready');recovery?.throwIfAborted();
   if(error||!data?.user?.id)throw Object.assign(new Error('La sesión Auth no es válida para sincronizar.'),{status:401});
   if(data.user.id!==repository.userId)throw Object.assign(new Error('La sesión Auth no coincide con los datos locales V3.'),{status:401});
   const engine=new Engine({repository,remote:new Adapter({client}),featureEnabled:true,online});
@@ -42,5 +49,5 @@ export async function syncV3Repository(repository,options={}){
 export async function pullV3Repository(repository,options={}){
   const runtime=await prepareV3SyncRuntime(repository,options);
   if(runtime.skipped)return runtime;
-  return runtime.engine.pullOnly();
+  return runtime.engine.pullOnly({recovery:options.recovery});
 }

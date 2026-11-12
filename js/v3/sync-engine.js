@@ -59,17 +59,23 @@ export class V3SyncEngine{
 
   // Explicit recovery path: authenticate and pull under the normal sync lock,
   // but never claim queued operations or call the remote mutation adapter.
-  async pullOnly(){
+  async pullOnly({recovery=null}={}){
+    recovery?.throwIfAborted();
     const enabled=this.featureEnabled??isV3SyncEnabled(this.flagStorage);
     if(!enabled)return {skipped:'disabled'};
     if(!await rolloutAllowsRemote())return {skipped:'rollout_blocked'};
+    recovery?.throwIfAborted();
     if(!this.online())return {skipped:'offline'};
     const remoteUserId=await this.remote.authenticatedUserId();
+    recovery?.throwIfAborted();
     if(remoteUserId!==this.repository.userId)throw Object.assign(new Error('Authenticated Supabase user does not match the local V3 repository.'),{status:401});
-    return withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,task:async()=>{
+    return withV3SyncLock({repository:this.repository,userId:remoteUserId,locks:this.locks,ttlMs:this.leaseTtlMs,signal:recovery?.signal,task:async()=>{
       const result={pulled:0,confirmed:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0};
-      if(!await this.#pull(result,{pullOnly:true}))return {...result,skipped:'rollout_blocked'};
+      recovery?.trace('pull:start');recovery?.throwIfAborted();
+      if(!await this.#pull(result,{pullOnly:true,recovery}))return {...result,skipped:'rollout_blocked'};
+      recovery?.throwIfAborted();recovery?.trace('hydrate:start');
       if((await this.repository.getBootstrapState()).state==='pending')await this.repository.markBootstrapHydrated();
+      recovery?.trace('hydrate:done');recovery?.trace('recovery:complete');
       return result;
     }});
   }
@@ -127,18 +133,22 @@ export class V3SyncEngine{
     }
   }
 
-  async #pull(result,{pullOnly=false}={}){
+  async #pull(result,{pullOnly=false,recovery=null}={}){
     for(const entity of this.#entities()){
+      recovery?.trace(`pull:entity:${entity}`,{entity});recovery?.throwIfAborted();
       if(!await rolloutAllowsRemote())return false;
       if(!ENTITY_STORES.includes(entity))continue;
       let cursor=await this.repository.getSyncCheckpoint(entity);
       while(true){
         if(!await rolloutAllowsRemote())return false;
+        recovery?.trace('pull:page',{entity});
         const rows=await this.remote.fetchChanges(entity,{cursor,pageSize:this.pageSize});
+        recovery?.throwIfAborted();
         if(!rows.length)break;
         const ordered=[...rows].sort((a,b)=>a.updated_at.localeCompare(b.updated_at)||a.id.localeCompare(b.id));
         const applyOrder=[...ordered].sort((a,b)=>Number(Boolean(b.deleted_at))-Number(Boolean(a.deleted_at)));
         for(const remoteRecord of applyOrder){
+          recovery?.trace('reconcile:start',{entity});recovery?.throwIfAborted();
           this.#assertRemoteOwner(entity,remoteRecord);
           if(entity==='routine_versions'){
             const ordinalCollision=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).find(local=>local.id!==remoteRecord.id&&local.routine_id===remoteRecord.routine_id&&local.version_number===remoteRecord.version_number);
@@ -173,11 +183,14 @@ export class V3SyncEngine{
             const applied=await this.repository.applyRemoteRecord(entity,remoteRecord);
             if(applied.applied)result.pulled+=1;
           }
+          recovery?.throwIfAborted();recovery?.trace('reconcile:done',{entity});
         }
         const last=ordered.at(-1);cursor={updatedAt:last.updated_at,id:last.id};
         await this.repository.setSyncCheckpoint(entity,cursor);
+        recovery?.throwIfAborted();
         if(rows.length<this.pageSize)break;
       }
+      recovery?.trace(`pull:entity:done:${entity}`,{entity});
     }
     return true;
   }
