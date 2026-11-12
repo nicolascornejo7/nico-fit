@@ -13,6 +13,7 @@ import {V3CoachService} from './coach-service.js';
 import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
+import {personalRecords,liveSetRecord} from './hypertrophy.js';
 
 const TUESDAY_PLAN_LABELS={normal:'Rutina completa',reduced:'Trabajo de piernas reducido',leg_recovery:'Recuperación de piernas',general_short:'Sesión breve por disponibilidad general'};
 
@@ -301,7 +302,18 @@ export class V3TrainingUI{
     custom.append(button('Crear y agregar',()=>this.run(async()=>{const created=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(created.id);}),'ghost wide'));card.append(custom);
   }
 
+  // Past sessions do not change while one is active, so bests and the last
+  // loads per exercise are computed once per active session.
+  async #pastContext(sessionId){
+    if(this.pastContext?.sessionId===sessionId)return this.pastContext;
+    const history=(await this.engine.history()).filter(item=>item.session.id!==sessionId),{best}=personalRecords(history),last=new Map();
+    const ordered=history.filter(item=>item.session.status==='completed'&&!item.session.deleted_at).sort((a,b)=>String(a.session.started_at).localeCompare(String(b.session.started_at)));
+    for(const item of ordered)for(const exercise of item.exercises.filter(ex=>!ex.deleted_at)){const sets=exercise.sets.filter(set=>!set.deleted_at&&set.is_completed&&set.load_kg!=null);if(sets.length)last.set(exercise.exercise_catalog_id,sets);}
+    this.pastContext={sessionId,best,last};return this.pastContext;
+  }
+
   async renderSets(card,exercise,state){
+    const past=await this.#pastContext(exercise.session_id).catch(()=>null),previousSets=past?.last.get(exercise.exercise_catalog_id)??[],best=past?.best.get(exercise.exercise_catalog_id)??null;
     const rx=exercise.prescription_snapshot,extra=state.extraSets?.[exercise.id]||0,count=Math.max((rx.sets||1)+extra,0,...exercise.sets.map(set=>set.position+1));
     const suggestion=document.createElement('details');suggestion.className='v3-progression-note';suggestion.append(el('summary','Sugerencia de carga'));
     suggestion.append(el('p',(await this.engine.progression(exercise.id,{readinessScore:this.readinessScore})).text,'advice'));
@@ -314,7 +326,8 @@ export class V3TrainingUI{
         const wrapper=el('label','','v3-inline-field'),caption=el('span',label);const node=el('input');node.type='number';node.inputMode='decimal';node.min='0';node.max=String(max);node.step=step;node.value=value??'';node.placeholder=placeholder;
         node.setAttribute('aria-label',`Serie ${position+1}: ${label}`);wrapper.append(caption,node);row.append(wrapper);return node;
       };
-      const load=input('kg',draft.load_kg,{step:'.001'}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
+      const lastSet=previousSets.find(item=>item.position===position)??previousSets.at(-1);
+      const load=input('kg',draft.load_kg,{step:'.001',placeholder:lastSet?.load_kg!=null?String(lastSet.load_kg):''}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
       const seconds=rx.measurement_kind==='seconds'?input('seg',draft.duration_seconds,{max:86400,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
       const rir=input('RIR',draft.rir,{max:5,step:'.1',placeholder:rx.target_rir!=null?String(rx.target_rir):''});
       const read=isCompleted=>({load_kg:load.value,reps:reps?.value??null,duration_seconds:seconds?.value??null,rir:rir.value,is_completed:isCompleted});
@@ -322,6 +335,8 @@ export class V3TrainingUI{
       const anchor={exerciseId:exercise.id,position,kind:'set'};
       const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key}),{anchor}),'v3-set-complete');
       complete.setAttribute('aria-pressed',String(!!set?.is_completed));complete.setAttribute('aria-label',`${set?.is_completed?'Desmarcar':'Completar'} serie ${position+1} de ${exercise.exercise_name_snapshot}`);row.append(complete);
+      const record=set?.is_completed?liveSetRecord(set,best):null;
+      if(record){row.classList.add('v3-set-record');const badge=el('span','PR','v3-pr-badge');badge.title=record.label;badge.setAttribute('aria-label',record.label);row.append(badge);}
       const menu=document.createElement('details');menu.className='v3-set-menu';const summary=el('summary','⋯');summary.setAttribute('aria-label',`Más acciones para serie ${position+1}`);menu.append(summary);
       const actions=el('div','','v3-actions');actions.append(button(set?'Guardar cambios':'Guardar sin completar',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!!set?.is_completed),{setId:set?.id,position,draftKey:key}),{anchor})));
       if(set)actions.append(button('Borrar serie',()=>this.run(()=>this.engine.deleteSet(exercise.id,set.id),{anchor}),'danger-btn'));

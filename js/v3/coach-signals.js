@@ -2,6 +2,7 @@ import {sessionMetrics} from './training-metrics.js';
 import {exerciseFamily} from './exercise-family.js';
 import {weeklyPlyoSummary} from './plyometrics.js';
 import {weeklyOutlook} from './weekly-load.js';
+import {mesocycleStatus} from './hypertrophy.js';
 
 const DAY=86400000;
 export const dateStamp=date=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return NaN;const stamp=Date.parse(`${date}T12:00:00Z`);return Number.isFinite(stamp)&&new Date(stamp).toISOString().slice(0,10)===date?stamp:NaN;};
@@ -67,5 +68,5 @@ export function calculateCoachSignals({date,readiness=[],football=[],matches=[],
   if(!footballTrend.sufficient||!gymTrend.sufficient)warnings.push('Historial de carga insuficiente: se usan reglas generales; ausencia de registros no equivale a descanso.');
   const plyo=weeklyPlyoSummary(completedHistory,{date}),weekly=weeklyOutlook({date,footballRows,gymRows,plyo,readinessScore,pain:valid(source?.pain,0,10)?source.pain:null,daysToMatch});
   const intenseFootball=footballRows.some(row=>{const age=(today-dateStamp(row.date))/DAY;return age>=0&&age<=2&&row.rpe>=8&&row.load>=480;});
-  return {date,dayIndex,daysToMatch,readinessScore,rawReadiness:source?structuredClone(source):null,sleep:complete?source.sleep:null,energy:complete?source.energy:null,freshness:complete?freshness:null,pain:valid(source?.pain,0,10)?source.pain:null,footballTrend,gymTrend,freeWorkoutLoads:freeWorkoutLoadsRecent,intenseFootball,plyo,weekly,history:completedHistory,patterns:personalPatterns({gymRows,readiness,matches,date}),warnings};
+  return {date,dayIndex,daysToMatch,readinessScore,rawReadiness:source?structuredClone(source):null,sleep:complete?source.sleep:null,energy:complete?source.energy:null,freshness:complete?freshness:null,pain:valid(source?.pain,0,10)?source.pain:null,footballTrend,gymTrend,freeWorkoutLoads:freeWorkoutLoadsRecent,intenseFootball,plyo,weekly,mesocycle:mesocycleStatus(completedHistory,{date}),history:completedHistory,patterns:personalPatterns({gymRows,readiness,matches,date}),warnings};
 }

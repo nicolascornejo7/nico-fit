@@ -1,7 +1,7 @@
 const numeric=value=>Number.isFinite(Number(value))?Number(value):null;
 const newest=(rows=[])=>[...rows].filter(row=>row?.date).sort((a,b)=>a.date.localeCompare(b.date));
 
-export const PROGRESS_AREAS=[['strength','Fuerza'],['readiness','Readiness'],['football','Fútbol']];
+export const PROGRESS_AREAS=[['strength','Fuerza'],['readiness','Readiness'],['football','Fútbol'],['hypertrophy','Hipertrofia']];
 export const READINESS_METRICS={score:{label:'Score global',min:0,max:100},sleep:{label:'Sueño',min:1,max:5},energy:{label:'Energía',min:1,max:5},freshness:{label:'Frescura',min:1,max:5},pain:{label:'Dolor',min:0,max:10}};
 
 export function trend(values=[]){

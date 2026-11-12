@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v67" />
+  <meta name="nico-fit-build" content="nico-fit-v68" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -134,6 +134,7 @@
             <button type="button" class="ghost active" data-progress-area="strength" role="tab" aria-selected="true">Fuerza</button>
             <button type="button" class="ghost" data-progress-area="readiness" role="tab" aria-selected="false">Readiness</button>
             <button type="button" class="ghost" data-progress-area="football" role="tab" aria-selected="false">Fútbol</button>
+            <button type="button" class="ghost" data-progress-area="hypertrophy" role="tab" aria-selected="false">Hipertrofia</button>
           </div>
           <p id="progressStatus" class="advice" role="status" aria-live="polite"></p>
         </section>
@@ -155,6 +156,16 @@
           <div class="progress-summary"><div><span class="stat-label">Carga últimos 7 días</span><strong id="footballLoad7">0</strong></div><div><span class="stat-label">Último review</span><strong id="latestMatchReview">—</strong></div></div>
           <canvas id="footballChart" class="chart" height="210" aria-label="Gráfico de carga de fútbol" role="img"></canvas>
           <div id="footballRecent" class="progress-list"></div>
+        </section>
+
+        <section id="progressHypertrophyPanel" class="card progress-panel hidden" role="tabpanel">
+          <div class="section-head"><div><h2>Hipertrofia</h2><span id="hypertrophyWeek" class="muted">—</span></div></div>
+          <p id="mesocycleStatus" class="advice"></p>
+          <h3 class="subhead">Series efectivas por músculo</h3>
+          <p class="muted small">Series completadas con RIR ≤ 3 (secundarios cuentan ½). La franja marca el rango semanal objetivo.</p>
+          <div id="muscleVolume" class="muscle-volume"></div>
+          <h3 class="subhead">Récords recientes</h3>
+          <div id="recentRecords" class="progress-list"></div>
         </section>
 
         <section class="card progress-history-card"><div class="section-head"><h2>Historial reciente</h2><span class="muted">Últimos registros</span></div><div id="history" class="history"></div><details id="historyOlder" class="progress-history-more"><summary>Ver historial anterior</summary><div id="historyOlderList" class="history"></div></details></section>

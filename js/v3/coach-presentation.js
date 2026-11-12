@@ -1,5 +1,5 @@
 const node=(tag,text)=>{const element=document.createElement(tag);if(text!=null)element.textContent=String(text);return element;};
-const ACTIONS={maintain_load:'Mantener carga',progress_load:'Progresar carga',reduce_load:'Reducir carga',reduce_sets:'Reducir series',avoid_leg_progression:'Evitar progresión de piernas',avoid_high_plyo:'Sin pliometría intensa',activation:'Activación',rest:'Descanso/recuperación'};
+const ACTIONS={maintain_load:'Mantener carga',progress_load:'Progresar carga',reduce_load:'Reducir carga',reduce_sets:'Reducir series',avoid_leg_progression:'Evitar progresión de piernas',avoid_high_plyo:'Sin pliometría intensa',deload:'Descarga',activation:'Activación',rest:'Descanso/recuperación'};
 export function renderCoachCard({recommendation,signals},snapshot){
   const card=node('section');card.className='card v3-coach-card';card.setAttribute('aria-label','Coach de hoy');
   card.append(node('p','COACH DE HOY'),node('h3',recommendation.title),node('p',recommendation.summary));

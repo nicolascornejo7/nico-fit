@@ -1,8 +1,9 @@
 import {v3Progression} from './training-progression.js';
 import {exerciseFamily} from './exercise-family.js';
 import {plyoProfile,PLYO_LIMITS} from './plyometrics.js';
+import {MESOCYCLE} from './hypertrophy.js';
 
-const TITLES={normal:'Entrenar normal',maintain:'Mantener carga',progress:'Progresar carga de forma controlada',reduce:'Reducir volumen y mantener margen',activation:'Convertir la sesión en activación',recovery:'Priorizar descanso y recuperación'};
+const TITLES={normal:'Entrenar normal',maintain:'Mantener carga',progress:'Progresar carga de forma controlada',reduce:'Reducir volumen y mantener margen',activation:'Convertir la sesión en activación',recovery:'Priorizar descanso y recuperación',deload:'Semana de descarga'};
 
 export function applyCoachRules(signals,snapshot){
   const reasons=[],warnings=[...signals.warnings],add=text=>reasons.push(`Regla general: ${text}`);
@@ -21,6 +22,9 @@ export function applyCoachRules(signals,snapshot){
   if(preMatch&&pain>=4)level='recovery';
   if(pain>=7||score!=null&&score<40||sleep===1&&energy===1){level='recovery';add('dolor alto o disponibilidad muy baja: preferir descanso/recuperación.');}
   if(dayIndex===0){level='recovery';add('domingo: preservar el día de recuperación.');}
+  const meso=signals.mesocycle;
+  if(meso?.deloadDue&&(level==='normal'||level==='maintain')){level='deload';add(`${meso.loadingWeeks} semanas seguidas de carga: semana de descarga planificada (≈${Math.round(MESOCYCLE.deloadSetsFactor*100)}% de las series, RIR 4).`);}
+  else if(meso?.enoughData&&!meso.deloadDue)add(`mesociclo: semana ${meso.week} de ${MESOCYCLE.loadingWeeks} de carga antes de la descarga.`);
   const recentFreeLegs=(signals.freeWorkoutLoads||[]).filter(row=>row.family==='legs'&&row.daysAgo<=3&&row.completedSets>=3&&(row.volume>=1000||row.rpe>=7));
   if(recentFreeLegs.length)add(`sesión libre de piernas registrada hace ${Math.min(...recentFreeLegs.map(row=>row.daysAgo))} día(s): se restringe progresión de piernas según las series, volumen y RPE realmente registrados.`);
   const plyo=signals.plyo;
@@ -44,6 +48,7 @@ export function applyCoachRules(signals,snapshot){
     const explanations=[];
     const conflict=snapshot?.conflicts?.length||previous?.conflicts?.length||[snapshot?.session,exercise,exercise.catalog,...(exercise.sets??[]),previous?.session,prior,prior?.catalog,...(prior?.sets??[])].some(row=>row?.sync_status==='conflict');
     if(level==='recovery'){action='rest';suggestedLoad=null;suggestedSets=0;targetRir=4;explanations.push('La recomendación principal prioriza recuperación.');}
+    else if(level==='deload'){action='deload';suggestedSets=Math.max(1,Math.round(rx.sets*MESOCYCLE.deloadSetsFactor));targetRir=4;explanations.push('Descarga: mismas cargas, menos series y más margen para recuperar.');}
     else if(level==='activation'){action='activation';suggestedLoad=base==null?null:Math.round(base*.8*100)/100;suggestedSets=Math.min(rx.sets,2);targetRir=4;explanations.push('Prepartido: sin aumentos, reducir intensidad y series.');}
     else if(level==='reduce'){action=pain>=4?'reduce_load':'reduce_sets';suggestedLoad=pain>=4&&base!=null?Math.round(base*.9*100)/100:base;suggestedSets=Math.max(1,rx.sets-(low&&rx.sets>=3?2:1));targetRir=3;explanations.push('Reducir volumen antes de buscar nuevos máximos.');}
     else if(legs&&recentFreeLegs.length){action='avoid_leg_progression';targetRir=3;explanations.push('Sesión libre reciente de piernas con carga registrada: evitar progresión hasta recuperar margen.');}

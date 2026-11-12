@@ -46,3 +46,11 @@ body{background:radial-gradient(circle at 88% -10%,#491016 0,transparent 31%),li
 .weekly-facts strong{display:block;font-size:17px}.weekly-facts span{font-size:11px;color:#bdbdbd}
 .weekly-split{font-size:13px;color:#cfcfcf;margin:8px 0 4px}.weekly-outlook ul{margin:4px 0 0;padding-left:18px;font-size:13px;color:#dedede}
 .v3-plyo-hint{font-size:13px;color:#ffd9dc;margin:4px 0}
+/* Phase 2: hypertrophy. */
+.subhead{font-size:15px;margin:16px 0 4px}.small{font-size:12px}
+.muscle-volume{display:grid;gap:8px;margin-top:8px}.muscle-row{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:8px;font-size:13px}
+.muscle-bar{position:relative;height:10px;border-radius:6px;background:#252525;overflow:hidden}
+.muscle-range{position:absolute;top:0;bottom:0;background:#2f4a37}.muscle-fill{position:absolute;left:0;top:2px;bottom:2px;border-radius:4px;background:var(--accent-strong)}
+.muscle-row.ok .muscle-fill{background:#3fbf6f}.muscle-row.high .muscle-fill{background:#e6b422}.muscle-sets{text-align:right}
+.v3-pr-badge{align-self:center;font-size:11px;font-weight:800;padding:2px 6px;border-radius:8px;background:#e6b422;color:#1a1300}
+.v3-set-record{box-shadow:inset 3px 0 0 #e6b422}
