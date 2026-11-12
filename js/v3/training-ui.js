@@ -13,6 +13,7 @@ import {V3CoachService} from './coach-service.js';
 import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
+import {muscleHighlights,muscleMapSvg} from './muscle-map.js';
 import {personalRecords,liveSetRecord} from './hypertrophy.js';
 
 const TUESDAY_PLAN_LABELS={normal:'Rutina completa',reduced:'Trabajo de piernas reducido',leg_recovery:'Recuperación de piernas',general_short:'Sesión breve por disponibilidad general'};
@@ -56,15 +57,23 @@ export class V3TrainingUI{
     if(!mayStartNewWork()){this.message.textContent='Esta pestaña debe actualizarse antes de iniciar trabajo nuevo.';return;}
     const before=anchor?this.anchorNode(anchor)?.getBoundingClientRect().top:null;
     this.busy=true;this.setDisabled(true);
-    try{await task();if(!this.destroyed){await this.render();const after=anchor&&this.anchorNode(anchor);if(before!=null&&after){const focus=anchor.kind==='set'?after.querySelector('.v3-set-complete'):after;focus?.focus?.({preventScroll:true});globalThis.window?.scrollBy?.(0,after.getBoundingClientRect().top-before);}else if(focusHeading)this.heading?.focus();}}
+    try{await task();if(!this.destroyed){await this.render();const after=anchor&&this.anchorNode(anchor);if(before!=null&&after){const focus=anchor.kind==='set'?after.querySelector('.v3-set-complete'):after;focus?.focus?.({preventScroll:true});const delta=after.getBoundingClientRect().top-before;if(delta)this.root.scrollTop+=delta;}else if(focusHeading)this.heading?.focus();}}
     catch(error){if(!this.destroyed){if(error.code==='COACH_PLAN_CHANGED')await this.render();this.message.textContent=error.message;this.message.focus();}}
     finally{this.busy=false;if(!this.destroyed)this.setDisabled(false);}
   }
   setDisabled(value){for(const node of this.root.querySelectorAll('button,input,select,textarea'))node.disabled=value;}
 
+  // Build the next screen off-DOM and swap it in one step, keeping the
+  // training screen's own scroll position (it scrolls, not the window).
   async render(){
     const snapshot=await this.engine.snapshot(),state=this.engine.getState();if(this.destroyed)return;
-    this.root.replaceChildren();const shell=el('div','','v3-training-shell');this.root.append(shell);
+    const keepScroll=this.root.scrollTop,shell=el('div','','v3-training-shell');this.pendingRest=null;
+    await this.#build(shell,snapshot,state);if(this.destroyed)return;
+    this.root.replaceChildren(shell,...(this.pendingRest?[this.pendingRest]:[]));this.pendingRest=null;
+    this.root.scrollTop=keepScroll;
+  }
+
+  async #build(shell,snapshot,state){
     const head=el('header','','v3-training-header');this.heading=el('h2','Entrenar');this.heading.tabIndex=-1;const back=button('‹ Volver',()=>this.onClose(),'ghost v3-back-button');back.setAttribute('aria-label','Volver al inicio');head.append(back,this.heading);shell.append(head);
     shell.append(el('p','Tus cambios se guardan en este dispositivo y se sincronizan cuando hay conexión.','muted v3-local-note'));
     this.message=el('p','','advice');this.message.setAttribute('role','status');this.message.setAttribute('aria-live','polite');this.message.tabIndex=-1;shell.append(this.message);
@@ -105,7 +114,7 @@ export class V3TrainingUI{
     const remaining=this.engine.restRemaining();if(!remaining)return;
     const bar=el('aside','','v3-rest-bar');bar.setAttribute('role','timer');bar.setAttribute('aria-label','Descanso entre series');
     this.restTime=el('strong',`Descanso ${duration(remaining)}`);bar.append(this.restTime,button('Omitir',()=>this.run(()=>this.engine.skipRest(),{anchor:{exerciseId:this.engine.getState()?.currentExerciseId},focusHeading:false}),'ghost'));
-    this.root.append(bar);
+    this.pendingRest=bar;
   }
 
   async renderStart(shell){
@@ -261,6 +270,9 @@ export class V3TrainingUI{
       card.append(el('p',`${rx.sets||1} × ${rx.min??'—'}${rx.max!=null&&rx.max!==rx.min?`–${rx.max}`:''} ${rx.measurement_kind==='seconds'?'s':'reps'} · Descanso ${rx.rest??rx.rest_seconds??0} s`,'muted'));
       if(rx.notes)card.append(el('p',rx.notes,'muted'));
       const plyoText=plyoHint(exercise.catalog);if(plyoText)card.append(el('p',plyoText,'v3-plyo-hint'));
+      const muscles=muscleHighlights(exercise.catalog);
+      if(muscles){const row=el('div','','v3-muscles'),map=muscleMapSvg(exercise.catalog),text=el('div','','v3-muscle-text');if(map)row.append(map);
+        text.append(el('p',`Trabaja: ${muscles.primary.join(', ')}`,'v3-muscle-primary'));if(muscles.secondary.length)text.append(el('p',`También: ${muscles.secondary.join(', ')}`,'v3-muscle-secondary'));row.append(text);card.append(row);}
       const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){
@@ -327,13 +339,20 @@ export class V3TrainingUI{
         node.setAttribute('aria-label',`Serie ${position+1}: ${label}`);wrapper.append(caption,node);row.append(wrapper);return node;
       };
       const lastSet=previousSets.find(item=>item.position===position)??previousSets.at(-1);
-      const load=input('kg',draft.load_kg,{step:'.001',placeholder:lastSet?.load_kg!=null?String(lastSet.load_kg):''}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
-      const seconds=rx.measurement_kind==='seconds'?input('seg',draft.duration_seconds,{max:86400,placeholder:rx.min&&rx.max?`${rx.min}–${rx.max}`:''}):null;
-      const rir=input('RIR',draft.rir,{max:5,step:'.1',placeholder:rx.target_rir!=null?String(rx.target_rir):''});
-      const read=isCompleted=>({load_kg:load.value,reps:reps?.value??null,duration_seconds:seconds?.value??null,rir:rir.value,is_completed:isCompleted});
+      // Hevy/Strong-style quick logging: suggested values come from the previous
+      // set of today, else the same set last session; ✓ on an empty field uses them.
+      const prior=exercise.sets.filter(item=>!item.deleted_at&&item.is_completed&&item.position<position).sort((a,b)=>b.position-a.position)[0]??null;
+      const fixed=rx.min!=null&&rx.min===rx.max?rx.min:null,hint=(field,fallback=null)=>prior?.[field]??lastSet?.[field]??fallback;
+      const hints={load_kg:hint('load_kg'),reps:hint('reps',fixed),duration_seconds:hint('duration_seconds',fixed),rir:rx.target_rir??null};
+      const range=rx.min&&rx.max?`${rx.min}–${rx.max}`:'',shown=value=>value==null?'':String(value);
+      const load=input('kg',draft.load_kg,{step:'.001',placeholder:shown(hints.load_kg)}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:shown(hints.reps)||range}):null;
+      const seconds=rx.measurement_kind==='seconds'?input('seg',draft.duration_seconds,{max:86400,placeholder:shown(hints.duration_seconds)||range}):null;
+      const rir=input('RIR',draft.rir,{max:5,step:'.1',placeholder:shown(hints.rir)});
+      const valueOr=(node,field,useHints)=>node?(node.value!==''||!useHints?node.value:shown(hints[field])):null;
+      const read=(isCompleted,useHints=false)=>({load_kg:valueOr(load,'load_kg',useHints),reps:valueOr(reps,'reps',useHints),duration_seconds:valueOr(seconds,'duration_seconds',useHints),rir:valueOr(rir,'rir',useHints),is_completed:isCompleted});
       for(const node of [load,reps,seconds,rir].filter(Boolean))node.addEventListener('input',()=>this.engine.saveDraft(key,read(!!set?.is_completed)).catch(error=>{if(!this.destroyed)this.message.textContent=error.message;}));
       const anchor={exerciseId:exercise.id,position,kind:'set'};
-      const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key}),{anchor}),'v3-set-complete');
+      const complete=button(set?.is_completed?'✓':'○',()=>this.run(()=>this.engine.saveSet(exercise.id,read(!set?.is_completed,!set?.is_completed),{setId:set?.id,position,startRest:!set?.is_completed,draftKey:key}),{anchor}),'v3-set-complete');
       complete.setAttribute('aria-pressed',String(!!set?.is_completed));complete.setAttribute('aria-label',`${set?.is_completed?'Desmarcar':'Completar'} serie ${position+1} de ${exercise.exercise_name_snapshot}`);row.append(complete);
       const record=set?.is_completed?liveSetRecord(set,best):null;
       if(record){row.classList.add('v3-set-record');const badge=el('span','PR','v3-pr-badge');badge.title=record.label;badge.setAttribute('aria-label',record.label);row.append(badge);}

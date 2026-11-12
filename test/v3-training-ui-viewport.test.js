@@ -17,6 +17,10 @@ class Element{
   getBoundingClientRect(){return {top:this.document.nodes().indexOf(this)*24-this.document.viewport.scrollY};}
   focus(options={}){this.document.activeElement=this;if(!options.preventScroll)this.document.viewport.scrollY+=this.getBoundingClientRect().top;}
   scrollIntoView(){this.document.viewport.scrollY+=this.getBoundingClientRect().top-300;}
+  // The training screen is a fixed overlay that scrolls itself (overflow-y:auto),
+  // so its root is the scroller; viewport.scrollY mirrors that offset.
+  get scrollTop(){return this===this.document.root?this.document.viewport.scrollY:0;}
+  set scrollTop(value){if(this===this.document.root)this.document.viewport.scrollY=Math.max(0,value);}
   click(){return this.listeners.click?.({currentTarget:this});}
   querySelectorAll(selector){const names=selector.split(',').map(item=>item.trim());return this.document.descendants(this).filter(node=>names.some(name=>name.startsWith('.')?node.className.split(' ').includes(name.slice(1)):node.tag===name));}
   querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
@@ -114,6 +118,29 @@ test('replacement opens recommendations without writes, exposes the full catalog
     assert.equal((await engine.metrics(completed.session.id)).perExercise[updated.exercise_catalog_id]?.completedSets,1);
     const coach=await new V3CoachService({engine,featureEnabled:true,now,readContext:async()=>({readiness:[],football:[],matches:[],warnings:[],hasConflicts:false})}).today(completed);
     assert.ok(coach.signals.history.some(item=>item.exercises.some(ex=>ex.exercise_catalog_id===updated.exercise_catalog_id&&ex.sets[0]?.is_completed)));
+    ui.destroy();
+  }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
+});
+
+test('an empty set completes with the previous set values and re-rendering keeps the scroll',async()=>{
+  installRolloutControl({snapshot:()=>({updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_routines_enabled:true,v3_coach_enabled:false}}),refreshIfDue:async()=>{}});
+  const previousDocument=globalThis.document,previousWindow=globalThis.window,doc=mobileDocument();
+  globalThis.document=doc;globalThis.window=doc.viewport;
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',featureEnabled:true});
+  try{
+    const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-15T12:00:00Z')});
+    const started=await engine.createSession();await repository.markBootstrapHydrated();
+    const ui=new V3TrainingUI({root:doc.root,engine,onClose:()=>{}});await ui.render();
+    let card=byClass(doc.root,'v3-exercise-card')[0],rows=byClass(card,'v3-inline-set');
+    byLabel(rows[0],'Serie 1: kg').value='52.5';byLabel(rows[0],'Serie 1: reps').value='9';byLabel(rows[0],'Serie 1: RIR').value='2';
+    await descendants(rows[0]).find(node=>node['aria-label']?.startsWith('Completar serie 1')).click();
+    card=byClass(doc.root,'v3-exercise-card')[0];rows=byClass(card,'v3-inline-set');
+    assert.equal(byLabel(rows[1],'Serie 2: kg').placeholder,'52.5');assert.equal(byLabel(rows[1],'Serie 2: reps').placeholder,'9');
+    await descendants(rows[1]).find(node=>node['aria-label']?.startsWith('Completar serie 2')).click();
+    const sets=(await engine.snapshot()).exercises[0].sets.sort((a,b)=>a.position-b.position);
+    assert.equal(sets[1].is_completed,true);assert.equal(Number(sets[1].load_kg),52.5);assert.equal(Number(sets[1].reps),9);
+    assert.equal(started.exercises[0].id,sets[1].session_exercise_id);
+    doc.root.scrollTop=480;await ui.render();assert.equal(doc.root.scrollTop,480);
     ui.destroy();
   }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
 });
