@@ -107,3 +107,4 @@
 .v3-editor-fields{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
 .v3-editor-add{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.v3-editor-add select{min-height:48px;border-radius:12px;border:1px solid #333338;background:#151517;color:#f5f5f5;padding:8px 10px;font-size:16px}
 .v3-editor-actions{display:grid;gap:8px}.v3-editor-pick{text-align:left}
+.v3-progress-cue{margin:0;padding:8px 12px;border-radius:12px;background:#12331f;color:#b8f6cc;font-size:14px;font-weight:700}.v3-progress-cue.coach{background:#3b2d13;color:#ffe4a3}

@@ -16,6 +16,7 @@ import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
 import {BAR_OPTIONS,describePlates,platesPerSide,usesBarbell} from './plates.js';
 import {exercisePhotos} from './exercise-photos.js';
+import {startingLoad} from './starting-load.js';
 import {exerciseProfile} from './exercise-recommendations.js';
 import {personalRecords,liveSetRecord} from './hypertrophy.js';
 
@@ -360,7 +361,11 @@ export class V3TrainingUI{
     const past=await this.#pastContext(exercise.session_id).catch(()=>null),previousSets=past?.last.get(exercise.exercise_catalog_id)??[],best=past?.best.get(exercise.exercise_catalog_id)??null;
     const rx=exercise.prescription_snapshot,extra=state.extraSets?.[exercise.id]||0,count=Math.max((rx.sets||1)+extra,0,...exercise.sets.map(set=>set.position+1));
     const suggestion=document.createElement('details');suggestion.className='v3-progression-note';suggestion.append(el('summary','Sugerencia de carga'));
-    suggestion.append(el('p',(await this.engine.progression(exercise.id,{readinessScore:this.readinessScore})).text,'advice'));
+    const progression=await this.engine.progression(exercise.id,{readinessScore:this.readinessScore});
+    suggestion.append(el('p',progression.text,'advice'));
+    const target=startingLoad({progression,coach:this.coachAdjustments?.get(exercise.id),lastLoad:previousSets.find(item=>item.position===0)?.load_kg??previousSets.at(-1)?.load_kg});
+    if(target.kind==='progress')card.append(el('p',`Hoy toca subir: ${String(target.load).replace('.',',')} kg · apuntá a ${rx.min??'—'}–${rx.max??'—'} reps`,'v3-progress-cue'));
+    else if(target.kind==='coach')card.append(el('p',`Coach: empezá con ${String(target.load).replace('.',',')} kg`,'v3-progress-cue coach'));
     const rows=el('div','','v3-inline-sets');card.append(rows);
     for(let position=0;position<count;position++){
       const set=exercise.sets.find(item=>item.position===position),key=`${exercise.id}:${set?.id||`slot:${position}`}`;
@@ -375,7 +380,10 @@ export class V3TrainingUI{
       // set of today, else the same set last session; ✓ on an empty field uses them.
       const prior=exercise.sets.filter(item=>!item.deleted_at&&item.is_completed&&item.position<position).sort((a,b)=>b.position-a.position)[0]??null;
       const fixed=rx.min!=null&&rx.min===rx.max?rx.min:null,hint=(field,fallback=null)=>prior?.[field]??lastSet?.[field]??fallback;
-      const hints={load_kg:hint('load_kg'),reps:hint('reps',fixed),duration_seconds:hint('duration_seconds',fixed),rir:rx.target_rir??null};
+      // The first set of today starts from the progression/Coach target; later
+      // sets follow what you actually did in the previous set.
+      const firstLoad=prior?null:target.load,progressing=!prior&&target.kind==='progress';
+      const hints={load_kg:prior?.load_kg??firstLoad??lastSet?.load_kg??null,reps:progressing?(rx.min??fixed):hint('reps',fixed),duration_seconds:hint('duration_seconds',fixed),rir:rx.target_rir??null};
       const range=rx.min&&rx.max?`${rx.min}–${rx.max}`:'',shown=value=>value==null?'':String(value);
       const load=input('kg',draft.load_kg,{step:'.001',placeholder:shown(hints.load_kg)}),reps=rx.measurement_kind!=='seconds'?input('reps',draft.reps,{max:500,placeholder:shown(hints.reps)||range}):null;
       const seconds=rx.measurement_kind==='seconds'?input('seg',draft.duration_seconds,{max:86400,placeholder:shown(hints.duration_seconds)||range}):null;
@@ -434,7 +442,7 @@ export class V3TrainingUI{
     const slot=this.coachSlot;if(!slot)return;
     try{const [{V3CoachService},{renderCoachCard}]=await Promise.all([import('./coach-service.js'),import('./coach-presentation.js')]);
       const result=await new V3CoachService({engine:this.engine}).today(snapshot);if(this.destroyed||slot!==this.coachSlot)return;
-      const card=renderCoachCard(result,snapshot);card.classList.add('v3-coach-card');slot.replaceChildren(card,button('Actualizar Coach',async()=>{await this.refreshCoach(await this.engine.snapshot());},'ghost v3-coach-refresh'));this.coachDate=result.signals.date;
+      this.coachAdjustments=new Map((result.recommendation?.exerciseAdjustments??[]).map(item=>[item.exerciseId,item]));const card=renderCoachCard(result,snapshot);card.classList.add('v3-coach-card');slot.replaceChildren(card,button('Actualizar Coach',async()=>{await this.refreshCoach(await this.engine.snapshot());},'ghost v3-coach-refresh'));this.coachDate=result.signals.date;
     }catch(error){if(this.destroyed||slot!==this.coachSlot)return;slot.replaceChildren(el('p',`Coach no disponible: ${error.message}`,'advice'));this.coachDate=localDateKey();}
   }
 }

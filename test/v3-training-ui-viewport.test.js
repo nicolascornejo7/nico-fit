@@ -167,3 +167,28 @@ test('the routine editor opens from training, edits sets and saves a new version
     ui.destroy();
   }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
 });
+
+test('a due progression pre-fills the first set with the next load and the bottom of the rep range',async()=>{
+  installRolloutControl({snapshot:()=>({updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_routines_enabled:true,v3_coach_enabled:false}}),refreshIfDue:async()=>{}});
+  const previousDocument=globalThis.document,previousWindow=globalThis.window,doc=mobileDocument();
+  globalThis.document=doc;globalThis.window=doc.viewport;
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',featureEnabled:true});
+  try{
+    await repository.markBootstrapHydrated();
+    let today=new Date('2026-09-15T12:00:00Z');
+    const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>today});
+    const first=await engine.createSession({dayIndex:2,useRoutine:true}),bench=first.exercises.find(ex=>ex.catalog.stable_key==='press-banca');
+    for(let position=0;position<3;position++)await engine.saveSet(bench.id,{load_kg:'60',reps:'10',duration_seconds:null,rir:'2',is_completed:true},{position});
+    await engine.finishSession({rpe:7});
+    today=new Date('2026-09-22T12:00:00Z');
+    const second=await engine.createSession({dayIndex:2,useRoutine:true}),next=second.exercises.find(ex=>ex.catalog.stable_key==='press-banca');
+    const ui=new V3TrainingUI({root:doc.root,engine,onClose:()=>{}});await ui.render();
+    const card=byClass(doc.root,'v3-exercise-card').find(node=>node.dataset.exerciseId===next.id),row=byClass(card,'v3-inline-set')[0];
+    assert.equal(byLabel(row,'Serie 1: kg').placeholder,'62.5');assert.equal(byLabel(row,'Serie 1: reps').placeholder,'6');
+    assert.ok(byClass(card,'v3-progress-cue')[0].textContent.startsWith('Hoy toca subir: 62,5 kg'));
+    await descendants(row).find(node=>node['aria-label']?.startsWith('Completar serie 1')).click();
+    const saved=(await engine.snapshot()).exercises.find(ex=>ex.id===next.id).sets[0];
+    assert.equal(Number(saved.load_kg),62.5);assert.equal(Number(saved.reps),6);
+    ui.destroy();
+  }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
+});
