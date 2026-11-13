@@ -10,7 +10,7 @@ import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {customExerciseMetadata} from './muscle-map.js';
 import {compatiblePrescription} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
-import {effectiveTuesdayExercises,TUESDAY_PLANS} from './tuesday-adaptation.js';
+import {effectiveTuesdayExercises} from './tuesday-adaptation.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -87,8 +87,8 @@ export class V3TrainingEngine{
     }
     let decision=null;
     if(adaptTuesday){
-      if(!TUESDAY_PLANS[concrete?.version.version_number]||concrete.version.day_index!==2)throw new Error('La adaptación requiere una versión publicada del martes.');
-      decision=await new V3CoachService({engine:this,featureEnabled:true,now:this.now}).tuesdayPlan({override:overrideCoach,now,routineVersion:concrete.version.version_number});
+      if(!concrete||concrete.version.day_index!==2)throw new Error('La adaptación requiere la rutina del martes.');
+      decision=await new V3CoachService({engine:this,featureEnabled:true,now:this.now}).tuesdayPlan({override:overrideCoach,now,base:concrete.snapshot});
       if(expectedCoachEvidenceKey!=null&&decision.evidenceKey!==expectedCoachEvidenceKey){const error=new Error('Los datos del lunes o el check-in cambiaron. Revisá el plan actualizado antes de comenzar.');error.code='COACH_PLAN_CHANGED';throw error;}
     }
     if(sessionType==='free_workout')await this.#ensureBaseCatalog();

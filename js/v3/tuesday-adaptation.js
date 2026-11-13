@@ -19,6 +19,22 @@ const PLAN_V2=Object.freeze({
 const PLYO_V3=Object.freeze({normal:{'salto-cajon':[3,null],'salto-longitud':[3,null]},reduced:{'salto-cajon':[2,null],'salto-longitud':[0,null]},leg_recovery:{'salto-cajon':[0,null],'salto-longitud':[0,null]},general_short:{'salto-cajon':[0,null],'salto-longitud':[0,null]}});
 const PLAN_V3=Object.freeze(Object.fromEntries(Object.entries(PLAN_V2).map(([variant,rows])=>[variant,Object.freeze({...PLYO_V3[variant],...rows})])));
 export const TUESDAY_PLANS=Object.freeze({2:PLAN_V2,3:PLAN_V3});
+
+// Edited (owner) Tuesday versions have no hand-written map: derive one from each
+// exercise profile with the same intent as the published plans.
+export function genericTuesdayPlan(baseExercises=[]){
+  const plan={normal:{},reduced:{},leg_recovery:{},general_short:{}};
+  for(const {stableKey,sets,catalog} of baseExercises){
+    const profile=exerciseProfile(catalog??{stable_key:stableKey}),plyo=plyoProfile(catalog??stableKey),region=catalog?.metadata?.body_region??(profile&&LEG_MUSCLES_ALL.has(profile.primary_muscles[0])?'legs':profile?.primary_muscles?.includes('core')?'core':'upper');
+    plan.normal[stableKey]=[sets,null];
+    if(plyo){plan.reduced[stableKey]=[plyo.intensity==='low'?Math.max(1,sets-1):0,null];plan.leg_recovery[stableKey]=[0,null];plan.general_short[stableKey]=[0,null];}
+    else if(region==='legs'){plan.reduced[stableKey]=[profile?.role==='main_strength'?Math.max(1,sets-1):Math.min(sets,1),4];plan.leg_recovery[stableKey]=[0,null];plan.general_short[stableKey]=[0,null];}
+    else if(region==='core'){plan.reduced[stableKey]=[Math.max(1,sets-1),null];plan.leg_recovery[stableKey]=[Math.max(1,sets-1),null];plan.general_short[stableKey]=[1,null];}
+    else{plan.reduced[stableKey]=[sets,3];plan.leg_recovery[stableKey]=[sets,3];plan.general_short[stableKey]=[Math.min(sets,2),4];}
+  }
+  return plan;
+}
+const LEG_MUSCLES_ALL=new Set(['quadriceps','hamstrings','glutes','calves','adductors']);
 const dayBefore=date=>{const [year,month,day]=date.split('-').map(Number);return localDateKey(new Date(year,month-1,day-1,12));};
 const classFor=count=>count>=TUESDAY_LOAD_THRESHOLDS.high?'high':count>=TUESDAY_LOAD_THRESHOLDS.moderate?'moderate':count?'low':'none';
 const shift=(value,delta)=>CLASSES[Math.max(0,Math.min(CLASSES.length-1,CLASSES.indexOf(value)+delta))];
@@ -71,8 +87,9 @@ export function mondayFootballLoad({football=[],monday}){
   return {sessions:rows.length,load,maxRpe,intense};
 }
 
-export function tuesdayDecision({history=[],readiness=[],football=[],now=new Date(),override=false,signalsConflicted=false,routineVersion=3}={}){
-  const PLAN=TUESDAY_PLANS[routineVersion];if(!PLAN)throw new Error('Versión de rutina del martes sin plan de adaptación.');
+export function tuesdayDecision({history=[],readiness=[],football=[],now=new Date(),override=false,signalsConflicted=false,routineVersion=3,baseExercises=null}={}){
+  const generic=!TUESDAY_PLANS[routineVersion];
+  const PLAN=generic?(baseExercises?.length?genericTuesdayPlan(baseExercises):null):TUESDAY_PLANS[routineVersion];if(!PLAN)throw new Error('Versión de rutina del martes sin plan de adaptación.');
   const date=localDateKey(now);
   if(now.getDay()!==2)throw new Error('La adaptación sólo corresponde al martes local.');
   const legLoad=mondayLegLoad({history,now,date});
@@ -104,14 +121,14 @@ export function tuesdayDecision({history=[],readiness=[],football=[],now=new Dat
   // The preview and the actual session creation must use the same evidence.
   // Exclude the selected override and clock time so either button can verify it.
   const evidenceKey=JSON.stringify({date,routineVersion,football:[mondayFootball.sessions,mondayFootball.load,mondayFootball.intense],sets:legLoad.sets.map(row=>[row.setId,row.exerciseId,row.name,row.pattern,row.rir,row.kg]).sort((a,b)=>a[0].localeCompare(b[0])),unknown:legLoad.unknown.map(row=>[row.setId,row.exerciseId,row.name]).sort((a,b)=>a[0].localeCompare(b[0])),readiness:[signals.rawReadiness?.id??null,signals.rawReadiness?.sleep??null,signals.rawReadiness?.energy??null,score,signals.pain,signals.freshness,signalsConflicted],recommendedVariant});
-  return {schemaVersion:1,routineVersion,date,decidedAt:now.toISOString(),evidenceKey,legLoadVariant:legVariant,readinessAdjustment:severe?'rest_recommended':low?'low':'none',recommendedVariant,selectedVariant,override:!!override,restRecommended:severe,readiness:{id:signals.rawReadiness?.id??null,score,pain:signals.pain,freshness:signals.freshness},legLoad,reasons,affected,totalSets:count};
+  return {schemaVersion:1,routineVersion,generic,date,decidedAt:now.toISOString(),evidenceKey,legLoadVariant:legVariant,readinessAdjustment:severe?'rest_recommended':low?'low':'none',recommendedVariant,selectedVariant,override:!!override,restRecommended:severe,readiness:{id:signals.rawReadiness?.id??null,score,pain:signals.pain,freshness:signals.freshness},legLoad,reasons,affected,totalSets:count};
 }
 
 export function effectiveTuesdayExercises(base,decision,catalogRows){
-  if(!TUESDAY_PLANS[base?.routine_version]||base.day_index!==2)throw new Error('Se requiere una rutina publicada del martes.');
+  if(!base||base.day_index!==2||!TUESDAY_PLANS[base.routine_version]&&!decision.generic)throw new Error('Se requiere una rutina del martes.');
   if(decision.routineVersion!=null&&decision.routineVersion!==base.routine_version)throw Object.assign(new Error('El plan del martes cambió de versión; revisá la propuesta antes de empezar.'),{code:'COACH_PLAN_CHANGED'});
   const selection=new Map(decision.affected.map(row=>[row.stableKey,row]));
-  if(selection.size!==base.exercises.length)throw new Error('Plan del martes incompleto.');
+
   const metadata={schema_version:1,leg_load_variant:decision.legLoadVariant,readiness_adjustment:decision.readinessAdjustment,recommended_variant:decision.recommendedVariant,selected_variant:decision.selectedVariant,override:decision.override,rest_recommended:decision.restRecommended,decided_at:decision.decidedAt,reasons:decision.reasons,evidence:decision.legLoad,base_routine_version_id:base.routine_version_id,omitted:decision.affected.filter(row=>row.sets===0).map(row=>row.stableKey)};
   const keys=new Map(catalogRows.map(row=>[row.id,row.stable_key]));
   return base.exercises.flatMap(ex=>{

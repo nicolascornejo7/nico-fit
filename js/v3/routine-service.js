@@ -71,11 +71,26 @@ export class V3RoutineService{
         await this.repository.commitLocalChanges([...changes,insert('routine_templates',id,template),insert('routine_versions',versionId,{routine_id:id,version_number:1,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id:rowId,...row})=>insert('routine_exercises',rowId,{...row,routine_version_id:versionId}))]);
         await this.repository.recordMigrationDecision({sourceKey:`v3:routine-seed:${dayIndex}:1`,entity:'routine_templates',status:'migrated',note:'Known validated V2 plan; no historic sessions inferred.',sourcePayload:source});
       }
-      // Publish each program version in order; training uses the latest.
-      let latest=null;for(const [versionNumber,program] of ROUTINE_PROGRAMS)if(program[dayIndex])latest=await this.#seedWeeklyVersion(dayIndex,id,versionNumber,program);
-      result.push(latest);
+      // Publish each program version in order. Once the owner saves an edited
+      // version, the app stops publishing programs over it; training always
+      // uses the highest live version of the template.
+      if(!await this.isCustomized(id))for(const [versionNumber,program] of ROUTINE_PROGRAMS)if(program[dayIndex])await this.#seedWeeklyVersion(dayIndex,id,versionNumber,program);
+      result.push(await this.latest(id));
     }
     return result;
+  }
+  // Versions published by the app have deterministic ids; any other version was
+  // created by the owner (editor) and marks the template as customized.
+  async isCustomized(templateId){
+    const versions=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).filter(row=>row.routine_id===templateId);
+    if(!versions.length)return false;
+    const known=new Set(await Promise.all([1,...ROUTINE_PROGRAMS.map(([version])=>version)].map(version=>stableClientUuid(`v3:routine-version:${templateId}:${version}`))));
+    return versions.some(row=>!known.has(row.id));
+  }
+  async latest(templateId){
+    const versions=(await this.repository.listRecords('routine_versions')).filter(row=>row.routine_id===templateId&&!row.deleted_at).sort((a,b)=>b.version_number-a.version_number);
+    if(!versions.length)throw new Error('Rutina sin versiones disponibles.');
+    return this.version(versions[0].id);
   }
   async #seedWeeklyVersion(dayIndex,templateId,versionNumber,program){
     const versionId=await stableClientUuid(`v3:routine-version:${templateId}:${versionNumber}`),existing=await this.repository.get('routine_versions',versionId);

@@ -14,8 +14,12 @@ export class V3CoachService{
     this.engine=engine;this.readContext=readContext;this.now=now;
   }
   async today(snapshot){const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));const signals=calculateCoachSignals({date:localDateKey(this.now()),readiness:context.readiness,football:context.football,matches:context.matches,history:await this.engine.history()});signals.warnings.push(...(context.warnings??[]));if(context.hasConflicts){signals.readinessScore=null;}return {recommendation:applyCoachRules(signals,snapshot),signals};}
-  async tuesdayPlan({override=false,now=this.now(),routineVersion=latestRoutineVersion(2)}={}){
+  // `base` is the Tuesday routine snapshot that will be trained (published or
+  // owner-edited); edited versions get a plan derived from exercise profiles.
+  async tuesdayPlan({override=false,now=this.now(),base=null,routineVersion=base?.routine_version??latestRoutineVersion(2)}={}){
+    let baseExercises=null;
+    if(base?.exercises){const catalog=await this.engine.repository.listRecords('exercise_catalog',{includeDeleted:true});baseExercises=base.exercises.map(row=>{const item=catalog.find(entry=>entry.id===row.exercise_catalog_id);return {stableKey:item?.stable_key??row.exercise_catalog_id,sets:row.prescription_snapshot?.sets??0,catalog:item};});}
     const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));
-    return tuesdayDecision({history:await this.engine.history(),readiness:context.readiness,football:context.football??[],now,override,signalsConflicted:context.hasConflicts,routineVersion});
+    return tuesdayDecision({history:await this.engine.history(),readiness:context.readiness,football:context.football??[],now,override,signalsConflicted:context.hasConflicts,routineVersion,baseExercises});
   }
 }

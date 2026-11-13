@@ -144,3 +144,26 @@ test('an empty set completes with the previous set values and re-rendering keeps
     ui.destroy();
   }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
 });
+
+test('the routine editor opens from training, edits sets and saves a new version',async()=>{
+  installRolloutControl({snapshot:()=>({updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_routines_enabled:true,v3_coach_enabled:false}}),refreshIfDue:async()=>{}});
+  const previousDocument=globalThis.document,previousWindow=globalThis.window,doc=mobileDocument();
+  globalThis.document=doc;globalThis.window=doc.viewport;
+  const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',featureEnabled:true});
+  try{
+    await repository.markBootstrapHydrated();
+    const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-17T12:00:00Z')});
+    const ui=new V3TrainingUI({root:doc.root,engine,onClose:()=>{}});await ui.render();
+    await descendants(doc.root).find(node=>node.textContent==='Editar rutinas').click();
+    const pick=descendants(doc.root).find(node=>typeof node.textContent==='string'&&node.textContent.startsWith('Fuerza principal · versión 3'));
+    assert.ok(pick,'Tuesday routine listed');await pick.click();
+    const sets=byLabel(doc.root,'Press banca: Series');assert.equal(String(sets.value),'3');
+    sets.value='4';sets.listeners.input();
+    await descendants(doc.root).find(node=>node.textContent==='Guardar versión 4').click();
+    assert.ok(descendants(doc.root).some(node=>typeof node.textContent==='string'&&node.textContent.startsWith('Guardada la versión 4')));
+    const latest=(await engine.routines.seedDefaults())[0];
+    assert.equal(latest.version.version_number,4);
+    assert.equal(latest.exercises.find(row=>row.exercise_name_snapshot==='Press banca').prescription_snapshot.sets,4);
+    ui.destroy();
+  }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}
+});

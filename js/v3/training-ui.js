@@ -10,11 +10,12 @@ import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
 import {recoveryUserMessage} from './recovery.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
-import {ROUTINE_PROGRAMS,latestRoutineVersion} from './weekly-program-v64.js';
+import {RoutineEditor} from './routine-editor.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
 import {BAR_OPTIONS,describePlates,platesPerSide,usesBarbell} from './plates.js';
+import {exercisePhotos} from './exercise-photos.js';
 import {exerciseProfile} from './exercise-recommendations.js';
 import {personalRecords,liveSetRecord} from './hypertrophy.js';
 
@@ -85,6 +86,7 @@ export class V3TrainingUI{
       shell.append(el('p',BOOTSTRAP_PENDING_MESSAGE,'advice'));
       return;
     }
+    if(this.editor){await this.editor.render(shell);return;}
     this.coachSlot=null;
     if(isV3CoachEnabled()){this.coachSlot=el('div');shell.append(this.coachSlot);await this.refreshCoach(snapshot);if(this.destroyed)return;}
     if(!snapshot||snapshot.session.status!=='draft'){
@@ -133,21 +135,27 @@ export class V3TrainingUI{
       primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
       if(hasRoutine&&dayIndex===2&&this.engine.routines){
         try{
-          const decision=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.engine.now}).tuesdayPlan();
+          const tuesday=(await this.engine.routines.seedDefaults()).find(graph=>graph.version.day_index===2);
+          const decision=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.engine.now}).tuesdayPlan({base:tuesday.snapshot});
           const plan=el('section','','v3-tuesday-plan');primary.append(plan);
           plan.append(el('h4',decision.selectedVariant==='normal'?'Hoy corresponde la rutina completa':decision.selectedVariant==='general_short'?'Hoy conviene una sesión breve':decision.legLoadVariant==='normal'?'Hoy ajusté la rutina por tu disponibilidad general':'Hoy reduje el trabajo de piernas'));
           plan.append(el('p',`${TUESDAY_PLAN_LABELS[decision.selectedVariant]} · ${decision.totalSets} series`,'advice'));
           for(const reason of decision.reasons)plan.append(el('p',reason,'muted'));
-          const tuesdayProgram=Object.fromEntries(ROUTINE_PROGRAMS)[latestRoutineVersion(2)][2];
-          for(const exercise of tuesdayProgram.exercises){
-            const target=decision.affected.find(row=>row.stableKey===exercise.stable_key);
-            if(target?.sets!==exercise.sets){const name=BASE_EXERCISES.find(row=>row.stable_key===exercise.stable_key)?.canonical_name??exercise.stable_key;plan.append(el('p',`${name}: ${exercise.sets} → ${target?.sets??0} series`,'muted'));}
+          const catalogRows=await this.engine.repository.listRecords('exercise_catalog',{includeDeleted:true});
+          for(const exercise of tuesday.snapshot.exercises){
+            const key=catalogRows.find(row=>row.id===exercise.exercise_catalog_id)?.stable_key,target=decision.affected.find(row=>row.stableKey===key),sets=exercise.prescription_snapshot.sets;
+            if(target?.sets!==sets)plan.append(el('p',`${exercise.exercise_name_snapshot}: ${sets} → ${target?.sets??0} series`,'muted'));
           }
           if(decision.restRecommended)plan.append(el('p','Coach recomienda descansar. Si decidís entrenar, se usará la sesión breve.','advice'));
           primary.append(button(decision.restRecommended?'Entrenar breve igualmente':'Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true,adaptTuesday:true,expectedCoachEvidenceKey:decision.evidenceKey})),'primary wide'));
           if(decision.selectedVariant!=='normal')primary.append(button('Usar rutina completa igualmente',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true,adaptTuesday:true,overrideCoach:true,expectedCoachEvidenceKey:decision.evidenceKey})),'ghost wide'));
         }catch(error){primary.append(el('p',`No se pudo evaluar el martes: ${error.message}`,'advice'));}
       }else if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+    }
+    if(this.engine.routines){
+      const routines=el('section','','card v3-routines-entry');shell.append(routines);
+      routines.append(el('h3','Mis rutinas'),el('p','Cambiá series, rangos, orden o ejercicios. Cada cambio se guarda como una versión nueva.','muted'));
+      routines.append(button('Editar rutinas',()=>this.run(async()=>{await this.engine.routines.seedDefaults();this.editor=new RoutineEditor({service:this.engine.routines,catalog:await this.engine.catalog(),run:task=>this.run(task),onClose:()=>{this.editor=null;return this.render();},rerender:()=>this.render()});}),'ghost wide'));
     }
     const free=el('section','','card v3-free-workout');shell.append(free);free.append(el('h3','Musculación libre'),el('p','Registrá sólo lo que realmente hagas, cualquier día.','muted'));
     const today=localDateKey(this.engine.now()),freeOptions=document.createElement('details');freeOptions.className='v3-start-options';freeOptions.append(el('summary','Ajustar fecha o nombre'));
@@ -276,6 +284,16 @@ export class V3TrainingUI{
       const muscles=muscleHighlights(exercise.catalog);
       if(muscles){const row=el('div','','v3-muscles'),map=muscleMapSvg(exercise.catalog),text=el('div','','v3-muscle-text');if(map)row.append(map);
         text.append(el('p',`Trabaja: ${muscles.primary.join(', ')}`,'v3-muscle-primary'));if(muscles.secondary.length)text.append(el('p',`También: ${muscles.secondary.join(', ')}`,'v3-muscle-secondary'));row.append(text);card.append(row);}
+      const photos=exercisePhotos(exercise.catalog);
+      if(photos){
+        // Photos load only when opened, to save mobile data; a failed load hides itself.
+        const how=document.createElement('details');how.className='v3-photos';how.append(el('summary','Ver cómo se hace'));
+        const strip=el('div','','v3-photo-strip');how.append(strip);let loaded=false;
+        how.addEventListener('toggle',()=>{if(!how.open||loaded)return;loaded=true;
+          for(const [src,label] of [[photos.start,'Inicio'],[photos.end,'Final']]){const figure=document.createElement('figure'),img=document.createElement('img');img.src=src;img.alt=`${exercise.exercise_name_snapshot}: posición ${label.toLowerCase()}`;img.loading='lazy';img.decoding='async';img.width=480;img.height=320;img.addEventListener('error',()=>figure.remove());figure.append(img,el('figcaption',label));strip.append(figure);}
+        });
+        card.append(how);
+      }
       if(usesBarbell(exerciseProfile(exercise.catalog))){
         const plates=document.createElement('details');plates.className='v3-plates';plates.append(el('summary','Discos por lado'));
         const lastLoad=[...exercise.sets].filter(item=>!item.deleted_at&&item.load_kg!=null).sort((a,b)=>a.position-b.position).at(-1)?.load_kg;
