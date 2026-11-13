@@ -1,13 +1,13 @@
 import {daysUntilSaturday} from './plan.js';
 import {completedSets} from './metrics.js';
 
-export function progressionSuggestion({exercise,previous,readinessScore=null,dayIndex,now=new Date()}){
+export function progressionSuggestion({exercise,previous,readinessScore=null,dayIndex,now=new Date(),hasMatch=true}){
   if(!previous)return {text:'Primera referencia: empezá conservador y dejá 2–3 RIR.',kg:''};
   const done=completedSets(previous.sets).filter(set=>Number(set.reps)>0&&(set.kg===''||Number(set.kg)>=0));
   if(!done.length)return {text:`Última vez: ${previous.date}. No hay series completadas para calcular progresión.`,kg:''};
   const kg=Math.max(...done.map(set=>Number(set.kg)||0));
   const detail=done.map(set=>`${set.kg||0}×${set.reps}`).join(' · ');
-  if(dayIndex===5||daysUntilSaturday(now)<=1)return {text:`Última vez ${previous.date}: ${detail}. Prepartido: no progreses carga. Usá ${kg} kg o menos y buscá velocidad.`,kg};
+  if(hasMatch&&(dayIndex===5||daysUntilSaturday(now)<=1))return {text:`Última vez ${previous.date}: ${detail}. Prepartido: no progreses carga. Usá ${kg} kg o menos y buscá velocidad.`,kg};
   if(done.length<exercise.sets)return {text:`Última vez ${previous.date}: ${detail}. Faltaron series objetivo: mantené la carga hasta completarlas.`,kg};
   const minReps=Math.min(...done.map(set=>Number(set.reps))),avgRir=done.reduce((sum,set)=>sum+Number(set.rir),0)/done.length;
   if(readinessScore!=null&&readinessScore<60)return {text:`Última vez ${previous.date}: ${detail}. Readiness bajo: mantené ${kg} kg o bajá 5–10% y reducí una serie.`,kg};

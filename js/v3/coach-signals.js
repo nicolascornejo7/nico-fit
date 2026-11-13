@@ -52,9 +52,9 @@ export function personalPatterns({gymRows,readiness, matches,date}){
   return result;
 }
 
-export function calculateCoachSignals({date,readiness=[],football=[],matches=[],history=[]}){
+export function calculateCoachSignals({date,readiness=[],football=[],matches=[],history=[],weekMode='match'}){
   const today=dateStamp(date);if(!Number.isFinite(today))throw new Error('Fecha de coach inválida.');
-  const dayIndex=new Date(today).getUTCDay(),daysToMatch=(6-dayIndex+7)%7,warnings=[];
+  const hasMatch=weekMode==='match',dayIndex=new Date(today).getUTCDay(),daysToMatch=hasMatch?(6-dayIndex+7)%7:7,warnings=[];
   const candidates=readiness.filter(row=>live(row)&&row.date===date).sort((a,b)=>String(b.updatedAt??b.updated_at??'').localeCompare(String(a.updatedAt??a.updated_at??'')));
   const source=candidates[0],freshness=source?.freshness??(valid(source?.fatigue,1,5)?6-source.fatigue:null);
   const complete=source&&valid(source.sleep,1,5)&&valid(source.energy,1,5)&&valid(freshness,1,5)&&valid(source.pain,0,10);
@@ -66,7 +66,7 @@ export function calculateCoachSignals({date,readiness=[],football=[],matches=[],
   const gymRows=completedHistory.flatMap(item=>{const metric=sessionMetrics(item);return metric.completedSets>0&&valid(metric.durationSeconds,1,86400)&&valid(metric.rpe,1,10)?[{date:item.session.session_date,load:metric.durationSeconds/60*metric.rpe}]:[];});
   const freeWorkoutLoadsRecent=freeWorkoutLoads(completedHistory,date),footballTrend=loadTrend(footballRows,date),gymTrend=loadTrend(gymRows,date);
   if(!footballTrend.sufficient||!gymTrend.sufficient)warnings.push('Historial de carga insuficiente: se usan reglas generales; ausencia de registros no equivale a descanso.');
-  const plyo=weeklyPlyoSummary(completedHistory,{date}),weekly=weeklyOutlook({date,footballRows,gymRows,plyo,readinessScore,pain:valid(source?.pain,0,10)?source.pain:null,daysToMatch});
+  const plyo=weeklyPlyoSummary(completedHistory,{date}),weekly=weeklyOutlook({date,weekMode,footballRows,gymRows,plyo,readinessScore,pain:valid(source?.pain,0,10)?source.pain:null,daysToMatch});
   const intenseFootball=footballRows.some(row=>{const age=(today-dateStamp(row.date))/DAY;return age>=0&&age<=2&&row.rpe>=8&&row.load>=480;});
-  return {date,dayIndex,daysToMatch,readinessScore,rawReadiness:source?structuredClone(source):null,sleep:complete?source.sleep:null,energy:complete?source.energy:null,freshness:complete?freshness:null,pain:valid(source?.pain,0,10)?source.pain:null,footballTrend,gymTrend,freeWorkoutLoads:freeWorkoutLoadsRecent,intenseFootball,plyo,weekly,mesocycle:mesocycleStatus(completedHistory,{date}),history:completedHistory,patterns:personalPatterns({gymRows,readiness,matches,date}),warnings};
+  return {date,dayIndex,daysToMatch,weekMode,hasMatch,readinessScore,rawReadiness:source?structuredClone(source):null,sleep:complete?source.sleep:null,energy:complete?source.energy:null,freshness:complete?freshness:null,pain:valid(source?.pain,0,10)?source.pain:null,footballTrend,gymTrend,freeWorkoutLoads:freeWorkoutLoadsRecent,intenseFootball,plyo,weekly,mesocycle:mesocycleStatus(completedHistory,{date}),history:completedHistory,patterns:personalPatterns({gymRows,readiness,matches,date}),warnings};
 }

@@ -29,6 +29,7 @@ import {recoveryUserMessage} from './v3/recovery.js';
 import {cachedV3Identity} from './v3/offline-auth.js';
 import {weeklyMuscleVolume,personalRecords,mesocycleStatus,MESOCYCLE} from './v3/hypertrophy.js';
 import {buildExport,setsCsv,downloadFile} from './v3/export.js';
+import {setWeekMode,WEEK_MODES} from './v3/week-mode.js';
 
 await rolloutReady;
 
@@ -111,7 +112,7 @@ function outlookCardHtml(score,cls,label){
   if(!weekly)return `<section class="today-card outlook-card neutral" aria-label="Readiness de hoy"><div class="outlook-head"><span class="outlook-label">READINESS DE HOY</span></div><h2>${escText(label)}</h2><div class="outlook-facts single">${readinessFact}</div></section>`;
   const plyo=weekly.plyo,ratio=weekly.acwr==null?'—':`${String(weekly.acwr).replace('.',',')}×`;
   const facts=[readinessFact,`<div class="fact"><strong>${ratio}</strong><span>Carga vs 4 sem</span></div>`,`<div class="fact"><strong>${plyo?.contacts??0}</strong><span>Contactos</span></div>`].join('');
-  return `<section class="today-card outlook-card ${weekly.level}" aria-label="Camino al sábado"><div class="outlook-head"><span class="weekly-light" aria-hidden="true"></span><span class="outlook-label">CAMINO AL SÁBADO</span></div><h2>${escText(weekly.title)}</h2><div class="outlook-facts">${facts}</div>${weekly.reasons[0]?`<p class="outlook-reason">${escText(weekly.reasons[0])}</p>`:''}<details class="weekly-outlook"><summary>Ver detalle de la semana</summary><p class="weekly-split">Fútbol ${weekly.footballWeek} AU · Gym ${weekly.gymWeek} AU · ${weekly.acute} AU en 7 días${plyo?` · ${plyo.sprintMeters} m de sprint · pliometría alta ${plyo.byIntensity.high}/${plyo.limits.weeklyHighContacts}`:''}</p><ul>${weekly.reasons.map(reason=>`<li>${escText(reason)}</li>`).join('')}</ul></details></section>`;
+  return `<section class="today-card outlook-card ${weekly.level}" aria-label="Camino al sábado"><div class="outlook-head"><span class="weekly-light" aria-hidden="true"></span><span class="outlook-label">${weekly.weekMode&&weekly.weekMode!=='match'?WEEK_MODES[weekly.weekMode].toUpperCase():'CAMINO AL SÁBADO'}</span></div><h2>${escText(weekly.title)}</h2><div class="outlook-facts">${facts}</div>${weekly.reasons[0]?`<p class="outlook-reason">${escText(weekly.reasons[0])}</p>`:''}<details class="weekly-outlook"><summary>Ver detalle de la semana</summary><p class="weekly-split">Fútbol ${weekly.footballWeek} AU · Gym ${weekly.gymWeek} AU · ${weekly.acute} AU en 7 días${plyo?` · ${plyo.sprintMeters} m de sprint · pliometría alta ${plyo.byIntensity.high}/${plyo.limits.weeklyHighContacts}`:''}</p><ul>${weekly.reasons.map(reason=>`<li>${escText(reason)}</li>`).join('')}</ul></details>${v3Context?.week&&(v3Context.week.strength.length||v3Context.week.cardio)?`<button type="button" class="ghost wide" id="openWeekRecsBtn">Qué sumar esta semana</button>`:''}</section>`;
 }
 const DATE_FORMAT=new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'short'});
 function renderTopbar(ctx,sat){$('topDate').textContent=DATE_FORMAT.format(ctx.now).replace('.','').toUpperCase();$('topHeadline').textContent=sat===0?'Partido hoy':sat===1?'Partido mañana':`Faltan ${sat} días`;}
@@ -123,13 +124,30 @@ function renderDashboard(){
     :`<h2>${escText(coach?.title??(sat===0?'Día de partido':ctx.plan.name))}</h2><p class="coach-summary">${escText(coach?ctx.plan.label:guidance(ctx))}</p>${coach?`<details class="coach-why"><summary>Por qué esta recomendación</summary><p>${escText(coach.summary)}</p>${(coach.reasons||[]).length?`<ul>${coach.reasons.slice(0,6).map(reason=>`<li>${escText(reason.replace(/^Regla general: /,''))}</li>`).join('')}</ul>`:''}</details>`:''}${actions}`;
   renderTopbar(ctx,sat);
   $('dashboardCard').innerHTML=`${outlookCardHtml(score,cls,label)}<section class="today-card coach-card" aria-label="Coach de hoy"><p class="eyebrow">COACH · ${escText(ctx.plan.name.toUpperCase())}</p>${body}</section>${syncNotice}`;
+  $('openWeekRecsBtn')?.addEventListener('click',()=>switchView('weekView'));
   $('retryRecoveryBtn')?.addEventListener('click',()=>{retryV3Bootstrap().catch(()=>{});});
   $('goWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:action[1]}})));
   $('freeWorkoutBtn')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'free'}})));
   $('openSupportBtn')?.addEventListener('click',()=>{switchView('settingsView');setTimeout(()=>$('v3SupportSection')?.scrollIntoView({block:'start',behavior:'smooth'}),0);});
 }
 const WEEK_DOW=['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'];
+function renderWeekMode(){
+  const card=$('weekModeCard'),mode=v3Context?.weekMode,week=v3Context?.week;
+  card.classList.toggle('hidden',storageOwner==='guest'||!mode);if(!mode)return;
+  for(const button of card.querySelectorAll('[data-week-mode]')){const active=button.dataset.weekMode===mode;button.classList.toggle('active',active);button.setAttribute('aria-checked',String(active));}
+  const box=clearNode($('weekRecommendations'));if(!week)return;
+  const section=(title,lines)=>{if(!lines.length)return;const block=box.ownerDocument.createElement('div');block.className='week-rec-block';appendTextElement(block,'h3',title,'subhead');for(const line of lines)appendTextElement(block,'p',line,'week-rec-line');box.append(block);};
+  section('Para tener en cuenta',week.notes);
+  section('Fuerza e hipertrofia',week.strength.map(row=>`${row.label}: ${row.sets}/${row.min} series efectivas (faltan ≈${row.deficit}). Sumá: ${row.exercises.join(' o ')}.`));
+  if(week.cardio)section(week.cardio.sessions>1?`Cardio (${week.cardio.sessions} sesiones en la semana)`:'Cardio',[week.cardio.detail,...week.cardio.options]);
+  if(!week.notes.length&&!week.strength.length&&!week.cardio)appendTextElement(box,'p','Semana en orden: tus músculos están dentro del rango y el fútbol cubre la carga aeróbica.','muted');
+}
+async function changeWeekMode(mode){
+  try{setWeekMode(storageOwner,currentContext().dateKey,mode);await refreshV3Product();}
+  catch(error){alert(error.message);}
+}
 function renderWeek(){
+  renderWeekMode();
   const ctx=currentContext(),order=[1,2,3,4,5,6,0],monday=new Date(ctx.now);monday.setDate(monday.getDate()-((ctx.dayIndex+6)%7));
   $('weekGrid').innerHTML=order.map((d,index)=>{const date=new Date(monday);date.setDate(monday.getDate()+index);const state=d===ctx.dayIndex?'today':d===6?'match':index<order.indexOf(ctx.dayIndex)?'past':'next';const badge=state==='today'?'Hoy':state==='match'?'Partido':'';
     return `<div class="day ${state} ${d===ctx.dayIndex?'active':''}"><span class="day-date"><small>${WEEK_DOW[d]}</small><b>${date.getDate()}</b></span><span class="day-body"><strong>${escText(plan[d].name)}</strong><span>${escText(plan[d].label)}</span></span>${badge?`<em class="day-badge">${badge}</em>`:''}</div>`;}).join('');
@@ -240,7 +258,7 @@ async function renderProgress(){
 async function loadHypertrophy(){
   if(!v3Today?.engine)return null;
   const history=await v3Today.engine.history(),date=localDateKey(),since=localDateKey(new Date(Date.now()-28*86400000));
-  return {volume:weeklyMuscleVolume(history,{date}),meso:mesocycleStatus(history,{date}),records:personalRecords(history).records.filter(row=>row.date>=since).reverse().slice(0,8)};
+  return {volume:weeklyMuscleVolume(history,{date,mode:v3Context?.weekMode??'match'}),meso:mesocycleStatus(history,{date}),records:personalRecords(history).records.filter(row=>row.date>=since).reverse().slice(0,8)};
 }
 const RECORD_LABEL={load:'peso',e1rm:'1RM estimado',reps:'repeticiones'};
 function renderHypertrophy(){
@@ -302,6 +320,7 @@ async function exportData(kind){
     $('exportStatus').textContent=`Listo: ${data.workouts.length} sesiones exportadas.`;}
   catch(error){console.warn(error);$('exportStatus').textContent='No se pudo exportar. Probá de nuevo.';}
 }
+document.querySelectorAll('[data-week-mode]').forEach(button=>button.onclick=()=>changeWeekMode(button.dataset.weekMode));
 $('exportJsonBtn').onclick=()=>exportData('json');$('exportCsvBtn').onclick=()=>exportData('csv');
 $('profileBtn').onclick=()=>{switchView('settingsView');if(!sync.user)$('authSection').classList.remove('hidden');};$('openAuthSettings').onclick=()=>{$('authSection').classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});};$('closeAuthBtn').onclick=()=>$('authSection').classList.add('hidden');document.querySelectorAll('.nav-btn').forEach(button=>button.onclick=()=>button.dataset.view==='workoutView'?document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'open'}})):switchView(button.dataset.view));
 $('loginBtn').onclick=async()=>{try{setAuthMessage('Iniciando sesión…');await sync.signIn($('email').value.trim(),$('password').value);setAuthMessage('Sesión iniciada.');}catch(error){setAuthMessage(error.message,true);}};$('signupBtn').onclick=async()=>{try{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6)return setAuthMessage('Email válido y contraseña de al menos 6 caracteres.',true);const result=await sync.signUp(email,password);setAuthMessage(result.session?'Cuenta creada.':'Cuenta creada. Revisá tu email para confirmarla.');}catch(error){setAuthMessage(error.message,true);}};

@@ -24,7 +24,7 @@ export function acuteChronic(rows,date){
 
 const sumWeek=(rows,date)=>{const today=stamp(date);return Math.round(rows.reduce((sum,row)=>{const age=(today-stamp(row.date))/DAY;return age>=0&&age<7&&Number.isFinite(row.load)?sum+row.load:sum;},0));};
 
-export function weeklyOutlook({date,footballRows=[],gymRows=[],plyo=null,readinessScore=null,pain=null,daysToMatch}){
+export function weeklyOutlook({date,weekMode='match',footballRows=[],gymRows=[],plyo=null,readinessScore=null,pain=null,daysToMatch}){
   const ratio=acuteChronic([...footballRows,...gymRows],date),reasons=[];
   let level='green';
   const raise=next=>{if(next==='red'||level==='green')level=next;};
@@ -42,7 +42,8 @@ export function weeklyOutlook({date,footballRows=[],gymRows=[],plyo=null,readine
     if(plyo.overHigh){raise('yellow');reasons.push(`Pliometría intensa: ${plyo.byIntensity.high} contactos de alta intensidad (tope ${plyo.limits.weeklyHighContacts}).`);}
     if(daysToMatch<=plyo.limits.highFreeDaysBeforeMatch&&daysToMatch>0&&plyo.highLast48h>0){raise('yellow');reasons.push('Pliometría o sprints intensos en las últimas 48 h antes del partido.');}
   }
-  const title=level==='red'?'Riesgo de llegar cargado':level==='yellow'?'Llegás, pero cuidá la carga':'En camino para el sábado';
+  const titles={match:['Riesgo de llegar cargado','Llegás, pero cuidá la carga','En camino para el sábado'],no_match:['Semana sin partido: priorizá recuperar','Semana sin partido: cuidá la carga','Semana sin partido: buen momento para cargar'],off_season:['Fuera de temporada: priorizá recuperar','Fuera de temporada: cuidá la carga','Fuera de temporada: bloque de hipertrofia']}[weekMode]??[];
+  const title=level==='red'?titles[0]:level==='yellow'?titles[1]:titles[2];
   if(level==='green'&&!reasons.length)reasons.push('Carga, readiness y pliometría dentro de lo esperado.');
-  return {level,title,daysToMatch,reasons,footballWeek:sumWeek(footballRows,date),gymWeek:sumWeek(gymRows,date),...ratio,plyo};
+  return {level,title,weekMode,daysToMatch,reasons,footballWeek:sumWeek(footballRows,date),gymWeek:sumWeek(gymRows,date),...ratio,plyo};
 }

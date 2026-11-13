@@ -9,13 +9,14 @@ export function applyCoachRules(signals,snapshot){
   const reasons=[],warnings=[...signals.warnings],add=text=>reasons.push(`Regla general: ${text}`);
   const {readinessScore:score,pain,freshness,sleep,energy,daysToMatch,dayIndex}=signals;
   const low=score!=null&&score<60,highLoad=(signals.footballTrend.changePercent??0)>=15||(signals.gymTrend.changePercent??0)>=20;
-  const preMatch=dayIndex===5||daysToMatch<=1,legsBlocked=daysToMatch<=2||signals.intenseFootball||highLoad;
+  const preMatch=signals.hasMatch!==false&&(dayIndex===5||daysToMatch<=1),legsBlocked=daysToMatch<=2||signals.intenseFootball||highLoad;
   let level=score==null?'maintain':'normal';
   if(score!=null)add(`readiness ${score}/100 (sueño ${sleep}/5, energía ${energy}/5, frescura ${freshness}/5, dolor ${pain}/10).`);
   else add('datos incompletos: mantener carga y evitar buscar PRs.');
   if(highLoad){level='reduce';if(signals.footballTrend.changePercent>=15)add(`carga de fútbol +${signals.footballTrend.changePercent}% vs promedio registrado de las 4 semanas previas.`);if(signals.gymTrend.changePercent>=20)add(`carga gym +${signals.gymTrend.changePercent}% vs promedio registrado de las 4 semanas previas.`);}
   if(signals.intenseFootball){level='reduce';add('fútbol intenso registrado en los últimos 2 días (RPE ≥8 y carga ≥480 AU).');}
   if(low||freshness<=2&&freshness!=null){level='reduce';add('readiness bajo o frescura ≤2/5: reducir series antes de aumentar carga.');}
+  if(signals.hasMatch===false)add(signals.weekMode==='off_season'?'fuera de temporada: sin restricciones por partido; prioridad hipertrofia y base aeróbica.':'semana sin partido: sin restricciones de prepartido; el sábado es día de entrenamiento.');
   if(daysToMatch<=2)add(`partido en ${daysToMatch} ${daysToMatch===1?'día':'días'}: evitar progresión de piernas.`);
   if(preMatch){level='activation';add('viernes/prepartido tiene prioridad: activación liviana, sin progresión.');}
   if(pain>=4){level='reduce';add(`dolor/molestia ${pain}/10: bloquear progresión y reducir carga/volumen.`);}

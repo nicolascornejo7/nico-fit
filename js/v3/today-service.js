@@ -2,6 +2,8 @@ import {localDateKey} from '../plan.js';
 import {V3SignalsRepository} from './signals-repository.js';
 import {V3TrainingEngine} from './training-engine.js';
 import {V3CoachService} from './coach-service.js';
+import {weekModeFor} from './week-mode.js';
+import {weekRecommendations} from './week-recommendations.js';
 
 const readinessScore=row=>row?Math.max(0,Math.min(100,Math.round(((row.sleep+row.energy+row.freshness)/15)*100-Math.max(0,row.pain-2)*3))):null;
 
@@ -16,7 +18,9 @@ export class V3TodayService{
     const usableActive=active?.session?.status==='draft'&&!active.session.deleted_at?active:null;
     let recommendation=null;
     try{recommendation=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.now}).today(usableActive);}catch{}
-    return {date,dayIndex,readiness,football,matches,readinessScore:readinessScore(readiness),recommendation,hasRoutine:[2,4,5].includes(dayIndex),activeSession:usableActive};
+    const weekMode=weekModeFor(this.repository.userId,date);let week=null;
+    try{week=weekRecommendations({mode:weekMode,date,signals:recommendation?.signals,catalog:await this.repository.listRecords('exercise_catalog')});}catch{}
+    return {date,dayIndex,readiness,football,matches,readinessScore:readinessScore(readiness),recommendation,weekMode,week,hasRoutine:[2,4,5].includes(dayIndex),activeSession:usableActive};
   }
   async recover(){return this.engine.recover();}
   async startToday(){const active=await this.engine.recover();if(active)return active;const now=this.now(),dayIndex=now.getDay();if(![2,4,5].includes(dayIndex))return null;return this.engine.createSession({date:localDateKey(now),dayIndex,useRoutine:true});}

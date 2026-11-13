@@ -11,6 +11,7 @@ import {customExerciseMetadata} from './muscle-map.js';
 import {compatiblePrescription} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {effectiveTuesdayExercises} from './tuesday-adaptation.js';
+import {weekModeFor} from './week-mode.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -288,7 +289,7 @@ export class V3TrainingEngine{
   async progression(exerciseId,{readinessScore=null}={}){
     const snapshot=await this.#editable(),exercise=snapshot.exercises.find(ex=>ex.id===exerciseId);if(!exercise)throw new Error('Ejercicio no disponible.');
     const occurrenceIndex=snapshot.exercises.filter(ex=>ex.exercise_catalog_id===exercise.exercise_catalog_id).findIndex(ex=>ex.id===exercise.id);
-    return v3Progression({exercise,session:snapshot.session,history:await this.history(),readinessScore,now:this.now(),occurrenceIndex});
+    return v3Progression({exercise,session:snapshot.session,history:await this.history(),readinessScore,now:this.now(),occurrenceIndex,hasMatch:weekModeFor(this.repository.userId,snapshot.session.session_date)==='match'});
   }
   async prs(){return estimatedPRs(await this.history());}
 }

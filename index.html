@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v75" />
+  <meta name="nico-fit-build" content="nico-fit-v76" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -169,6 +169,16 @@
       </section>
 
       <section id="weekView" class="view">
+        <section id="weekModeCard" class="card week-mode-card hidden" aria-labelledby="weekModeTitle">
+          <div class="section-head"><div><p class="eyebrow">ESTA SEMANA</p><h2 id="weekModeTitle">¿Hay partido el sábado?</h2></div></div>
+          <div class="week-mode-options" role="radiogroup" aria-label="Modo de la semana">
+            <button type="button" class="ghost" data-week-mode="match" role="radio">Con partido</button>
+            <button type="button" class="ghost" data-week-mode="no_match" role="radio">Sin partido</button>
+            <button type="button" class="ghost" data-week-mode="off_season" role="radio">Fuera de temporada</button>
+          </div>
+          <p class="muted small">Se guarda solo en este dispositivo. "Fuera de temporada" sigue activo hasta que vuelvas a "Con partido".</p>
+          <div id="weekRecommendations" class="week-recommendations"></div>
+        </section>
         <section class="card week-card">
           <div class="section-head"><div><p class="eyebrow">SEMANA</p><h2>Plan de lunes a domingo</h2></div><span class="muted">Objetivo: llegar fresco al sábado</span></div>
           <div id="weekGrid" class="week-grid"></div>

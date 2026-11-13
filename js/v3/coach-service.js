@@ -5,6 +5,7 @@ import {calculateCoachSignals} from './coach-signals.js';
 import {applyCoachRules} from './coach-rules.js';
 import {tuesdayDecision} from './tuesday-adaptation.js';
 import {latestRoutineVersion} from './weekly-program-v64.js';
+import {weekModeFor} from './week-mode.js';
 
 // Only the explicitly owned V2 profile supplies readiness/football; no writes.
 export class V3CoachService{
@@ -13,7 +14,7 @@ export class V3CoachService{
     if(!engine?.repository?.userId||engine.repository.userId==='guest')throw new Error('Coach requires an isolated authenticated repository.');
     this.engine=engine;this.readContext=readContext;this.now=now;
   }
-  async today(snapshot){const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));const signals=calculateCoachSignals({date:localDateKey(this.now()),readiness:context.readiness,football:context.football,matches:context.matches,history:await this.engine.history()});signals.warnings.push(...(context.warnings??[]));if(context.hasConflicts){signals.readinessScore=null;}return {recommendation:applyCoachRules(signals,snapshot),signals};}
+  async today(snapshot){const context=await (this.readContext?this.readContext(this.engine.repository.userId):coachContextFor(this.engine.repository));const date=localDateKey(this.now()),signals=calculateCoachSignals({date,readiness:context.readiness,football:context.football,matches:context.matches,history:await this.engine.history(),weekMode:weekModeFor(this.engine.repository.userId,date)});signals.warnings.push(...(context.warnings??[]));if(context.hasConflicts){signals.readinessScore=null;}return {recommendation:applyCoachRules(signals,snapshot),signals};}
   // `base` is the Tuesday routine snapshot that will be trained (published or
   // owner-edited); edited versions get a plan derived from exercise profiles.
   async tuesdayPlan({override=false,now=this.now(),base=null,routineVersion=base?.routine_version??latestRoutineVersion(2)}={}){

@@ -155,3 +155,9 @@ h1,h2,h3{font-family:var(--display);letter-spacing:-.01em}
 .progress-areas button{font-size:12px!important;padding-inline:2px!important;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(min-width:400px){.progress-areas button{font-size:13px!important}}
 .export-actions{display:grid;gap:10px;margin-top:12px}
+.week-mode-card{display:grid;gap:12px}.week-mode-card .section-head{margin-bottom:0}
+.week-mode-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:14px;background:var(--surface2);border:1px solid var(--line)}
+.week-mode-options button{border:0!important;background:transparent!important;color:var(--muted)!important;border-radius:10px!important;font-size:13px;padding-inline:4px!important;min-width:0}
+.week-mode-options button.active{background:var(--accent)!important;color:#fff!important}
+.week-recommendations{display:grid;gap:10px}.week-rec-block{display:grid;gap:6px;padding:12px;border-radius:16px;background:var(--surface2);border:1px solid var(--line)}.week-rec-block .subhead{margin:0}
+.week-rec-line{margin:0;font-size:14px;line-height:1.45;color:var(--soft)}

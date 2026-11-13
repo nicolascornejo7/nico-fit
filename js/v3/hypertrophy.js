@@ -16,6 +16,9 @@ export const MUSCLE_TARGETS=Object.freeze({
   chest:[10,20],upper_back:[10,20],lats:[10,20],deltoids:[8,16],rear_deltoids:[6,14],biceps:[6,14],triceps:[6,14],
   quadriceps:[6,12],hamstrings:[6,12],glutes:[6,12],calves:[4,10],adductors:[2,6],core:[4,10]
 });
+// Off-season: football no longer loads the legs, so they get normal ranges.
+export const OFF_SEASON_TARGETS=Object.freeze({...MUSCLE_TARGETS,quadriceps:[10,20],hamstrings:[10,20],glutes:[10,20],calves:[6,14],adductors:[4,10]});
+export const muscleTargets=mode=>mode==='off_season'?OFF_SEASON_TARGETS:MUSCLE_TARGETS;
 // Only these muscles are tracked; aliases fold into a tracked one.
 const ALIAS=Object.freeze({front_deltoids:'deltoids',brachialis:'biceps',obliques:'core',erectors:null,forearms:null,hips:null,ankles:null});
 const SKIP_ROLES=new Set(['activation','power','speed']);
@@ -48,9 +51,9 @@ export function hardSetsByMuscle(history,{from,to}){
   return {totals,sets};
 }
 
-export function weeklyMuscleVolume(history,{date}){
+export function weeklyMuscleVolume(history,{date,mode='match'}){
   const from=weekStart(date),to=iso(stamp(from)+6*DAY),{totals,sets}=hardSetsByMuscle(history,{from,to});
-  const muscles=Object.entries(MUSCLE_TARGETS).map(([muscle,[min,max]])=>{const value=Math.round(totals[muscle]*10)/10;return {muscle,label:MUSCLE_LABELS[muscle],sets:value,min,max,status:value<min?'low':value>max?'high':'ok'};});
+  const muscles=Object.entries(muscleTargets(mode)).map(([muscle,[min,max]])=>{const value=Math.round(totals[muscle]*10)/10;return {muscle,label:MUSCLE_LABELS[muscle],sets:value,min,max,status:value<min?'low':value>max?'high':'ok'};});
   return {from,to,hardSets:sets,muscles,untrained:muscles.filter(row=>row.sets===0).map(row=>row.label)};
 }
 
