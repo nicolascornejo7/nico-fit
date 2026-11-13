@@ -3,7 +3,7 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {stableClientUuid} from './import-v2.js';
 import {requiredText} from './training-validation.js';
 import {routinePrescription,sameRoutineValue} from './routine-validation.js';
-import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
+import {WEEKLY_PROGRAM_V64,v64LoadStep} from './weekly-program-v64.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 const assertRoutineWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_routines_enabled')===false)throw new Error('Rutinas V3 desactivadas o actualización requerida.');};
@@ -88,7 +88,7 @@ export class V3RoutineService{
       if(existingCatalog&&existingCatalog.measurement_kind!=='mixed'&&existingCatalog.measurement_kind!==item.measurement_kind)throw new Error('Unidad de catálogo incompatible con v64.');
       const catalogId=existingCatalog?.id??(base?await baseCatalogId(this.repository.userId,item.stable_key):await routineCatalogId(this.repository.userId,item.stable_key));
       if(!existingCatalog){if(!base&&!legacy)throw new Error('Ejercicio v64 ausente del catálogo explícito.');changes.push(insert('exercise_catalog',catalogId,base??{stable_key:item.stable_key,canonical_name:legacy.canonical_name,measurement_kind:item.measurement_kind,metadata:{source:'validated-v2-plan'}}));catalog.push({id:catalogId,stable_key:item.stable_key});}
-      const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:legacy?.prescription.step??0,measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes,source:'weekly-program-v64'});
+      const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:v64LoadStep(dayIndex,item.stable_key),measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes,source:'weekly-program-v64'});
       rows.push({id:await stableClientUuid(`v3:routine-version:${templateId}:2:exercise:${position}`),position,exercise_catalog_id:catalogId,exercise_name_snapshot:base?.canonical_name??legacy.canonical_name,prescription_snapshot:prescription});
     }
     const snapshot={schema_version:1,routine_id:templateId,routine_version:2,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};

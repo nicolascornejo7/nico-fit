@@ -1,9 +1,20 @@
-// Published default routine version 2. Version 1 remains sourced from plan.js.
+// Published default routine version 2. Version 1 remains sourced from plan.js,
+// which is frozen: its deterministic ids are already synced, so never edit it.
 // V3 stores one numeric target_rir; ranges use their conservative upper bound
 // here and retain the full coaching cue in notes.
 const exercise=(stable_key,sets,min,max,target_rir,rest,notes='',measurement_kind='reps')=>({
   stable_key,sets,min,max,target_rir,rest,notes,measurement_kind
 });
+
+// Load step (kg) per exercise and day. These are the exact values version 2 was
+// published with (originally read from plan.js v1); explicit so v2 no longer
+// depends on v1. Anything not listed progresses by 0 (no automatic load step).
+export const V64_LOAD_STEPS=Object.freeze({
+  2:{'sentadilla-prensa':2.5,'peso-muerto-rumano':2.5,'press-banca':2.5,'dominadas-jalon':2.5,'zancada-bulgara':2,'elevacion-gemelos':2.5},
+  4:{'press-inclinado-mancuernas':2,'remo':2.5,'press-militar':2,'dominadas-jalon':2.5,'curl-femoral':2.5},
+  5:{}
+});
+export const v64LoadStep=(dayIndex,stableKey)=>V64_LOAD_STEPS[dayIndex]?.[stableKey]??0;
 
 export const WEEKLY_PROGRAM_V64=Object.freeze({
   2:{label:'Fuerza principal',exercises:[

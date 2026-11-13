@@ -1,3 +1,5 @@
+// Routine version 1 (frozen). Its exercises seed deterministic, already-synced
+// V3 ids; the current program is js/v3/weekly-program-v64.js. Do not edit.
 export const plan = {
   1:{name:'Lunes',type:'Fútbol',label:'Entrenamiento con el equipo',intensity:'Media/Alta',exercises:[]},
   2:{name:'Martes',type:'Gimnasio',label:'Fuerza principal',intensity:'Alta',exercises:[

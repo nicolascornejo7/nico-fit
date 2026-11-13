@@ -12,7 +12,12 @@ export async function fetchRolloutConfig({fetchImpl=globalThis.fetch,timeoutMs=5
   try{
     const {url,publishableKey}=await fetchPublicConfig({fetchImpl,signal:controller.signal});
     const response=await fetchImpl(`${url}/rest/v1/rollout_config?select=*&singleton_id=eq.true`,{cache:'no-store',signal:controller.signal,headers:{apikey:publishableKey,Authorization:`Bearer ${publishableKey}`,'Accept-Profile':'nico_fit_v3'}});
-    if(!response.ok)throw new Error('No se pudo leer el rollout remoto.');
+    if(!response.ok){
+      // PGRST106 means the Data API stopped exposing nico_fit_v3 (a Supabase
+      // project setting), not a client bug: surface it with its own code.
+      let body=null;try{body=await response.json();}catch{}
+      throw Object.assign(new Error('No se pudo leer el rollout remoto.'),{status:response.status,code:body?.code==='PGRST106'?'SCHEMA_NOT_EXPOSED':body?.code??`HTTP_${response.status}`});
+    }
     const rows=await response.json();if(!Array.isArray(rows)||rows.length!==1)throw new Error('Config de rollout ausente.');
     return validateRolloutConfig(rows[0]);
   }finally{clearTimeout(timer);}
@@ -24,7 +29,7 @@ export class V3RolloutControl{
     this.config=null;this.source='fallback';this.lastValidAt=null;this.fallbackMinimum=null;this.nextFetchAt=0;this.pending=null;this.timer=null;this.channel=null;this.uninstall=null;
     this.onStorage=event=>{if(event.key===ROLLOUT_CACHE_KEY)this.consumeCache();};
   }
-  snapshot(){return resolveRollout(this.config,{buildId:this.buildId,source:this.source,lastValidAt:this.lastValidAt,fallbackMinimum:this.fallbackMinimum,now:this.now()});}
+  snapshot(){const state=resolveRollout(this.config,{buildId:this.buildId,source:this.source,lastValidAt:this.lastValidAt,fallbackMinimum:this.fallbackMinimum,now:this.now()});if(this.lastError)state.remoteError=this.lastError.code;return state;}
   emit(){const state=this.snapshot();this.onChange(state);return state;}
   consumeCache(){const cached=readCache(this.storage,ROLLOUT_CACHE_KEY,this.now(),this.ttlMs);if(!cached)return false;
     if(this.config&&cached.config.config_version<this.config.config_version)return false;
@@ -35,10 +40,10 @@ export class V3RolloutControl{
     if(this.pending)return this.pending;
     if(!force&&this.now()<this.nextFetchAt)return this.snapshot();
     this.pending=(async()=>{
-      try{const config=validateRolloutConfig(await this.fetchConfig());if(this.config&&config.config_version<this.config.config_version)throw new Error('Versión de rollout obsoleta.');this.config=config;this.fallbackMinimum=config.minimum_client_version;this.source='remote';this.lastValidAt=iso(this.now());this.nextFetchAt=this.now()+this.ttlMs;
+      try{const config=validateRolloutConfig(await this.fetchConfig());if(this.config&&config.config_version<this.config.config_version)throw new Error('Versión de rollout obsoleta.');this.config=config;this.fallbackMinimum=config.minimum_client_version;this.source='remote';this.lastError=null;this.lastValidAt=iso(this.now());this.nextFetchAt=this.now()+this.ttlMs;
         try{this.storage?.setItem(ROLLOUT_CACHE_KEY,JSON.stringify({config,fetchedAt:this.lastValidAt}));}catch{}
         this.channel?.postMessage({type:'rollout-updated'});
-      }catch{this.nextFetchAt=this.now()+Math.min(this.ttlMs,10000);if(!this.consumeCache()&&!this.config){this.source='fallback';}else if(this.config){this.source='stale-offline';}}
+      }catch(error){this.lastError={code:error?.code||(error?.name==='AbortError'?'TIMEOUT':'UNREACHABLE'),at:iso(this.now())};this.nextFetchAt=this.now()+Math.min(this.ttlMs,10000);if(!this.consumeCache()&&!this.config){this.source='fallback';}else if(this.config){this.source='stale-offline';}}
       return this.emit();
     })();try{return await this.pending;}finally{this.pending=null;}
   }
