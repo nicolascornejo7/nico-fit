@@ -1,11 +1,12 @@
-import {defaultRoutineId} from './routine-service.js';
+import {defaultRoutineId,offSeasonRoutineId} from './routine-service.js';
+import {gymDaysFor} from './offseason-program.js';
 
 const time=value=>{const parsed=Date.parse(value??'');return Number.isFinite(parsed)?parsed:0;};
 
-export async function completedRoutineSessions(repository,{date,dayIndex}){
-  if(!repository?.userId||![2,4,5].includes(dayIndex))return [];
+export async function completedRoutineSessions(repository,{date,dayIndex,mode='match'}){
+  if(!repository?.userId||!gymDaysFor(mode).includes(dayIndex))return [];
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(`${date}T12:00:00`).getDay()!==dayIndex)return [];
-  const routineId=await defaultRoutineId(repository.userId,dayIndex);
+  const routineId=mode==='off_season'?await offSeasonRoutineId(repository.userId,dayIndex):await defaultRoutineId(repository.userId,dayIndex);
   const sessions=await repository.listSessions({date,status:'completed'});
   return sessions.filter(session=>
     session.session_type==='routine'&&session.status==='completed'&&!session.deleted_at&&

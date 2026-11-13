@@ -30,6 +30,7 @@ import {cachedV3Identity} from './v3/offline-auth.js';
 import {weeklyMuscleVolume,personalRecords,mesocycleStatus,MESOCYCLE} from './v3/hypertrophy.js';
 import {buildExport,setsCsv,downloadFile} from './v3/export.js';
 import {setWeekMode,WEEK_MODES} from './v3/week-mode.js';
+import {OFF_SEASON_WEEK} from './v3/offseason-program.js';
 
 await rolloutReady;
 
@@ -44,7 +45,8 @@ const activeSession=new ActiveSessionStore({owner:storageOwner});
 const sync=new SyncService({getData:()=>data,setData:next=>{captureActiveDrafts();data=next;persistAndRender(false);},onState:setSyncBadge});
 sync.onAuth=user=>switchStorageOwner(user);
 
-function currentContext(now=new Date()){const dayIndex=now.getDay();return {now,dayIndex,dateKey:localDateKey(now),plan:plan[dayIndex]};}
+function planFor(dayIndex){return v3Context?.weekMode==='off_season'?OFF_SEASON_WEEK[dayIndex]:plan[dayIndex];}
+function currentContext(now=new Date()){const dayIndex=now.getDay();return {now,dayIndex,dateKey:localDateKey(now),plan:planFor(dayIndex)};}
 function workoutContext(){const state=activeSession.state;if(!state)return currentContext();return {now:new Date(),dayIndex:state.dayIndex,dateKey:state.sessionDate,plan:plan[state.dayIndex],active:state};}
 function persist(){saveLocalData(data,storageOwner);}
 function persistAndRender(capture=true){if(capture)captureActiveDrafts();persist();renderAll(false);}
@@ -149,8 +151,8 @@ async function changeWeekMode(mode){
 function renderWeek(){
   renderWeekMode();
   const ctx=currentContext(),order=[1,2,3,4,5,6,0],monday=new Date(ctx.now);monday.setDate(monday.getDate()-((ctx.dayIndex+6)%7));
-  $('weekGrid').innerHTML=order.map((d,index)=>{const date=new Date(monday);date.setDate(monday.getDate()+index);const state=d===ctx.dayIndex?'today':d===6?'match':index<order.indexOf(ctx.dayIndex)?'past':'next';const badge=state==='today'?'Hoy':state==='match'?'Partido':'';
-    return `<div class="day ${state} ${d===ctx.dayIndex?'active':''}"><span class="day-date"><small>${WEEK_DOW[d]}</small><b>${date.getDate()}</b></span><span class="day-body"><strong>${escText(plan[d].name)}</strong><span>${escText(plan[d].label)}</span></span>${badge?`<em class="day-badge">${badge}</em>`:''}</div>`;}).join('');
+  $('weekGrid').innerHTML=order.map((d,index)=>{const date=new Date(monday);date.setDate(monday.getDate()+index);const state=d===ctx.dayIndex?'today':d===6&&(v3Context?.weekMode??'match')==='match'?'match':index<order.indexOf(ctx.dayIndex)?'past':'next';const day=planFor(d),hasMatch=(v3Context?.weekMode??'match')==='match',badge=state==='today'?'Hoy':state==='match'&&hasMatch?'Partido':'';
+    return `<div class="day ${state} ${d===ctx.dayIndex?'active':''}"><span class="day-date"><small>${WEEK_DOW[d]}</small><b>${date.getDate()}</b></span><span class="day-body"><strong>${escText(day.name)}</strong><span>${escText(hasMatch||d!==6||v3Context?.weekMode==='off_season'?day.label:'Sin partido: día de entrenamiento o cardio')}</span></span>${badge?`<em class="day-badge">${badge}</em>`:''}</div>`;}).join('');
 }
 function suggestion(ex,ctx){return progressionSuggestion({exercise:ex,previous:latestPreviousWorkout(ex,ctx.dateKey),readinessScore:readinessScore(latestReadiness(ctx.dateKey)),dayIndex:ctx.dayIndex,now:ctx.now});}
 function initialDraft(ex,ctx){const active=ctx.active?.exercises.find(x=>sameExercise(x.exerciseId||x.name,ex));if(active)return active;const saved=data.workouts.find(w=>w.date===ctx.dateKey&&sameExercise(w.exerciseId||w.exercise,ex));return {exerciseId:ex.id,name:ex.name,sets:Array.from({length:ex.sets},(_,index)=>saved?.sets?.[index]||{})};}

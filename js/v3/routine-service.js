@@ -4,12 +4,14 @@ import {stableClientUuid} from './import-v2.js';
 import {requiredText} from './training-validation.js';
 import {routinePrescription,sameRoutineValue} from './routine-validation.js';
 import {ROUTINE_PROGRAMS,v64LoadStep} from './weekly-program-v64.js';
+import {OFF_SEASON_PROGRAM} from './offseason-program.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 const assertRoutineWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_routines_enabled')===false)throw new Error('Rutinas V3 desactivadas o actualización requerida.');};
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
 const uuid=()=>crypto.randomUUID();
 export const defaultRoutineId=(userId,dayIndex)=>stableClientUuid(`v3:routine-template:${userId}:validated-day-${dayIndex}`);
+export const offSeasonRoutineId=(userId,dayIndex)=>stableClientUuid(`v3:routine-template:${userId}:offseason-day-${dayIndex}`);
 
 // Public API for a future editor. Every prescription change publishes a new graph.
 export class V3RoutineService{
@@ -75,6 +77,33 @@ export class V3RoutineService{
       // version, the app stops publishing programs over it; training always
       // uses the highest live version of the template.
       if(!await this.isCustomized(id))for(const [versionNumber,program] of ROUTINE_PROGRAMS)if(program[dayIndex])await this.#seedWeeklyVersion(dayIndex,id,versionNumber,program);
+      result.push(await this.latest(id));
+    }
+    return result;
+  }
+  // Off-season routines live in their own templates (version 1 deterministic,
+  // so devices converge); later owner edits are respected through latest().
+  async seedOffSeason(){
+    assertRoutineWrite();
+    const result=[];
+    for(const [day,source] of Object.entries(OFF_SEASON_PROGRAM).map(([day,source])=>[Number(day),source])){
+      const id=await offSeasonRoutineId(this.repository.userId,day);
+      if(!await this.repository.get('routine_templates',id)){
+        const versionId=await stableClientUuid(`v3:routine-version:${id}:1`),catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true}),changes=[],rows=[];
+        for(const [position,item] of source.exercises.entries()){
+          const base=BASE_EXERCISES.find(row=>row.stable_key===item.stable_key);if(!base)throw new Error(`Ejercicio fuera de temporada sin catálogo base: ${item.stable_key}.`);
+          const existing=catalog.find(row=>row.stable_key===item.stable_key);
+          if(existing?.deleted_at)throw new Error('Catálogo requerido borrado: revisión explícita requerida.');
+          if(existing&&existing.measurement_kind!=='mixed'&&existing.measurement_kind!==item.measurement_kind)throw new Error('Unidad de catálogo incompatible con el programa fuera de temporada.');
+          const catalogId=existing?.id??await baseCatalogId(this.repository.userId,item.stable_key);
+          if(!existing){changes.push(insert('exercise_catalog',catalogId,base));catalog.push({id:catalogId,stable_key:item.stable_key});}
+          const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:item.step,measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes});
+          rows.push({id:await stableClientUuid(`v3:routine-version:${id}:1:exercise:${position}`),position,exercise_catalog_id:catalogId,exercise_name_snapshot:base.canonical_name,prescription_snapshot:prescription});
+        }
+        const template={id,name:source.label,stable_key:`offseason-day-${day}`,is_active:true,derived_from_routine_id:null};
+        const snapshot={schema_version:1,routine_id:id,routine_version:1,routine_version_id:versionId,name:source.label,day_index:day,exercises:rows};
+        await this.repository.commitLocalChanges([...changes,insert('routine_templates',id,template),insert('routine_versions',versionId,{routine_id:id,version_number:1,name_snapshot:source.label,day_index:day,prescription_snapshot:snapshot}),...rows.map(({id:rowId,...row})=>insert('routine_exercises',rowId,{...row,routine_version_id:versionId}))]);
+      }
       result.push(await this.latest(id));
     }
     return result;

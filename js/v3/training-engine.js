@@ -12,6 +12,7 @@ import {compatiblePrescription} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {effectiveTuesdayExercises} from './tuesday-adaptation.js';
 import {weekModeFor} from './week-mode.js';
+import {OFF_SEASON_PROGRAM} from './offseason-program.js';
 
 const clone=value=>structuredClone(value);
 const insert=(entity,id,payload)=>({entity,id,type:'insert',payload});
@@ -82,8 +83,14 @@ export class V3TrainingEngine{
     const routine=routineForDay(dayIndex??new Date(`${sessionDate}T12:00:00`).getDay()),id=this.crypto.randomUUID();
     if(routineVersionId&&!this.routines)throw new Error('Habilitá explícitamente rutinas V3 para elegir una versión.');
     let concrete=null;
-    if(this.routines&&(routineVersionId||useRoutine&&routine.exercises.length)){
+    // Off-season weeks train the off-season program; Monday football is gone, so
+    // the Tuesday adaptation does not apply.
+    const day=dayIndex??new Date(`${sessionDate}T12:00:00`).getDay();
+    const offSeason=!!this.routines&&sessionType==='routine'&&useRoutine&&!routineVersionId&&!!OFF_SEASON_PROGRAM[day]&&weekModeFor(this.repository.userId,sessionDate)==='off_season';
+    if(offSeason)adaptTuesday=false;
+    if(this.routines&&(routineVersionId||offSeason||useRoutine&&routine.exercises.length)){
       if(routineVersionId)concrete=await this.routines.version(routineVersionId,{forTraining:true});
+      else if(offSeason){const graph=(await this.routines.seedOffSeason()).find(item=>item.version.day_index===day);concrete=await this.routines.version(graph.version.id,{forTraining:true});}
       else{const defaults=await this.routines.seedDefaults(),selected=defaults.find(item=>item.version.day_index===routine.dayIndex);concrete=await this.routines.version(selected.version.id,{forTraining:true});}
     }
     let decision=null;

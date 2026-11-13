@@ -11,6 +11,8 @@ import {recoveryUserMessage} from './recovery.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {RoutineEditor} from './routine-editor.js';
+import {weekModeFor} from './week-mode.js';
+import {OFF_SEASON_WEEK,gymDaysFor} from './offseason-program.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
@@ -124,8 +126,8 @@ export class V3TrainingUI{
 
   async renderStart(shell){
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
-    const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),hasRoutine=[2,4,5].includes(dayIndex),dayLabel={2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
-    const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex}):[];
+    const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),mode=weekModeFor(this.engine.repository.userId,date),offSeason=mode==='off_season',hasRoutine=gymDaysFor(mode).includes(dayIndex),dayLabel=offSeason?OFF_SEASON_WEEK[dayIndex]?.label:{2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
+    const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex,mode}):[];
     const primary=el('section','','card v3-training-primary');shell.append(primary);primary.append(el('h3',hasRoutine?'Entrenamiento de hoy':'Hoy no hay rutina programada'));
     if(completed.length){
       const latest=await this.engine.snapshot(completed[0].id),metrics=sessionMetrics(latest);
@@ -134,7 +136,7 @@ export class V3TrainingUI{
       if(completed.length>1){const others=document.createElement('details');others.className='v3-completed-more';others.append(el('summary',`Otras sesiones completadas hoy (${completed.length-1})`));for(const session of completed.slice(1))others.append(button(`Ver sesión de ${formatLocalTime(session.started_at)}`,()=>{this.viewedCompletedId=session.id;return this.render();}));primary.append(others);}
     }else{
       primary.append(el('p',hasRoutine?`${dayLabel}. Podés ajustar los detalles durante la sesión.`:'Elegí musculación libre o creá una sesión personalizada cuando quieras.','muted'));
-      if(hasRoutine&&dayIndex===2&&this.engine.routines){
+      if(hasRoutine&&dayIndex===2&&!offSeason&&this.engine.routines){
         try{
           const tuesday=(await this.engine.routines.seedDefaults()).find(graph=>graph.version.day_index===2);
           const decision=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.engine.now}).tuesdayPlan({base:tuesday.snapshot});
