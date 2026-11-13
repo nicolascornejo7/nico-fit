@@ -61,8 +61,8 @@ test('pull-only restores completed workout without pushing local routine seeds',
   try{
     const defaults=await new V3RoutineService({repository,featureEnabled:true}).seedDefaults();
     const pending=await repository.listOperations({status:'pending'});
-    assert.equal(pending.length,77);
-    assert.deepEqual(Object.fromEntries(['exercise_catalog','routine_templates','routine_versions','routine_exercises'].map(entity=>[entity,pending.filter(op=>op.entity===entity).length])),{exercise_catalog:23,routine_templates:3,routine_versions:6,routine_exercises:45});
+    assert.equal(pending.length,104);
+    assert.deepEqual(Object.fromEntries(['exercise_catalog','routine_templates','routine_versions','routine_exercises'].map(entity=>[entity,pending.filter(op=>op.entity===entity).length])),{exercise_catalog:27,routine_templates:3,routine_versions:8,routine_exercises:66});
     assert.equal(await repository.getSyncCheckpoint('workout_sessions'),null);
     const remote=new ReadOnlyRemote();
     for(const operation of pending){
@@ -77,12 +77,12 @@ test('pull-only restores completed workout without pushing local routine seeds',
     assert.ok(remote.reads>0);
     assert.equal(result.conflicts,0);
     assert.equal(result.pushed,0);
-    assert.equal(result.confirmed,77);
+    assert.equal(result.confirmed,104);
     assert.equal((await repository.listOperations({status:'pending'})).length,0);
     const syncedSeeds=await repository.listOperations({status:'synced'});
-    assert.equal(syncedSeeds.length,77);
+    assert.equal(syncedSeeds.length,104);
     assert.equal((await repository.listOperations({status:'superseded'})).length,0);
-    assert.deepEqual(Object.fromEntries(['exercise_catalog','routine_templates','routine_versions','routine_exercises'].map(entity=>[entity,syncedSeeds.filter(op=>op.entity===entity).length])),{exercise_catalog:23,routine_templates:3,routine_versions:6,routine_exercises:45});
+    assert.deepEqual(Object.fromEntries(['exercise_catalog','routine_templates','routine_versions','routine_exercises'].map(entity=>[entity,syncedSeeds.filter(op=>op.entity===entity).length])),{exercise_catalog:27,routine_templates:3,routine_versions:8,routine_exercises:66});
     for(const operation of syncedSeeds){const row=await repository.get(operation.entity,operation.record_id);assert.equal(row.remote_version,2);assert.equal(row.sync_status,'synced');}
     assert.equal((await repository.listConflicts()).length,0);
     assert.equal((await repository.get('workout_sessions',completedId)).status,'completed');
@@ -92,7 +92,7 @@ test('pull-only restores completed workout without pushing local routine seeds',
     assert.equal((await repository.getTrainingState())?.activeSessionId??null,null);
     assert.equal((await repository.listRecords('session_exercises',{includeDeleted:true})).length,16);
     assert.equal((await repository.listRecords('exercise_sets')).length,15);
-    assert.equal((await repository.listRecords('exercise_catalog')).length,34);
+    assert.equal((await repository.listRecords('exercise_catalog')).length,38);
     const progress=await new UnifiedProgress({repository,v2Reader:{read:async()=>({workouts:[],sessions:[],readiness:[],football:[],matches:[]})}}).load();
     assert.equal(progress.metrics.completedSessions,1);
     assert.equal(progress.sessions.length,1);
@@ -109,7 +109,7 @@ test('pull-only restores completed workout without pushing local routine seeds',
     assert.deepEqual(remote.mutationEntities,[]);
     assert.deepEqual(Object.fromEntries([...remote.rows].map(([entity,rows])=>[entity,rows.size])),remoteCounts);
     assert.equal((await repository.listOperations({status:'pending'})).length,0);
-    assert.equal((await repository.listOperations({status:'synced'})).length,77);
+    assert.equal((await repository.listOperations({status:'synced'})).length,104);
     assert.equal((await repository.listConflicts()).length,0);
     assert.equal((await repository.get('workout_sessions',completedId)).status,'completed');
     assert.ok((await repository.get('workout_sessions',discardedId)).deleted_at);
@@ -160,7 +160,7 @@ test('pull-only keeps a functional seed mismatch as conflict and still downloads
     assert.equal(result.conflicts,1);
     assert.equal((await repository.listConflicts()).length,1);
     assert.equal((await repository.listOperations({status:'conflict'}))[0].record_id,changed.record_id);
-    assert.equal((await repository.listOperations({status:'synced'})).length,76);
+    assert.equal((await repository.listOperations({status:'synced'})).length,103);
     assert.equal((await repository.get('workout_sessions',sessionId)).status,'completed');
     assert.equal((await repository.listRecords('exercise_sets')).length,15);
     const after=await new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).syncOnce();
@@ -201,7 +201,7 @@ test('pull-only refuses wrong Auth owner and offline without touching queue or s
     await assert.rejects(new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null}).pullOnly(),/does not match/);
     assert.equal(remote.reads,0);
     assert.deepEqual(remote.mutationEntities,[]);
-    assert.equal((await repository.listOperations({status:'pending'})).length,77);
+    assert.equal((await repository.listOperations({status:'pending'})).length,104);
   }finally{reset();repository.close();}
 });
 
@@ -294,7 +294,7 @@ test('fresh empty account seeds only after empty pull; offline and interrupted b
     let readsAtSeed=0;
     const result=await bootstrapV3Repository(repository,{pullOnly:()=>sync.pullOnly(),routinesEnabled:()=>true,seedDefaults:async()=>{readsAtSeed=remote.reads;return new V3RoutineService({repository,featureEnabled:true}).seedDefaults();}});
     assert.equal(result.status,'hydrated');assert.ok(readsAtSeed>0);
-    assert.equal((await repository.listOperations({status:'pending'})).length,77);
+    assert.equal((await repository.listOperations({status:'pending'})).length,104);
     assert.equal((await repository.listRecords('workout_sessions')).length,0);
     assert.deepEqual(remote.mutationEntities,[]);
   }finally{reset();repository.close();}
@@ -354,7 +354,7 @@ test('normal sync cannot push when initial pull fails and retry after reopen res
     await assert.rejects(sync.syncOnce(),/first pull failed/);
     assert.equal((await repository.getBootstrapState()).state,'pending');
     assert.deepEqual(remote.mutationEntities,[]);
-    assert.equal((await repository.listOperations({status:'pending'})).length,77);
+    assert.equal((await repository.listOperations({status:'pending'})).length,104);
     repository.close();
     const reopened=await V3LocalRepository.open({indexedDB:factory,userId:USER,featureEnabled:true});
     try{
@@ -363,7 +363,7 @@ test('normal sync cannot push when initial pull fails and retry after reopen res
       for(const operation of await reopened.listOperations({status:'pending'}))equivalent.add(operation.entity,serverRecord(remotePayloadForOperation(operation,USER)));
       const resumed=new V3SyncEngine({repository:reopened,remote:equivalent,featureEnabled:true,routinesSyncEnabled:true,locks:null});
       const result=await resumed.syncOnce();
-      assert.equal(result.conflicts,0);assert.equal(result.pushed,77); // Existing sync counters include pull confirmations.
+      assert.equal(result.conflicts,0);assert.equal(result.pushed,104); // Existing sync counters include pull confirmations.
       assert.deepEqual(equivalent.mutationEntities,[]);
       assert.equal((await reopened.getBootstrapState()).state,'hydrated');
       assert.equal((await reopened.listOperations({status:'pending'})).length,0);

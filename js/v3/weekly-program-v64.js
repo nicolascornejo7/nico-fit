@@ -46,3 +46,20 @@ export const WEEKLY_PROGRAM_V64=Object.freeze({
     exercise('remo',1,8,8,5,60,'RIR 4–5 · baja fatiga')
   ]}
 });
+
+// Routine version 3: adds plyometrics where they fit the match week. Tuesday
+// (match in 4 days) opens with low/moderate jumps while fresh; Thursday (2
+// days out) keeps only low/moderate contacts plus lateral work. Friday stays v2.
+const withPlyo=(day,items)=>Object.freeze({...WEEKLY_PROGRAM_V64[day],exercises:Object.freeze([...items,...WEEKLY_PROGRAM_V64[day].exercises])});
+export const WEEKLY_PROGRAM_V3=Object.freeze({
+  2:withPlyo(2,[
+    exercise('salto-cajon',3,4,4,null,90,'Plio baja · aterrizaje suave, subir y bajar caminando'),
+    exercise('salto-longitud',3,3,3,null,120,'Plio media · máxima calidad, frenar estable')
+  ]),
+  4:withPlyo(4,[
+    exercise('pogo-saltos',2,10,10,null,60,'Plio baja · tobillos rígidos, contacto corto'),
+    exercise('saltos-laterales',2,3,3,null,75,'Plio media · por lado, frenar y estabilizar rodilla')
+  ])
+});
+export const ROUTINE_PROGRAMS=Object.freeze([[2,WEEKLY_PROGRAM_V64],[3,WEEKLY_PROGRAM_V3]]);
+export const latestRoutineVersion=dayIndex=>Math.max(...ROUTINE_PROGRAMS.filter(([,program])=>program[dayIndex]).map(([version])=>version));

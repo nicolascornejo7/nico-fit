@@ -10,7 +10,7 @@ import {BOOTSTRAP_PENDING_MESSAGE} from './bootstrap.js';
 import {recoveryUserMessage} from './recovery.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
-import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
+import {ROUTINE_PROGRAMS,latestRoutineVersion} from './weekly-program-v64.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
@@ -138,7 +138,8 @@ export class V3TrainingUI{
           plan.append(el('h4',decision.selectedVariant==='normal'?'Hoy corresponde la rutina completa':decision.selectedVariant==='general_short'?'Hoy conviene una sesión breve':decision.legLoadVariant==='normal'?'Hoy ajusté la rutina por tu disponibilidad general':'Hoy reduje el trabajo de piernas'));
           plan.append(el('p',`${TUESDAY_PLAN_LABELS[decision.selectedVariant]} · ${decision.totalSets} series`,'advice'));
           for(const reason of decision.reasons)plan.append(el('p',reason,'muted'));
-          for(const exercise of WEEKLY_PROGRAM_V64[2].exercises){
+          const tuesdayProgram=Object.fromEntries(ROUTINE_PROGRAMS)[latestRoutineVersion(2)][2];
+          for(const exercise of tuesdayProgram.exercises){
             const target=decision.affected.find(row=>row.stableKey===exercise.stable_key);
             if(target?.sets!==exercise.sets){const name=BASE_EXERCISES.find(row=>row.stable_key===exercise.stable_key)?.canonical_name??exercise.stable_key;plan.append(el('p',`${name}: ${exercise.sets} → ${target?.sets??0} series`,'muted'));}
           }

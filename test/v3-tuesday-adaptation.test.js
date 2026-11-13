@@ -70,13 +70,13 @@ test('six leg sets with good readiness preserve all upper work; low general read
   assert.equal(good.legLoadVariant,'leg_recovery');assert.equal(good.selectedVariant,'leg_recovery');assert.equal(good.totalSets,8);
   assert.deepEqual(good.affected.filter(row=>['press-banca','dominadas-jalon'].includes(row.stableKey)).map(row=>row.sets),[3,3]);
   const bad=decision(history,{readiness:[ready({sleep:2,energy:2,freshness:2})]});assert.equal(bad.selectedVariant,'general_short');assert.equal(bad.totalSets,5);
-  const noGym=decision([],{readiness:[ready({sleep:3,energy:3,freshness:2})]});assert.equal(noGym.selectedVariant,'reduced');assert.equal(noGym.totalSets,12);
+  const noGym=decision([],{readiness:[ready({sleep:3,energy:3,freshness:2})]});assert.equal(noGym.selectedVariant,'reduced');assert.equal(noGym.totalSets,14);
   const severe=decision([],{readiness:[ready({sleep:1,energy:1,freshness:1})]});assert.equal(severe.restRecommended,true);assert.equal(severe.selectedVariant,'general_short');
   assert.equal(decision(history,{readiness:[]}).selectedVariant,'leg_recovery');
 });
 test('manual override records recommended and chosen variants separately',()=>{
   const history=[workout(['sentadilla-prensa'],[6])],result=decision(history,{override:true});
-  assert.equal(result.recommendedVariant,'leg_recovery');assert.equal(result.selectedVariant,'normal');assert.equal(result.override,true);assert.equal(result.totalSets,19);
+  assert.equal(result.recommendedVariant,'leg_recovery');assert.equal(result.selectedVariant,'normal');assert.equal(result.override,true);assert.equal(result.totalSets,25);
   assert.equal(result.evidenceKey,decision(history).evidenceKey);
   history[0].exercises[0].sets[0].rir=0;
   assert.notEqual(result.evidenceKey,decision(history).evidenceKey);
@@ -92,7 +92,7 @@ class Remote{
 const open=db=>V3LocalRepository.open({indexedDB:db,userId:USER,featureEnabled:true});
 const sync=(repository,remote)=>new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,signalsSyncEnabled:true,locks:null});
 
-test('read-only Coach preview, v2 immutable session snapshots, offline execution, progress and push/pull',async()=>{
+test('read-only Coach preview, immutable current-version session snapshots, offline execution, progress and push/pull',async()=>{
   const reset=installRolloutControl({snapshot:()=>({updateRequired:false,remoteWritesAllowed:true,flags:{v3_enabled:true,v3_storage_enabled:true,v3_training_enabled:true,v3_routines_enabled:true,v3_signals_enabled:true}}),refreshIfDue:async()=>{}});
   const repository=await open(new IDBFactory()),remote=new Remote();
   try{
@@ -100,9 +100,9 @@ test('read-only Coach preview, v2 immutable session snapshots, offline execution
     const routines=new V3RoutineService({repository,featureEnabled:true});await routines.seedDefaults();
     const beforeOperations=(await repository.listOperations()).length;
     const preview=await new V3CoachService({engine,featureEnabled:true,now}).tuesdayPlan();
-    assert.equal(preview.totalSets,19);assert.equal((await repository.listOperations()).length,beforeOperations);
+    assert.equal(preview.totalSets,25);assert.equal((await repository.listOperations()).length,beforeOperations);
     const published=(await routines.list()).find(row=>row.versions.some(version=>version.day_index===2));
-    const v2=published.versions.find(row=>row.version_number===2),base=structuredClone(v2.prescription_snapshot);
+    const current=published.versions.find(row=>row.version_number===3),base=structuredClone(current.prescription_snapshot);
     const lower=workout(['sentadilla-prensa','peso-muerto-rumano'],[3,3]);
     // Insert actual local records without touching the remote, including completed sets.
     const parent=await repository.create('workout_sessions',{id:crypto.randomUUID(),session_date:'2026-10-05',label:'Musculación libre',session_type:'free_workout',status:'completed',started_at:iso(5,18),ended_at:iso(5,19),duration_seconds:3600,rpe:8,notes:''});
@@ -116,13 +116,13 @@ test('read-only Coach preview, v2 immutable session snapshots, offline execution
     await assert.rejects(engine.createSession({dayIndex:2,useRoutine:true,adaptTuesday:true,expectedCoachEvidenceKey:preview.evidenceKey}),error=>error.code==='COACH_PLAN_CHANGED');
     assert.equal((await repository.listSessions()).filter(row=>row.session_date==='2026-10-06').length,0);
     const session=await engine.createSession({dayIndex:2,useRoutine:true,adaptTuesday:true,expectedCoachEvidenceKey:currentPlan.evidenceKey});
-    assert.equal(session.session.routine_version,2);assert.deepEqual(session.session.routine_snapshot,base);
+    assert.equal(session.session.routine_version,3);assert.deepEqual(session.session.routine_snapshot,base);
     assert.equal(session.exercises.reduce((sum,ex)=>sum+ex.prescription_snapshot.sets,0),8);
     assert.equal(session.exercises.find(ex=>ex.catalog.stable_key==='press-banca').prescription_snapshot.sets,3);
     const saved=session.exercises[0].prescription_snapshot.coach_adaptation;
-    assert.equal(saved.selected_variant,'leg_recovery');assert.equal(saved.base_routine_version_id,v2.id);
-    assert.equal((await routines.version(v2.id)).snapshot.exercises.length,7);
-    const routineOps=(await repository.listOperations()).filter(op=>op.entity==='routine_versions'&&op.record_id===v2.id);
+    assert.equal(saved.selected_variant,'leg_recovery');assert.equal(saved.base_routine_version_id,current.id);
+    assert.equal((await routines.version(current.id)).snapshot.exercises.length,9);
+    const routineOps=(await repository.listOperations()).filter(op=>op.entity==='routine_versions'&&op.record_id===current.id);
     assert.equal(remoteConfirmsOperation(routineOps[0],{...remotePayloadForOperation(routineOps[0],USER),version:1},USER),true);
     const exerciseOperation=(await repository.listOperations()).find(op=>op.entity==='session_exercises'&&op.record_id===session.exercises[0].id);
     const equivalent={...remotePayloadForOperation(exerciseOperation,USER),id:session.exercises[0].id};
@@ -145,11 +145,11 @@ test('read-only Coach preview, v2 immutable session snapshots, offline execution
     assert.equal((await repository.listConflicts()).length,0);
     const remoteExercise=await remote.fetchById('session_exercises',session.exercises[0].id);assert.deepEqual(remoteExercise.prescription_snapshot.coach_adaptation,saved);
     const second=await open(new IDBFactory());try{const pull=await sync(second,remote).pullOnly();assert.equal(pull.pushed,0);const read=await second.get('session_exercises',session.exercises[0].id);assert.deepEqual(read.prescription_snapshot.coach_adaptation,saved);}finally{second.close();}
-    assert.deepEqual((await routines.version(v2.id)).snapshot.prescription_snapshot,undefined);
-    assert.deepEqual((await routines.version(v2.id)).snapshot,base);
+    assert.deepEqual((await routines.version(current.id)).snapshot.prescription_snapshot,undefined);
+    assert.deepEqual((await routines.version(current.id)).snapshot,base);
     const updatedPlan=await new V3CoachService({engine,featureEnabled:true,now}).tuesdayPlan();
     const override=await engine.createSession({dayIndex:2,useRoutine:true,adaptTuesday:true,overrideCoach:true,expectedCoachEvidenceKey:updatedPlan.evidenceKey});
-    assert.equal(override.exercises.reduce((sum,ex)=>sum+ex.prescription_snapshot.sets,0),19);
+    assert.equal(override.exercises.reduce((sum,ex)=>sum+ex.prescription_snapshot.sets,0),25);
     assert.equal(override.exercises[0].prescription_snapshot.coach_adaptation.recommended_variant,'leg_recovery');
     assert.equal(override.exercises[0].prescription_snapshot.coach_adaptation.override,true);
     assert.deepEqual(override.session.routine_snapshot,base);

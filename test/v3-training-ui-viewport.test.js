@@ -42,9 +42,9 @@ test('completing sets in the first, middle and final exercise keeps the tapped r
   const repository=await V3LocalRepository.open({indexedDB:new IDBFactory(),userId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',featureEnabled:true});
   try{
     const engine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:true,now:()=>new Date('2026-09-15T12:00:00Z')});
-    const started=await engine.createSession();assert.equal(started.exercises.length,7);await repository.markBootstrapHydrated();
+    const started=await engine.createSession();assert.equal(started.exercises.length,9);await repository.markBootstrapHydrated();
     const ui=new V3TrainingUI({root:doc.root,engine,onClose:()=>{}});await ui.render();
-    for(const index of [0,3,6]){
+    for(const index of [0,4,8]){
       const card=byClass(doc.root,'v3-exercise-card')[index],row=byClass(card,'v3-inline-set')[0];
       byLabel(row,'Serie 1: kg').value='50';
       byLabel(row,'Serie 1: '+(started.exercises[index].prescription_snapshot.measurement_kind==='seconds'?'seg':'reps')).value='8';
@@ -56,26 +56,26 @@ test('completing sets in the first, middle and final exercise keeps the tapped r
       assert.equal((await engine.snapshot()).exercises[index].sets[0].is_completed,true);
       assert.ok(engine.restRemaining()>0);
     }
-    let finalCard=byClass(doc.root,'v3-exercise-card')[6],finalRow=byClass(finalCard,'v3-inline-set')[0];
+    let finalCard=byClass(doc.root,'v3-exercise-card')[8],finalRow=byClass(finalCard,'v3-inline-set')[0];
     byLabel(finalRow,'Serie 1: seg').value='10';
     const editTop=finalRow.getBoundingClientRect().top;
     await descendants(finalRow).find(node=>node.textContent==='Guardar cambios').click();
-    finalCard=byClass(doc.root,'v3-exercise-card')[6];finalRow=byClass(finalCard,'v3-inline-set')[0];
+    finalCard=byClass(doc.root,'v3-exercise-card')[8];finalRow=byClass(finalCard,'v3-inline-set')[0];
     assert.equal(finalRow.getBoundingClientRect().top,editTop);
-    assert.equal((await engine.snapshot()).exercises[6].sets[0].duration_seconds,10);
+    assert.equal((await engine.snapshot()).exercises[8].sets[0].duration_seconds,10);
     const addSet=byClass(finalCard,'v3-add-set')[0],addTop=addSet.getBoundingClientRect().top;
     await addSet.click();
-    finalCard=byClass(doc.root,'v3-exercise-card')[6];
+    finalCard=byClass(doc.root,'v3-exercise-card')[8];
     assert.equal(byClass(finalCard,'v3-inline-set').length,4);
     assert.equal(byClass(finalCard,'v3-add-set')[0].getBoundingClientRect().top,addTop);
     const restButton=descendants(doc.root).find(node=>node.textContent==='Omitir');
     const cardTop=finalCard.getBoundingClientRect().top;
     await restButton.click();
-    assert.equal(byClass(doc.root,'v3-exercise-card')[6].getBoundingClientRect().top,cardTop);
+    assert.equal(byClass(doc.root,'v3-exercise-card')[8].getBoundingClientRect().top,cardTop);
     assert.equal(engine.restRemaining(),0);
     ui.destroy();
     const reopened=new V3TrainingUI({root:doc.root,engine,onClose:()=>{}});await reopened.mount();
-    const current=byClass(doc.root,'v3-exercise-card')[6];
+    const current=byClass(doc.root,'v3-exercise-card')[8];
     assert.ok(current.getBoundingClientRect().top>=0&&current.getBoundingClientRect().top<doc.viewport.innerHeight);
     reopened.destroy();
   }finally{repository.close();globalThis.document=previousDocument;globalThis.window=previousWindow;}

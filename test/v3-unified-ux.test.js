@@ -22,7 +22,7 @@ test('known check-in UI writes only daily_readiness V3 and survives reload offli
 
 test('today resolves Tuesday stable routine deterministically and preserves checkpoint',async()=>{
   const {indexedDB,repository}=await open(),today=new V3TodayService({repository,now:tuesday});
-  const started=await today.startToday();assert.equal(started.session.session_type,'routine');assert.equal(started.session.routine_snapshot.day_index,2);assert.equal(started.session.routine_snapshot.name,'Fuerza principal');assert.equal(started.exercises.length,7);
+  const started=await today.startToday();assert.equal(started.session.session_type,'routine');assert.equal(started.session.routine_snapshot.day_index,2);assert.equal(started.session.routine_snapshot.name,'Fuerza principal');assert.equal(started.exercises.length,9);
   const activeId=started.session.id;assert.equal((await repository.getTrainingState()).activeSessionId,activeId);repository.close();
   const reopened=(await open(indexedDB)).repository,recovered=await new V3TodayService({repository:reopened,now:tuesday}).recover();assert.equal(recovered.session.id,activeId);reopened.close();
 });

@@ -3,7 +3,7 @@ import {routineForDay,routineCatalogId} from './routines.js';
 import {stableClientUuid} from './import-v2.js';
 import {requiredText} from './training-validation.js';
 import {routinePrescription,sameRoutineValue} from './routine-validation.js';
-import {WEEKLY_PROGRAM_V64,v64LoadStep} from './weekly-program-v64.js';
+import {ROUTINE_PROGRAMS,v64LoadStep} from './weekly-program-v64.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
 import {rolloutFlag,rolloutBlocksNewWork} from './rollout-state.js';
 const assertRoutineWrite=()=>{if(rolloutBlocksNewWork()||rolloutFlag('v3_routines_enabled')===false)throw new Error('Rutinas V3 desactivadas o actualización requerida.');};
@@ -71,16 +71,18 @@ export class V3RoutineService{
         await this.repository.commitLocalChanges([...changes,insert('routine_templates',id,template),insert('routine_versions',versionId,{routine_id:id,version_number:1,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id:rowId,...row})=>insert('routine_exercises',rowId,{...row,routine_version_id:versionId}))]);
         await this.repository.recordMigrationDecision({sourceKey:`v3:routine-seed:${dayIndex}:1`,entity:'routine_templates',status:'migrated',note:'Known validated V2 plan; no historic sessions inferred.',sourcePayload:source});
       }
-      result.push(await this.#seedWeeklyVersion(dayIndex,id));
+      // Publish each program version in order; training uses the latest.
+      let latest=null;for(const [versionNumber,program] of ROUTINE_PROGRAMS)if(program[dayIndex])latest=await this.#seedWeeklyVersion(dayIndex,id,versionNumber,program);
+      result.push(latest);
     }
     return result;
   }
-  async #seedWeeklyVersion(dayIndex,templateId){
-    const versionId=await stableClientUuid(`v3:routine-version:${templateId}:2`),existing=await this.repository.get('routine_versions',versionId);
+  async #seedWeeklyVersion(dayIndex,templateId,versionNumber,program){
+    const versionId=await stableClientUuid(`v3:routine-version:${templateId}:${versionNumber}`),existing=await this.repository.get('routine_versions',versionId);
     if(existing)return this.version(versionId);
     const versions=(await this.repository.listRecords('routine_versions',{includeDeleted:true})).filter(row=>row.routine_id===templateId);
-    if(versions.some(row=>row.version_number===2))throw new Error('La versión 2 ya pertenece a otra prescripción; revisión explícita requerida.');
-    const source=WEEKLY_PROGRAM_V64[dayIndex],catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true}),changes=[],rows=[];
+    if(versions.some(row=>row.version_number===versionNumber))throw new Error(`La versión ${versionNumber} ya pertenece a otra prescripción; revisión explícita requerida.`);
+    const source=program[dayIndex],catalog=await this.repository.listRecords('exercise_catalog',{includeDeleted:true}),changes=[],rows=[];
     for(const [position,item] of source.exercises.entries()){
       const base=BASE_EXERCISES.find(row=>row.stable_key===item.stable_key),legacy=routineForDay(dayIndex).exercises.find(row=>row.stable_key===item.stable_key);
       const existingCatalog=catalog.find(row=>row.stable_key===item.stable_key);
@@ -88,11 +90,11 @@ export class V3RoutineService{
       if(existingCatalog&&existingCatalog.measurement_kind!=='mixed'&&existingCatalog.measurement_kind!==item.measurement_kind)throw new Error('Unidad de catálogo incompatible con v64.');
       const catalogId=existingCatalog?.id??(base?await baseCatalogId(this.repository.userId,item.stable_key):await routineCatalogId(this.repository.userId,item.stable_key));
       if(!existingCatalog){if(!base&&!legacy)throw new Error('Ejercicio v64 ausente del catálogo explícito.');changes.push(insert('exercise_catalog',catalogId,base??{stable_key:item.stable_key,canonical_name:legacy.canonical_name,measurement_kind:item.measurement_kind,metadata:{source:'validated-v2-plan'}}));catalog.push({id:catalogId,stable_key:item.stable_key});}
-      const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:v64LoadStep(dayIndex,item.stable_key),measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes,source:'weekly-program-v64'});
-      rows.push({id:await stableClientUuid(`v3:routine-version:${templateId}:2:exercise:${position}`),position,exercise_catalog_id:catalogId,exercise_name_snapshot:base?.canonical_name??legacy.canonical_name,prescription_snapshot:prescription});
+      const prescription=routinePrescription({sets:item.sets,min:item.min,max:item.max,rest:item.rest,step:v64LoadStep(dayIndex,item.stable_key),measurement_kind:item.measurement_kind,target_rir:item.target_rir,notes:item.notes,source:versionNumber===2?'weekly-program-v64':`weekly-program-v${versionNumber}`});
+      rows.push({id:await stableClientUuid(`v3:routine-version:${templateId}:${versionNumber}:exercise:${position}`),position,exercise_catalog_id:catalogId,exercise_name_snapshot:base?.canonical_name??legacy.canonical_name,prescription_snapshot:prescription});
     }
-    const snapshot={schema_version:1,routine_id:templateId,routine_version:2,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};
-    await this.repository.commitLocalChanges([...changes,insert('routine_versions',versionId,{routine_id:templateId,version_number:2,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id,...row})=>insert('routine_exercises',id,{...row,routine_version_id:versionId}))]);
+    const snapshot={schema_version:1,routine_id:templateId,routine_version:versionNumber,routine_version_id:versionId,name:source.label,day_index:dayIndex,exercises:rows};
+    await this.repository.commitLocalChanges([...changes,insert('routine_versions',versionId,{routine_id:templateId,version_number:versionNumber,name_snapshot:source.label,day_index:dayIndex,prescription_snapshot:snapshot}),...rows.map(({id,...row})=>insert('routine_exercises',id,{...row,routine_version_id:versionId}))]);
     return this.version(versionId);
   }
 }

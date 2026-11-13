@@ -63,7 +63,7 @@ test('duplicate creates independent template/version/occurrences and activation 
 test('reorder and repeated exercises publish a new version without editing old occurrences',async()=>{const {repository,service,graph}=await setup();const input=[graph.snapshot.exercises[1],graph.snapshot.exercises[0],graph.snapshot.exercises[0]],next=await service.createVersion(graph.template.id,{exercises:input});assert.equal(next.version.version_number,2);assert.deepEqual(next.exercises.map(row=>row.exercise_catalog_id),input.map(row=>row.exercise_catalog_id));assert.equal(new Set(next.exercises.map(row=>row.id)).size,3);assert.equal((await service.version(graph.version.id)).exercises[0].exercise_catalog_id,graph.exercises[0].exercise_catalog_id);repository.close();});
 test('published version, occurrence and session identity cannot be edited through repository',async()=>{const {repository,graph,training}=await setup();await assert.rejects(repository.update('routine_versions',graph.version.id,{name_snapshot:'Alterado'}),/inmutable/);await assert.rejects(repository.update('routine_exercises',graph.exercises[0].id,{position:4}),/inmutable/);const session=await training.createSession({routineVersionId:graph.version.id});await assert.rejects(repository.update('workout_sessions',session.session.id,{routine_version:2}),/inmutable/);repository.close();});
 test('two local publishers cannot assign the same routine version number',async()=>{const {repository,service,graph,exercises}=await setup();let arrived=0,release;const gate=new Promise(resolve=>release=resolve),commit=repository.commitLocalChanges.bind(repository);repository.commitLocalChanges=async(...args)=>{if(args[0][0]?.entity==='routine_versions'){if(++arrived===2)release();await gate;}return commit(...args);};const results=await Promise.allSettled([service.createVersion(graph.template.id,{exercises}),service.createVersion(graph.template.id,{exercises})]);assert.equal(results.filter(row=>row.status==='fulfilled').length,1);assert.equal((await repository.listRecords('routine_versions')).length,2);assert.equal((await repository.listRecords('routine_exercises')).length,4);repository.close();});
-test('seeding reuses V2 imported stable catalog IDs without renaming or changing units',async()=>{const repository=await open(),imported=await repository.create('exercise_catalog',{stable_key:'sentadilla-prensa',canonical_name:'Nombre importado',measurement_kind:'mixed'}),service=new V3RoutineService({repository,featureEnabled:true});const defaults=await service.seedDefaults();assert.equal(defaults[0].exercises[0].exercise_catalog_id,imported.id);assert.equal(defaults[0].exercises[0].exercise_name_snapshot,'Sentadilla o prensa');assert.equal((await repository.get('exercise_catalog',imported.id)).measurement_kind,'mixed');assert.equal((await repository.listRecords('exercise_catalog')).filter(row=>row.stable_key==='sentadilla-prensa').length,1);repository.close();});
+test('seeding reuses V2 imported stable catalog IDs without renaming or changing units',async()=>{const repository=await open(),imported=await repository.create('exercise_catalog',{stable_key:'sentadilla-prensa',canonical_name:'Nombre importado',measurement_kind:'mixed'}),service=new V3RoutineService({repository,featureEnabled:true});const defaults=await service.seedDefaults();const squat=defaults[0].exercises.find(row=>row.exercise_catalog_id===imported.id);assert.ok(squat);assert.equal(squat.exercise_name_snapshot,'Sentadilla o prensa');assert.equal((await repository.get('exercise_catalog',imported.id)).measurement_kind,'mixed');assert.equal((await repository.listRecords('exercise_catalog')).filter(row=>row.stable_key==='sentadilla-prensa').length,1);repository.close();});
 test('same visible V2 name with different stable keys never merges catalog identities',async()=>{const repository=await open(),one=await repository.create('exercise_catalog',{stable_key:'legacy:a',canonical_name:'Remo',measurement_kind:'reps'}),two=await repository.create('exercise_catalog',{stable_key:'legacy:b',canonical_name:'Remo',measurement_kind:'reps'}),service=new V3RoutineService({repository,featureEnabled:true}),routine=await service.create({name:'Identidad explícita',exercises:[one,two].map(row=>({exercise_catalog_id:row.id,prescription_snapshot:rx}))});assert.deepEqual(routine.exercises.map(row=>row.exercise_catalog_id),[one.id,two.id]);assert.equal((await repository.listRecords('exercise_catalog')).filter(row=>row.canonical_name==='Remo').length,2);repository.close();});
 test('duplicate ordinal from Supabase is persisted as conflict and is not renumbered silently',async()=>{const {repository,service,graph,exercises}=await setup(),remote=new Remote(),engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});await engine.syncOnce();const next=await service.createVersion(graph.template.id,{exercises});const query={insert:()=>({select:()=>({single:async()=>({error:{code:'23505',message:'duplicate'},status:409})})})},adapter=new SupabaseV3Adapter({client:{schema:()=>({from:()=>query})}}),op=(await repository.listOperations({status:'pending'})).find(row=>row.entity==='routine_versions');await assert.rejects(adapter.mutate(op,A),error=>error.code==='PT409'&&error.reason==='routine_version_number_collision');const mutate=remote.mutate.bind(remote);remote.mutate=async(operation,userId)=>operation.entity==='routine_versions'?adapter.mutate(operation,userId):mutate(operation,userId);await engine.syncOnce();const view=(await new V3ConflictService({repository,locks:null}).list())[0];assert.equal(view.origin,'routine_version_number_collision');assert.deepEqual(view.strategies,['defer']);assert.equal((await repository.get('routine_versions',next.version.id)).version_number,2);repository.close();});
 test('remote ordinal winner is recorded before IndexedDB unique index can reject it',async()=>{const {repository,service,graph,exercises}=await setup(),remote=new Remote(),engine=new V3SyncEngine({repository,remote,featureEnabled:true,routinesSyncEnabled:true,locks:null});await engine.syncOnce();const loser=await service.createVersion(graph.template.id,{exercises}),winnerId=crypto.randomUUID(),stamp='2099-01-01T00:00:00.000Z';remote.tables.routine_versions[winnerId]={...loser.version,id:winnerId,user_id:A,version:1,created_at:stamp,updated_at:stamp};delete remote.tables.routine_versions[winnerId].owner_id;delete remote.tables.routine_versions[winnerId].remote_version;delete remote.tables.routine_versions[winnerId].local_revision;delete remote.tables.routine_versions[winnerId].sync_status;const result=await engine.syncOnce();assert.ok(result.conflicts>=1);const conflict=(await new V3ConflictService({repository,locks:null}).list()).find(row=>row.record_id===loser.version.id);assert.equal(conflict.origin,'routine_version_number_collision');assert.equal(conflict.remote.version,1);assert.equal(await repository.get('routine_versions',winnerId),null);repository.close();});
@@ -72,7 +72,7 @@ test('default Tuesday/Thursday/Friday mapping is deterministic and idempotent ac
 test('v64 publishes exact weekly version 2 while preserving all version 1 graphs',async()=>{
  const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});
  try{
-  const published=await service.seedDefaults();
+  const latest=await service.seedDefaults(),published=await Promise.all(latest.map(async graph=>service.version(await stableClientUuid(`v3:routine-version:${graph.template.id}:2`))));
   for(const graph of published){
    const day=graph.version.day_index,source=WEEKLY_PROGRAM_V64[day],v1Id=await stableClientUuid(`v3:routine-version:${graph.template.id}:1`),old=await service.version(v1Id);
    assert.equal(graph.version.version_number,2);assert.equal(old.version.version_number,1);
@@ -97,13 +97,13 @@ test('v1 completed session and progress stay unchanged when v64 becomes current;
   const progress=()=>new UnifiedProgress({repository,v2Reader:{read:async()=>({workouts:[],sessions:[],readiness:[],football:[],matches:[]})}}).load();
   const initial=await progress();await service.seedDefaults();
   const current=await training.createSession({dayIndex:2});
-  assert.equal(current.session.routine_version,2);assert.notEqual(current.session.routine_version_id,v1Id);
+  assert.equal(current.session.routine_version,3);assert.notEqual(current.session.routine_version_id,v1Id);
   assert.deepEqual((await training.snapshot(old.session.id)).session.routine_snapshot,before);
   assert.deepEqual((await service.version(v1Id)).snapshot,before);
   assert.deepEqual((await progress()).sessions,initial.sessions);
   assert.deepEqual((await progress()).exercises,initial.exercises);
   const signals={readinessScore:90,pain:0,freshness:5,sleep:5,energy:5,daysToMatch:4,dayIndex:2,footballTrend:{changePercent:0},gymTrend:{changePercent:0},warnings:[],patterns:[],history:[historic]};
-  assert.equal(applyCoachRules(signals,current).exerciseAdjustments.length,7);
+  assert.equal(applyCoachRules(signals,current).exerciseAdjustments.length,9);
   assert.match(applyCoachRules(signals,current).warnings.join(' '),/Sin sesión anterior/);
   assert.equal(applyCoachRules({...signals,history:[current]},historic).exerciseAdjustments.length,7);
  }finally{repository.close();}
@@ -128,14 +128,14 @@ test('v64 covers the body while Friday stays low volume; new shoulder exercise c
   assert.equal(changed.exercise_catalog_id,replacement.id);
   assert.equal(changed.prescription_snapshot.replaced_exercise_name,'Pájaros con mancuernas');
   assert.deepEqual((await training.snapshot()).session.routine_snapshot,original);
-  assert.equal((await service.version(versions[1].version.id)).exercises.find(row=>row.id===versions[1].exercises[5].id).exercise_catalog_id,bird.id);
+  assert.equal((await service.version(versions[1].version.id)).exercises.find(row=>row.exercise_catalog_id===bird.id).exercise_catalog_id,bird.id);
  }finally{repository.close();}
 });
 test('deterministic routine inserts compare only explicit functional fields',async()=>{
  const repository=await open(),service=new V3RoutineService({repository,featureEnabled:true});await service.seedDefaults();
  try{
   const operations=(await repository.listOperations()).filter(row=>row.entity.startsWith('routine_'));
-  assert.equal(operations.length,54);
+  assert.equal(operations.length,77);
   for(const operation of operations){
    const remote={...remotePayloadForOperation(operation,A),created_at:'2026-09-25T10:00:00.000Z',updated_at:'2026-09-25T10:00:00.000Z',version:2};
    assert.equal(remoteConfirmsOperation(operation,remote,A),true,operation.entity);
@@ -159,14 +159,14 @@ test('two devices reconcile all deterministic routine defaults without conflicts
   for(let attempt=0;attempt<3&&(await first.listOperations({status:'pending'})).length;attempt++)assert.equal((await firstSync.syncOnce()).conflicts,0);
   assert.equal((await first.listOperations({status:'pending'})).length,0);
   assert.equal(Object.keys(remote.tables.routine_templates).length,3);
-  assert.equal(Object.keys(remote.tables.routine_versions).length,6);
-  assert.equal(Object.keys(remote.tables.routine_exercises).length,45);
+  assert.equal(Object.keys(remote.tables.routine_versions).length,8);
+  assert.equal(Object.keys(remote.tables.routine_exercises).length,66);
   for(const entity of ['routine_templates','routine_versions','routine_exercises'])for(const row of Object.values(remote.tables[entity])){
    row.created_at='2026-09-25T10:00:00.000Z';row.updated_at='2026-09-25T10:00:00.000Z';row.version=2;
   }
   await secondService.seedDefaults();
   const before=(await second.listOperations()).filter(row=>row.entity.startsWith('routine_'));
-  assert.equal(before.length,54);
+  assert.equal(before.length,77);
   for(const operation of before){
    const expected=remotePayloadForOperation(operation,A),actual=await remote.fetchById(operation.entity,operation.record_id);
    const differing=[...new Set([...Object.keys(expected),...Object.keys(actual)])].filter(key=>JSON.stringify(expected[key])!==JSON.stringify(actual[key]));
@@ -199,12 +199,12 @@ test('an existing remote v1 account pulls first and publishes only v64 additions
   assert.ok(old.every(row=>row?.remote_version===1));
   const before=old.map(row=>structuredClone(row.prescription_snapshot));
   const defaults=await new V3RoutineService({repository:target,featureEnabled:true}).seedDefaults();
-  assert.ok(defaults.every(row=>row.version.version_number===2));
+  assert.deepEqual(defaults.map(row=>row.version.version_number),[3,3,2]);
   assert.deepEqual((await Promise.all([...ids].map(id=>target.get('routine_versions',id)))).map(row=>row.prescription_snapshot),before);
   assert.equal((await target.listOperations()).filter(op=>op.entity==='routine_versions'&&op.payload.version_number===1).length,0);
   for(let attempt=0;attempt<3&&(await target.listOperations({status:'pending'})).length;attempt++)assert.equal((await sync.syncOnce()).conflicts,0);
   assert.equal((await target.listOperations({status:'pending'})).length,0);
-  assert.equal(Object.keys(remote.tables.routine_versions).length,6);
+  assert.equal(Object.keys(remote.tables.routine_versions).length,8);
  }finally{source.close();target.close();}
 });
 test('controlled legacy trace preserves sessions and marks ambiguous prescriptions pending review',async()=>{const repository=await open(),legacyEngine=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false,now:()=>new Date('2026-09-15T12:00:00Z')}),session=await legacyEngine.createSession({dayIndex:2}),service=new V3RoutineService({repository,featureEnabled:true});const ambiguous=structuredClone(session);ambiguous.session.id='ambiguous';ambiguous.exercises[0].prescription_snapshot.sets=99;const before=await repository.get('workout_sessions',session.session.id);const rows=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(rows[0].migration_status,'migrated');assert.equal(rows[0].target_id,await stableClientUuid(`v3:routine-version:${await defaultRoutineId(A,2)}:1`));assert.equal(rows[1].migration_status,'pending_review');assert.equal(rows[1].target_id,null);const again=await importV2RoutineTrace({service,sessions:[session,ambiguous]});assert.equal(again[0].created,false);assert.deepEqual(await repository.get('workout_sessions',session.session.id),before);repository.close();});
