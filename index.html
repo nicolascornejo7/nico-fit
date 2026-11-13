@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Nico Fit" />
-  <meta name="nico-fit-build" content="nico-fit-v70" />
+  <meta name="nico-fit-build" content="nico-fit-v71" />
   <title>Nico Fit · Gym + Fútbol</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
@@ -181,6 +181,12 @@
           <p class="muted">La app guarda localmente y sincroniza con Supabase cuando iniciás sesión y hay conexión.</p>
           <button id="openAuthSettings" class="ghost wide">Cuenta / sincronización</button>
           <p><a href="./local-device-inventory.html">Inventario y respaldo de este dispositivo</a></p>
+        </section>
+        <section class="card export-card">
+          <div class="section-head"><div><p class="eyebrow">TUS DATOS</p><h2>Exportar</h2></div></div>
+          <p class="muted">Descargá tus entrenamientos, check-ins y fútbol. El JSON es un respaldo completo; el CSV trae cada serie para abrir en Excel o Google Sheets.</p>
+          <div class="export-actions"><button id="exportJsonBtn" class="ghost wide" type="button">Descargar JSON</button><button id="exportCsvBtn" class="ghost wide" type="button">Descargar series (CSV)</button></div>
+          <p id="exportStatus" class="advice" role="status" aria-live="polite"></p>
         </section>
         <section id="v3SupportSection" class="card support-card hidden" aria-labelledby="v3SupportTitle">
           <div class="section-head"><div><p class="eyebrow">SOPORTE</p><h2 id="v3SupportTitle">Sincronización y diagnóstico</h2></div></div>

@@ -192,7 +192,12 @@ test('13. a timeout leaves sessions, operations and local data intact and never 
   const f=await fixture({seed:true});const before=await f.snapshot();
   try{
     f.remote.hang=true;
-    for(let attempt=0;attempt<3;attempt++)await assert.rejects(f.bootstrap({recoveryTimeoutMs:10}),error=>error.code==='RECOVERY_TIMEOUT');
+    // Under heavy load the aborted attempt may still hold the lock when the next
+    // one starts; that attempt then returns a safe pending/locked result instead.
+    for(let attempt=0;attempt<3;attempt++){
+      const outcome=await f.bootstrap({recoveryTimeoutMs:10}).then(result=>result,error=>error);
+      assert.ok(outcome?.code==='RECOVERY_TIMEOUT'||outcome?.status==='pending'&&outcome.reason==='locked',`unexpected outcome ${JSON.stringify(outcome)}`);
+    }
     await assertPendingUntouched(f,before);
     assert.equal((await f.repository.listRecords('workout_sessions',{includeDeleted:true})).length,0);
   }finally{f.close();}

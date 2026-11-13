@@ -9,7 +9,7 @@ const catalog=keys.map((stable_key,index)=>({id:String(index),stable_key,canonic
 const item=key=>catalog.find(row=>row.stable_key===key);
 
 test('all existing stable catalog keys have explicit profiles and recommendations stay within matching patterns',()=>{
-  assert.equal(keys.length,42);
+  assert.equal(keys.length,64);
   for(const current of catalog){
     const profile=exerciseProfile(current);assert.ok(profile,`missing profile: ${current.stable_key}`);
     assert.ok(profile.movement_pattern&&profile.primary_muscles.length&&profile.equipment.length&&profile.laterality&&profile.role&&profile.fatigue);
@@ -25,13 +25,13 @@ test('all existing stable catalog keys have explicit profiles and recommendation
 
 test('Romanian deadlift prefers its hinge variant and never generic leg exercises',()=>{
   const choices=recommendedAlternatives(item('peso-muerto-rumano'),catalog);
-  assert.deepEqual(choices.map(choice=>choice.exercise.stable_key),['peso-muerto-rumano-ligero']);
-  assert.match(choices[0].reason,/isquios\/glúteos/);
+  assert.deepEqual(choices.map(choice=>choice.exercise.stable_key),['peso-muerto-hexagonal','peso-muerto-unilateral','peso-muerto-rumano-ligero']);
+  for(const choice of choices){assert.equal(exerciseProfile(choice.exercise).movement_pattern,'hip_hinge');assert.match(choice.reason,/isquios\/glúteos/);}
 });
 
 test('rows and presses prioritize equivalent movement and useful equipment differences',()=>{
-  assert.deepEqual(recommendedAlternatives(item('remo-barra'),catalog).map(row=>row.exercise.stable_key),['remo-mancuerna','remo']);
-  assert.deepEqual(recommendedAlternatives(item('press-banca'),catalog).map(row=>row.exercise.stable_key),['press-inclinado-mancuernas','press-banca-ligero']);
+  assert.deepEqual(recommendedAlternatives(item('remo-barra'),catalog).map(row=>row.exercise.stable_key),['remo-polea','remo-mancuerna','remo']);
+  assert.deepEqual(recommendedAlternatives(item('press-banca'),catalog).map(row=>row.exercise.stable_key),['press-inclinado-mancuernas','press-mancuernas','flexiones']);
   assert.equal(compatiblePrescription(item('press-banca'),item('press-inclinado-mancuernas')),true);
   assert.equal(compatiblePrescription(item('peso-muerto-rumano'),item('peso-muerto-rumano-ligero')),false);
 });
@@ -41,7 +41,7 @@ test('unknown custom exercises do not acquire text-based recommendations',()=>{
   assert.deepEqual(recommendedAlternatives(custom,catalog),[]);
   assert.equal(compatiblePrescription(custom,item('peso-muerto-rumano')),false);
 });
-test('rear-delt fly has explicit profile and no invented equivalent',()=>{
+test('rear-delt fly has explicit profile and only the face pull as equivalent',()=>{
   const bird=item('pajaros-mancuernas'),profile=exerciseProfile(bird);
   assert.equal(profile.movement_pattern,'horizontal_abduction');
   assert.deepEqual(profile.primary_muscles,['rear_deltoids']);
@@ -50,5 +50,5 @@ test('rear-delt fly has explicit profile and no invented equivalent',()=>{
   assert.equal(profile.laterality,'bilateral');
   assert.equal(profile.role,'accessory');
   assert.equal(profile.fatigue,1);
-  assert.deepEqual(recommendedAlternatives(bird,catalog),[]);
+  assert.deepEqual(recommendedAlternatives(bird,catalog).map(row=>row.exercise.stable_key),['face-pull']);
 });

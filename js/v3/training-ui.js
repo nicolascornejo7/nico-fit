@@ -13,7 +13,9 @@ import {V3CoachService} from './coach-service.js';
 import {WEEKLY_PROGRAM_V64} from './weekly-program-v64.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
-import {muscleHighlights,muscleMapSvg} from './muscle-map.js';
+import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
+import {BAR_OPTIONS,describePlates,platesPerSide,usesBarbell} from './plates.js';
+import {exerciseProfile} from './exercise-recommendations.js';
 import {personalRecords,liveSetRecord} from './hypertrophy.js';
 
 const TUESDAY_PLAN_LABELS={normal:'Rutina completa',reduced:'Trabajo de piernas reducido',leg_recovery:'Recuperación de piernas',general_short:'Sesión breve por disponibilidad general'};
@@ -273,6 +275,16 @@ export class V3TrainingUI{
       const muscles=muscleHighlights(exercise.catalog);
       if(muscles){const row=el('div','','v3-muscles'),map=muscleMapSvg(exercise.catalog),text=el('div','','v3-muscle-text');if(map)row.append(map);
         text.append(el('p',`Trabaja: ${muscles.primary.join(', ')}`,'v3-muscle-primary'));if(muscles.secondary.length)text.append(el('p',`También: ${muscles.secondary.join(', ')}`,'v3-muscle-secondary'));row.append(text);card.append(row);}
+      if(usesBarbell(exerciseProfile(exercise.catalog))){
+        const plates=document.createElement('details');plates.className='v3-plates';plates.append(el('summary','Discos por lado'));
+        const lastLoad=[...exercise.sets].filter(item=>!item.deleted_at&&item.load_kg!=null).sort((a,b)=>a.position-b.position).at(-1)?.load_kg;
+        const kg=el('input');kg.type='number';kg.inputMode='decimal';kg.min='0';kg.step='0.5';kg.value=lastLoad!=null?String(lastLoad):'';kg.setAttribute('aria-label',`Peso total para calcular discos de ${exercise.exercise_name_snapshot}`);
+        const bar=document.createElement('select');bar.setAttribute('aria-label','Barra');for(const [value,label] of BAR_OPTIONS){const option=document.createElement('option');option.value=String(value);option.textContent=label;bar.append(option);}
+        const out=el('p','','v3-plates-result');out.setAttribute('aria-live','polite');
+        const update=()=>{out.textContent=describePlates(platesPerSide(kg.value,{bar:Number(bar.value||20)}));};
+        kg.addEventListener('input',update);bar.addEventListener('change',update);update();
+        const controls=el('div','','v3-plates-controls');controls.append(kg,bar);plates.append(controls,out);card.append(plates);
+      }
       const menu=document.createElement('details');menu.className='v3-exercise-menu';menu.append(el('summary','Más acciones'));
       const actions=el('div','','v3-actions');
       for(const [delta,title] of [[-1,'Subir'],[1,'Bajar']])if(index+delta>=0&&index+delta<snapshot.exercises.length){
@@ -311,7 +323,8 @@ export class V3TrainingUI{
     }
     const custom=document.createElement('details');custom.className='v3-custom-exercise';custom.append(el('summary','Crear ejercicio personalizado'));
     const name=field(custom,'Nombre de ejercicio personalizado',{type:'text'}),mode=select(custom,'Unidad', [['reps','Repeticiones'],['seconds','Segundos'],['mixed','Elegir reps o segundos por serie']]);
-    custom.append(button('Crear y agregar',()=>this.run(async()=>{const created=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value});await this.engine.addExercise(created.id);}),'ghost wide'));card.append(custom);
+    const muscleOptions=CUSTOM_MUSCLES.map(key=>[key,MUSCLE_NAMES[key]]),primary=select(custom,'Músculo principal',[['','Sin indicar'],...muscleOptions]),secondary=select(custom,'Músculo secundario (opcional)',[['','Ninguno'],...muscleOptions]);
+    custom.append(button('Crear y agregar',()=>this.run(async()=>{const created=await this.engine.createCustomExercise({name:name.value,measurementKind:mode.value,primaryMuscle:primary.value||null,secondaryMuscle:secondary.value||null});await this.engine.addExercise(created.id);}),'ghost wide'));card.append(custom);
   }
 
   // Past sessions do not change while one is active, so bests and the last

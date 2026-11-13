@@ -98,7 +98,7 @@ test('replacement opens recommendations without writes, exposes the full catalog
     await descendants(card).find(node=>node.textContent==='Cambiar ejercicio').click();
     const choices=byClass(card,'v3-recommended-option');
     assert.ok(choices.length>0&&choices.length<=3);
-    assert.equal(choices[0].textContent,'Press inclinado con mancuernas');
+    assert.equal(choices[0].textContent,'Press con mancuernas');
     assert.ok(choices[0].children[0].textContent.includes('Mismo patrón'));
     const full=byClass(card,'v3-browse-exercises')[0];assert.equal(full.hidden,true);
     await descendants(card).find(node=>node.textContent==='Buscar otro ejercicio').click();
@@ -108,7 +108,7 @@ test('replacement opens recommendations without writes, exposes the full catalog
     const top=card.getBoundingClientRect().top;
     await choices[0].click();
     const updated=(await engine.snapshot()).exercises.find(item=>item.id===bench.id);
-    assert.equal(updated.catalog.stable_key,'press-inclinado-mancuernas');
+    assert.equal(updated.catalog.stable_key,'press-mancuernas');
     assert.equal(updated.prescription_snapshot.replaced_exercise_name,'Press banca');
     assert.equal(byClass(doc.root,'v3-exercise-card').find(node=>node.dataset.exerciseId===bench.id).getBoundingClientRect().top,top);
     assert.ok(descendants(doc.root).some(node=>node.textContent==='En lugar de: Press banca'));

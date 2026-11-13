@@ -94,3 +94,6 @@
 .v3-muscle-text{display:grid;gap:4px;min-width:0}.v3-muscle-text p{margin:0;font-size:13px;line-height:1.35}
 .v3-muscle-primary{color:#ffd1d7;font-weight:700}.v3-muscle-secondary{color:#a1a1aa}
 .v3-muscle-primary::before,.v3-muscle-secondary::before{content:"";display:inline-block;width:8px;height:8px;border-radius:4px;margin-right:6px;vertical-align:middle;background:#e5243b}.v3-muscle-secondary::before{background:#ff8c98}
+.v3-plates{border-radius:14px;background:#0f0f11;border:1px solid #26262a;padding:0 12px}.v3-plates summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:#d4d4d8;font-weight:600}
+.v3-plates-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px}.v3-plates-controls input,.v3-plates-controls select{min-height:44px;border-radius:12px;border:1px solid #333338;background:#151517;color:#f5f5f5;padding:8px 10px;font-size:16px}
+.v3-plates-result{margin:10px 0 12px;font-size:15px;font-weight:700;color:#f5f5f5}

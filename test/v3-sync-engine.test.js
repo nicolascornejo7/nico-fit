@@ -237,10 +237,12 @@ test('two stores seed the same deterministic base catalog with different timesta
   const remote=new MockRemote(),a=await open(new IDBFactory()),b=await open(new IDBFactory());
   try{
     for(const item of BASE_EXERCISES){const id=await baseCatalogId(USER_A,item.stable_key);await a.create('exercise_catalog',{...item,created_at:'2026-09-22T10:00:00.000Z'},{id});}
-    const first=await engine(a,remote).syncOnce();assert.equal(first.conflicts,0);assert.equal(first.pushed,BASE_EXERCISES.length);
+    // One sync pushes at most 50 operations (batchSize); drain the queue.
+    let pushed=0;for(let round=0;round<3&&(await a.listOperations()).some(row=>row.status!=='synced');round++){const first=await engine(a,remote).syncOnce();assert.equal(first.conflicts,0);pushed+=first.pushed;}
+    assert.equal(pushed,BASE_EXERCISES.length);
     for(const item of BASE_EXERCISES){const id=await baseCatalogId(USER_A,item.stable_key);await b.create('exercise_catalog',{...item,created_at:'2026-09-22T11:00:00.000Z'},{id});}
-    const second=await engine(b,remote).syncOnce();
-    assert.equal(second.conflicts,0);assert.equal((await b.listConflicts()).length,0);
+    for(let round=0;round<3&&(await b.listOperations()).some(row=>row.status!=='synced');round++){const second=await engine(b,remote).syncOnce();assert.equal(second.conflicts,0);}
+    assert.equal((await b.listConflicts()).length,0);
     assert.equal((await b.listOperations()).filter(row=>row.status!=='synced').length,0);
   }finally{a.close();b.close();}
 });
@@ -270,8 +272,8 @@ test('maintenance preserves a free workout queue and resumption drains it withou
     await rollout.start();const training=new V3TrainingEngine({repository,featureEnabled:true,routinesEnabled:false});await training.createFreeWorkout({date:'2026-09-22'});
     assert.equal((await engine(repository,remote).syncOnce()).skipped,'rollout_blocked');assert.equal((await repository.operationalSnapshot()).counts.pending,BASE_EXERCISES.length+1);
     config=rolloutRow({config_version:2,maintenance_mode:false,updated_at:'2026-09-22T12:01:00Z'});await rollout.refresh({force:true});
-    const result=await engine(repository,remote).syncOnce(),snapshot=await repository.operationalSnapshot();
-    assert.equal(result.conflicts,0);assert.equal(snapshot.queue.operations,0);
+    for(let round=0;round<3&&(await repository.operationalSnapshot()).queue.operations;round++)assert.equal((await engine(repository,remote).syncOnce()).conflicts,0);
+    assert.equal((await repository.operationalSnapshot()).queue.operations,0);
   }finally{rollout.stop();repository.close();}
 });
 

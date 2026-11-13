@@ -21,6 +21,16 @@ const BACK=[
 ];
 const SILHOUETTE=[['circle',{cx:50,cy:15,r:9}],['rect',{x:46,y:23,width:8,height:8,rx:3}],['rect',{x:31,y:34,width:38,height:62,rx:14}],['rect',{x:17,y:38,width:14,height:58,rx:7}],['rect',{x:69,y:38,width:14,height:58,rx:7}],['rect',{x:33,y:92,width:34,height:20,rx:10}],['rect',{x:32,y:104,width:16,height:86,rx:8}],['rect',{x:52,y:104,width:16,height:86,rx:8}]];
 
+// Muscles a custom exercise can declare, with the body region the Coach uses.
+export const CUSTOM_MUSCLES=Object.freeze(['chest','upper_back','lats','deltoids','rear_deltoids','biceps','triceps','forearms','core','erectors','quadriceps','hamstrings','glutes','adductors','calves']);
+const LEG_MUSCLES=new Set(['quadriceps','hamstrings','glutes','adductors','calves']),CORE_MUSCLES=new Set(['core','erectors']);
+export function customExerciseMetadata({primaryMuscle,secondaryMuscle}={}){
+  if(!primaryMuscle)return {custom:true};
+  if(!CUSTOM_MUSCLES.includes(primaryMuscle)||secondaryMuscle&&!CUSTOM_MUSCLES.includes(secondaryMuscle))throw new Error('Músculo inválido.');
+  const body_region=LEG_MUSCLES.has(primaryMuscle)?'legs':CORE_MUSCLES.has(primaryMuscle)?'core':'upper';
+  return {custom:true,category:MUSCLE_NAMES[primaryMuscle],body_region,movement_pattern:`custom:${primaryMuscle}`,primary_muscles:[primaryMuscle],secondary_muscles:secondaryMuscle&&secondaryMuscle!==primaryMuscle?[secondaryMuscle]:[],equipment:['unspecified'],laterality:'bilateral',role:'accessory',fatigue:2};
+}
+
 export const MUSCLE_COLORS=Object.freeze({primary:'#e5243b',secondary:'#ff8c98',idle:'#3a3a40',body:'#232327'});
 
 export function muscleHighlights(catalogOrProfile){

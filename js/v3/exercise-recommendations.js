@@ -47,7 +47,29 @@ export const EXERCISE_PROFILES=Object.freeze({
   'sprint-10m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',2),
   'sprint-20m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',3),
   'sprint-30m':profile('sprint',['hamstrings','glutes'],['quadriceps','calves'],['bodyweight'],'bilateral','speed',3),
-  'cambios-direccion':profile('change_of_direction',['adductors','quadriceps'],['glutes','calves'],['cones'],'bilateral','speed',2)
+  'cambios-direccion':profile('change_of_direction',['adductors','quadriceps'],['glutes','calves'],['cones'],'bilateral','speed',2),
+  'hip-thrust':profile('hip_thrust',['glutes'],['hamstrings'],['barbell','machine'],'bilateral','main_strength',2),
+  'sentadilla-goblet':profile('knee_dominant',['quadriceps','glutes'],['core'],['dumbbell'],'bilateral','accessory',2),
+  'step-up':profile('knee_dominant',['quadriceps','glutes'],['hamstrings'],['dumbbell','bodyweight'],'unilateral','accessory',2),
+  'peso-muerto-hexagonal':profile('hip_hinge',['glutes','quadriceps','hamstrings'],['erectors','upper_back'],['trap_bar'],'bilateral','main_strength',3),
+  'peso-muerto-unilateral':profile('hip_hinge',['hamstrings','glutes'],['core'],['dumbbell'],'unilateral','accessory',2),
+  'gemelos-sentado':profile('calf_raise',['calves'],[],['machine'],'bilateral','accessory',1),
+  'aductor-maquina':profile('hip_adduction',['adductors'],[],['machine'],'bilateral','prevention',1),
+  'abductor-maquina':profile('hip_abduction',['glutes'],[],['machine'],'bilateral','accessory',1),
+  'extension-lumbar':profile('back_extension',['erectors','glutes'],['hamstrings'],['bench'],'bilateral','prevention',1),
+  'press-mancuernas':profile('horizontal_press',['chest'],['triceps','front_deltoids'],['dumbbell'],'bilateral','main_strength',2),
+  'flexiones':profile('horizontal_press',['chest'],['triceps','front_deltoids','core'],['bodyweight'],'bilateral','accessory',1),
+  'cruce-poleas':profile('chest_fly',['chest'],['front_deltoids'],['cable'],'bilateral','accessory',1),
+  'remo-polea':profile('horizontal_pull',['upper_back','lats'],['biceps'],['cable'],'bilateral','main_strength',2),
+  'face-pull':profile('horizontal_abduction',['rear_deltoids','upper_back'],[],['cable'],'bilateral','prevention',1),
+  'dominadas':profile('vertical_pull',['lats','upper_back'],['biceps'],['bodyweight'],'bilateral','main_strength',2),
+  'dominadas-supinas':profile('vertical_pull',['lats','biceps'],['upper_back'],['bodyweight'],'bilateral','main_strength',2),
+  'press-arnold':profile('vertical_press',['deltoids'],['triceps'],['dumbbell'],'bilateral','main_strength',2),
+  'elevacion-lateral-polea':profile('shoulder_abduction',['deltoids'],[],['cable'],'unilateral','accessory',1),
+  'press-frances':profile('elbow_extension',['triceps'],[],['barbell','dumbbell'],'bilateral','accessory',1),
+  'curl-predicador':profile('elbow_flexion',['biceps'],['forearms'],['barbell','machine'],'bilateral','accessory',1),
+  'dead-bug':profile('anti_extension',['core'],[],['bodyweight'],'bilateral','prevention',1),
+  'plancha-lateral':profile('core_stability',['core','obliques'],['adductors'],['bodyweight'],'unilateral','prevention',1)
 });
 
 const muscleLabels={quadriceps:'cuádriceps',glutes:'glúteos',hamstrings:'isquios',chest:'pecho',lats:'dorsales',upper_back:'espalda alta',rear_deltoids:'deltoide posterior',biceps:'bíceps',triceps:'tríceps',deltoids:'hombros',calves:'gemelos',core:'core',adductors:'aductores'};

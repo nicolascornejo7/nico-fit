@@ -7,6 +7,7 @@ import {sessionMetrics,estimatedPRs} from './training-metrics.js';
 import {v3Progression} from './training-progression.js';
 import {rolloutFlag,rolloutBlocksNewWork,rolloutAllowsLocalTraining} from './rollout-state.js';
 import {BASE_EXERCISES,baseCatalogId} from './base-exercise-catalog.js';
+import {customExerciseMetadata} from './muscle-map.js';
 import {compatiblePrescription} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {effectiveTuesdayExercises} from './tuesday-adaptation.js';
@@ -121,10 +122,10 @@ export class V3TrainingEngine{
     return snapshot;
   }
 
-  createCustomExercise({name,measurementKind='reps'}={}){return this.#run(async()=>{
+  createCustomExercise({name,measurementKind='reps',primaryMuscle=null,secondaryMuscle=null}={}){return this.#run(async()=>{
     const canonical_name=requiredText(name,'Ejercicio');
     if(!['reps','seconds','mixed'].includes(measurementKind))throw new Error('Unidad inválida.');
-    const id=this.crypto.randomUUID();const [record]=await this.repository.commitLocalChanges([insert('exercise_catalog',id,{stable_key:`custom:${id}`,canonical_name,measurement_kind:measurementKind,metadata:{custom:true}})]);return record;
+    const id=this.crypto.randomUUID();const [record]=await this.repository.commitLocalChanges([insert('exercise_catalog',id,{stable_key:`custom:${id}`,canonical_name,measurement_kind:measurementKind,metadata:customExerciseMetadata({primaryMuscle,secondaryMuscle})})]);return record;
   });}
 
   addExercise(catalogId,prescription={}){return this.#run(async()=>{

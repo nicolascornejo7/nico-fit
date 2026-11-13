@@ -28,6 +28,7 @@ import {bootstrapV3Repository,BOOTSTRAP_PENDING_MESSAGE} from './v3/bootstrap.js
 import {recoveryUserMessage} from './v3/recovery.js';
 import {cachedV3Identity} from './v3/offline-auth.js';
 import {weeklyMuscleVolume,personalRecords,mesocycleStatus,MESOCYCLE} from './v3/hypertrophy.js';
+import {buildExport,setsCsv,downloadFile} from './v3/export.js';
 
 await rolloutReady;
 
@@ -274,6 +275,7 @@ function renderAll(capture=true){if(capture)captureActiveDrafts();lastRenderedDa
 function pendingReasonMessage(reason){
   if(reason==='offline')return recoveryUserMessage({code:'RECOVERY_NETWORK'});
   if(reason==='locked')return recoveryUserMessage({code:'RECOVERY_LOCK'});
+  if(reason==='rollout_blocked')return 'El servidor no está disponible para sincronizar ahora. Tus datos locales están a salvo; podés reintentar más tarde.';
   return '';
 }
 async function retryV3Bootstrap(){
@@ -289,6 +291,15 @@ async function resetAll(){if(!allowNewWork())return;const scope=sync.user?'este 
 ['sleep','energy','freshness','pain','matchEnergy','legs','performance'].forEach(id=>$(id).addEventListener('input',()=>{$(id+'Val').textContent=$(id).value;if(['sleep','energy','freshness','pain'].includes(id)){renderDashboard();renderReadinessState();}}));$('painArea').addEventListener('change',renderReadinessState);$('footballDate').addEventListener('change',()=>{['footballDuration','footballRpe','footballMinutes'].forEach(id=>$(id).value='');renderFootball();renderMatch();});['footballDuration','footballRpe'].forEach(id=>$(id).addEventListener('input',updateFootballLoad));
 $('sessionRpe').addEventListener('input',()=>activeSession.updateSummary({rpe:+$('sessionRpe').value}));$('sessionNotes').addEventListener('input',()=>activeSession.updateSummary({notes:$('sessionNotes').value}));
 $('saveReadiness').onclick=saveReadiness;$('saveMatch').onclick=saveMatch;$('saveFootball').onclick=saveFootball;$('startSessionBtn').onclick=()=>document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'today'}}));$('finishSessionBtn').onclick=null;$('saveSessionSummary').onclick=null;$('addRestBtn').onclick=null;$('skipRestBtn').onclick=null;$('resetBtn').onclick=()=>alert('El histórico V2 es de solo lectura. Los datos V3 se administran desde Entrenar y Diagnóstico.');$('exerciseSelect').onchange=()=>{if(progressArea==='strength')renderProgressArea();};$('readinessMetricSelect').onchange=()=>{readinessMetric=$('readinessMetricSelect').value;if(progressArea==='readiness')renderProgressArea();};document.querySelectorAll('[data-progress-area]').forEach(button=>button.onclick=()=>{progressArea=button.dataset.progressArea;renderProgressArea();});
+async function exportData(kind){
+  if(!v3Repository){$('exportStatus').textContent='Iniciá sesión para exportar tus datos de entrenamiento.';return;}
+  try{$('exportStatus').textContent='Preparando archivo…';const data=await buildExport(v3Repository),stamp=localDateKey();
+    if(kind==='json')downloadFile(`nico-fit-${stamp}.json`,JSON.stringify(data,null,2),'application/json');
+    else downloadFile(`nico-fit-series-${stamp}.csv`,setsCsv(data),'text/csv;charset=utf-8');
+    $('exportStatus').textContent=`Listo: ${data.workouts.length} sesiones exportadas.`;}
+  catch(error){console.warn(error);$('exportStatus').textContent='No se pudo exportar. Probá de nuevo.';}
+}
+$('exportJsonBtn').onclick=()=>exportData('json');$('exportCsvBtn').onclick=()=>exportData('csv');
 $('profileBtn').onclick=()=>{switchView('settingsView');if(!sync.user)$('authSection').classList.remove('hidden');};$('openAuthSettings').onclick=()=>{$('authSection').classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});};$('closeAuthBtn').onclick=()=>$('authSection').classList.add('hidden');document.querySelectorAll('.nav-btn').forEach(button=>button.onclick=()=>button.dataset.view==='workoutView'?document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'open'}})):switchView(button.dataset.view));
 $('loginBtn').onclick=async()=>{try{setAuthMessage('Iniciando sesión…');await sync.signIn($('email').value.trim(),$('password').value);setAuthMessage('Sesión iniciada.');}catch(error){setAuthMessage(error.message,true);}};$('signupBtn').onclick=async()=>{try{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6)return setAuthMessage('Email válido y contraseña de al menos 6 caracteres.',true);const result=await sync.signUp(email,password);setAuthMessage(result.session?'Cuenta creada.':'Cuenta creada. Revisá tu email para confirmarla.');}catch(error){setAuthMessage(error.message,true);}};
 $('logoutBtn').onclick=async()=>{await sync.signOut();renderAuth();};$('syncNowBtn').onclick=async()=>{try{if(!v3Repository)throw new Error('Iniciá sesión para sincronizar.');await syncV3Repository(v3Repository);await refreshV3Product();}catch(error){setAuthMessage(error.message,true);}};

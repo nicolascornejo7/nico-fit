@@ -154,3 +154,4 @@ h1,h2,h3{font-family:var(--display);letter-spacing:-.01em}
 .outlook-card.neutral h2{font-size:22px}
 .progress-areas button{font-size:12px!important;padding-inline:2px!important;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(min-width:400px){.progress-areas button{font-size:13px!important}}
+.export-actions{display:grid;gap:10px;margin-top:12px}
