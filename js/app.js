@@ -29,8 +29,8 @@ import {recoveryUserMessage} from './v3/recovery.js';
 import {cachedV3Identity} from './v3/offline-auth.js';
 import {weeklyMuscleVolume,personalRecords,mesocycleStatus,MESOCYCLE} from './v3/hypertrophy.js';
 import {buildExport,setsCsv,downloadFile} from './v3/export.js';
-import {setWeekMode,WEEK_MODES} from './v3/week-mode.js';
-import {OFF_SEASON_WEEK} from './v3/offseason-program.js';
+import {setWeekMode,setMondayWithTeam,WEEK_MODES} from './v3/week-mode.js';
+import {OFF_SEASON_WEEK,SOLO_MONDAY_DAY} from './v3/offseason-program.js';
 
 await rolloutReady;
 
@@ -45,7 +45,7 @@ const activeSession=new ActiveSessionStore({owner:storageOwner});
 const sync=new SyncService({getData:()=>data,setData:next=>{captureActiveDrafts();data=next;persistAndRender(false);},onState:setSyncBadge});
 sync.onAuth=user=>switchStorageOwner(user);
 
-function planFor(dayIndex){return v3Context?.weekMode==='off_season'?OFF_SEASON_WEEK[dayIndex]:plan[dayIndex];}
+function planFor(dayIndex){if(v3Context?.weekMode==='off_season')return OFF_SEASON_WEEK[dayIndex];if(dayIndex===1&&v3Context?.mondayWithTeam===false)return SOLO_MONDAY_DAY;return plan[dayIndex];}
 function currentContext(now=new Date()){const dayIndex=now.getDay();return {now,dayIndex,dateKey:localDateKey(now),plan:planFor(dayIndex)};}
 function workoutContext(){const state=activeSession.state;if(!state)return currentContext();return {now:new Date(),dayIndex:state.dayIndex,dateKey:state.sessionDate,plan:plan[state.dayIndex],active:state};}
 function persist(){saveLocalData(data,storageOwner);}
@@ -137,12 +137,18 @@ function renderWeekMode(){
   const card=$('weekModeCard'),mode=v3Context?.weekMode,week=v3Context?.week;
   card.classList.toggle('hidden',storageOwner==='guest'||!mode);if(!mode)return;
   for(const button of card.querySelectorAll('[data-week-mode]')){const active=button.dataset.weekMode===mode;button.classList.toggle('active',active);button.setAttribute('aria-checked',String(active));}
+  $('mondayTeamRow').classList.toggle('hidden',mode==='off_season');
+  for(const button of card.querySelectorAll('[data-monday-team]')){const active=(button.dataset.mondayTeam==='yes')===(v3Context?.mondayWithTeam!==false);button.classList.toggle('active',active);button.setAttribute('aria-checked',String(active));}
   const box=clearNode($('weekRecommendations'));if(!week)return;
   const section=(title,lines)=>{if(!lines.length)return;const block=box.ownerDocument.createElement('div');block.className='week-rec-block';appendTextElement(block,'h3',title,'subhead');for(const line of lines)appendTextElement(block,'p',line,'week-rec-line');box.append(block);};
   section('Para tener en cuenta',week.notes);
   section('Fuerza e hipertrofia',week.strength.map(row=>`${row.label}: ${row.sets}/${row.min} series efectivas (faltan ≈${row.deficit}). Sumá: ${row.exercises.join(' o ')}.`));
   if(week.cardio)section(week.cardio.sessions>1?`Cardio (${week.cardio.sessions} sesiones en la semana)`:'Cardio',[week.cardio.detail,...week.cardio.options]);
   if(!week.notes.length&&!week.strength.length&&!week.cardio)appendTextElement(box,'p','Semana en orden: tus músculos están dentro del rango y el fútbol cubre la carga aeróbica.','muted');
+}
+async function changeMondayTeam(withTeam){
+  try{setMondayWithTeam(storageOwner,currentContext().dateKey,withTeam);await refreshV3Product();}
+  catch(error){alert(error.message);}
 }
 async function changeWeekMode(mode){
   try{setWeekMode(storageOwner,currentContext().dateKey,mode);await refreshV3Product();}
@@ -322,7 +328,7 @@ async function exportData(kind){
     $('exportStatus').textContent=`Listo: ${data.workouts.length} sesiones exportadas.`;}
   catch(error){console.warn(error);$('exportStatus').textContent='No se pudo exportar. Probá de nuevo.';}
 }
-document.querySelectorAll('[data-week-mode]').forEach(button=>button.onclick=()=>changeWeekMode(button.dataset.weekMode));
+document.querySelectorAll('[data-week-mode]').forEach(button=>button.onclick=()=>changeWeekMode(button.dataset.weekMode));document.querySelectorAll('[data-monday-team]').forEach(button=>button.onclick=()=>changeMondayTeam(button.dataset.mondayTeam==='yes'));
 $('exportJsonBtn').onclick=()=>exportData('json');$('exportCsvBtn').onclick=()=>exportData('csv');
 $('profileBtn').onclick=()=>{switchView('settingsView');if(!sync.user)$('authSection').classList.remove('hidden');};$('openAuthSettings').onclick=()=>{$('authSection').classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});};$('closeAuthBtn').onclick=()=>$('authSection').classList.add('hidden');document.querySelectorAll('.nav-btn').forEach(button=>button.onclick=()=>button.dataset.view==='workoutView'?document.dispatchEvent(new CustomEvent('nico-fit:open-training',{detail:{mode:'open'}})):switchView(button.dataset.view));
 $('loginBtn').onclick=async()=>{try{setAuthMessage('Iniciando sesión…');await sync.signIn($('email').value.trim(),$('password').value);setAuthMessage('Sesión iniciada.');}catch(error){setAuthMessage(error.message,true);}};$('signupBtn').onclick=async()=>{try{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6)return setAuthMessage('Email válido y contraseña de al menos 6 caracteres.',true);const result=await sync.signUp(email,password);setAuthMessage(result.session?'Cuenta creada.':'Cuenta creada. Revisá tu email para confirmarla.');}catch(error){setAuthMessage(error.message,true);}};

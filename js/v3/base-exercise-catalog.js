@@ -47,6 +47,7 @@ export const BASE_EXERCISES=Object.freeze([
   ['curl-predicador','Curl predicador','reps','Bíceps','upper'],
   ['dead-bug','Dead bug','reps','Core','core'],
   ['plancha-lateral','Plancha lateral','seconds','Core','core'],
+  ['intervalos-cardio','Intervalos (bici o cinta)','seconds','Cardio','legs'],
   ...PLYO_CATALOG.map(([key,name,category])=>[key,name,'reps',category,'legs'])
 ].map(([stable_key,canonical_name,measurement_kind,category,body_region])=>Object.freeze({stable_key,canonical_name,measurement_kind,metadata:Object.freeze({source:'v3-base-catalog',category,body_region})})));
 

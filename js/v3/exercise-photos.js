@@ -67,7 +67,8 @@ export const EXERCISE_PHOTO_IDS=Object.freeze({
   'sprint-10m':'Wind_Sprints',
   'sprint-20m':'Wind_Sprints',
   'sprint-30m':'Wind_Sprints',
-  'cambios-direccion':'Single-Cone_Sprint_Drill'
+  'cambios-direccion':'Single-Cone_Sprint_Drill',
+  'intervalos-cardio':'Bicycling_Stationary'
 });
 
 export function exercisePhotos(catalog){

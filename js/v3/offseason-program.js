@@ -54,6 +54,26 @@ export const OFF_SEASON_WEEK=Object.freeze({
   0:{name:'Domingo',type:'Descanso',label:'Descanso',intensity:'—',exercises:[]}
 });
 
+// Monday without team training (in-season): replace the team session's
+// conditioning and add upper body that does not repeat Tuesday, with no leg
+// strength work so Tuesday's leg routine stays complete.
+export const SOLO_MONDAY_PROGRAM=Object.freeze({
+  1:{label:'Lunes sin equipo · Condición física + tren superior',exercises:[
+    exercise('intervalos-cardio',4,240,240,null,180,0,'4 min a RPE 8, con 3 min suaves entre medio','seconds'),
+    exercise('remo-barra',3,8,10,2,120,2.5),
+    exercise('remo-polea',3,10,12,2,90,2.5),
+    exercise('press-militar',3,8,10,2,90,2),
+    exercise('cruce-poleas',3,12,15,2,60,1),
+    exercise('elevacion-lateral',3,12,20,1,60,1),
+    exercise('curl-martillo',2,10,12,1,60,1),
+    exercise('extension-triceps-polea',2,10,15,1,60,1),
+    exercise('plancha-pallof',3,30,45,null,60,0,'Técnica, sin fallo','seconds'),
+    exercise('plancha-lateral',2,20,30,null,45,0,'Por lado','seconds'),
+    exercise('dead-bug',2,8,10,null,45,0)
+  ]}
+});
+export const SOLO_MONDAY_DAY=Object.freeze({name:'Lunes',type:'Gimnasio',label:'Sin equipo: condición física + tren superior',intensity:'Media',exercises:[]});
+
 export const OFF_SEASON_DAYS=Object.freeze([1,2,4,5]);
 export const IN_SEASON_DAYS=Object.freeze([2,4,5]);
-export const gymDaysFor=mode=>mode==='off_season'?OFF_SEASON_DAYS:IN_SEASON_DAYS;
+export const gymDaysFor=(mode,{mondaySolo=false}={})=>mode==='off_season'?OFF_SEASON_DAYS:mondaySolo?[1,...IN_SEASON_DAYS]:IN_SEASON_DAYS;

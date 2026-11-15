@@ -9,7 +9,7 @@ const catalog=keys.map((stable_key,index)=>({id:String(index),stable_key,canonic
 const item=key=>catalog.find(row=>row.stable_key===key);
 
 test('all existing stable catalog keys have explicit profiles and recommendations stay within matching patterns',()=>{
-  assert.equal(keys.length,64);
+  assert.equal(keys.length,65);
   for(const current of catalog){
     const profile=exerciseProfile(current);assert.ok(profile,`missing profile: ${current.stable_key}`);
     assert.ok(profile.movement_pattern&&profile.primary_muscles.length&&profile.equipment.length&&profile.laterality&&profile.role&&profile.fatigue);

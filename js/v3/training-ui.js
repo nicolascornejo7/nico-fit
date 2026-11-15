@@ -11,8 +11,8 @@ import {recoveryUserMessage} from './recovery.js';
 import {recommendedAlternatives} from './exercise-recommendations.js';
 import {V3CoachService} from './coach-service.js';
 import {RoutineEditor} from './routine-editor.js';
-import {weekModeFor} from './week-mode.js';
-import {OFF_SEASON_WEEK,gymDaysFor} from './offseason-program.js';
+import {weekModeFor,mondayWithTeam} from './week-mode.js';
+import {OFF_SEASON_WEEK,SOLO_MONDAY_DAY,gymDaysFor} from './offseason-program.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
@@ -126,8 +126,8 @@ export class V3TrainingUI{
 
   async renderStart(shell){
     if(this.lastCompleted){const metrics=sessionMetrics(this.lastCompleted);shell.append(el('p',`Sesión finalizada localmente: ${metrics.completedSets} series · RPE ${metrics.rpe}. Guardado remoto aún no confirmado.`,'advice'));this.setConflict(this.lastCompleted);}
-    const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),mode=weekModeFor(this.engine.repository.userId,date),offSeason=mode==='off_season',hasRoutine=gymDaysFor(mode).includes(dayIndex),dayLabel=offSeason?OFF_SEASON_WEEK[dayIndex]?.label:{2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
-    const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex,mode}):[];
+    const now=this.engine.now(),dayIndex=now.getDay(),date=localDateKey(now),mode=weekModeFor(this.engine.repository.userId,date),offSeason=mode==='off_season',mondaySolo=!offSeason&&!mondayWithTeam(this.engine.repository.userId,date),hasRoutine=gymDaysFor(mode,{mondaySolo}).includes(dayIndex),dayLabel=offSeason?OFF_SEASON_WEEK[dayIndex]?.label:dayIndex===1&&mondaySolo?SOLO_MONDAY_DAY.label:{2:'Fuerza principal',4:'Prevención y fuerza',5:'Activación prepartido'}[dayIndex];
+    const completed=hasRoutine?await completedRoutineSessions(this.engine.repository,{date,dayIndex,mode,mondaySolo}):[];
     const primary=el('section','','card v3-training-primary');shell.append(primary);primary.append(el('h3',hasRoutine?'Entrenamiento de hoy':'Hoy no hay rutina programada'));
     if(completed.length){
       const latest=await this.engine.snapshot(completed[0].id),metrics=sessionMetrics(latest);

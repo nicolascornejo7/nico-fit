@@ -69,6 +69,7 @@ export const EXERCISE_PROFILES=Object.freeze({
   'press-frances':profile('elbow_extension',['triceps'],[],['barbell','dumbbell'],'bilateral','accessory',1),
   'curl-predicador':profile('elbow_flexion',['biceps'],['forearms'],['barbell','machine'],'bilateral','accessory',1),
   'dead-bug':profile('anti_extension',['core'],[],['bodyweight'],'bilateral','prevention',1),
+  'intervalos-cardio':profile('conditioning',['quadriceps'],['calves','glutes'],['bike','treadmill'],'bilateral','speed',2),
   'plancha-lateral':profile('core_stability',['core','obliques'],['adductors'],['bodyweight'],'unilateral','prevention',1)
 });
 

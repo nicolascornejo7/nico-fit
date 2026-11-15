@@ -161,3 +161,4 @@ h1,h2,h3{font-family:var(--display);letter-spacing:-.01em}
 .week-mode-options button.active{background:var(--accent)!important;color:#fff!important}
 .week-recommendations{display:grid;gap:10px}.week-rec-block{display:grid;gap:6px;padding:12px;border-radius:16px;background:var(--surface2);border:1px solid var(--line)}.week-rec-block .subhead{margin:0}
 .week-rec-line{margin:0;font-size:14px;line-height:1.45;color:var(--soft)}
+.monday-team-row{display:grid;gap:6px}.monday-team-row>span{font-size:14px;font-weight:600;color:var(--soft)}.week-mode-options.two{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr)}

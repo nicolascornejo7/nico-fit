@@ -10,8 +10,9 @@ const stamp=date=>Date.parse(`${date}T12:00:00Z`);
 export const weekStartOf=date=>{const time=stamp(date),day=new Date(time).getUTCDay();return new Date(time-((day+6)%7)*DAY).toISOString().slice(0,10);};
 
 function read(storage,userId){
-  try{const value=JSON.parse(storage?.getItem(KEY(userId))||'null');return {offSeasonSince:typeof value?.offSeasonSince==='string'?value.offSeasonSince:null,noMatchWeeks:Array.isArray(value?.noMatchWeeks)?value.noMatchWeeks.filter(item=>typeof item==='string'):[]};}
-  catch{return {offSeasonSince:null,noMatchWeeks:[]};}
+  const list=value=>Array.isArray(value)?value.filter(item=>typeof item==='string'):[];
+  try{const value=JSON.parse(storage?.getItem(KEY(userId))||'null');return {offSeasonSince:typeof value?.offSeasonSince==='string'?value.offSeasonSince:null,noMatchWeeks:list(value?.noMatchWeeks),noTeamWeeks:list(value?.noTeamWeeks)};}
+  catch{return {offSeasonSince:null,noMatchWeeks:[],noTeamWeeks:[]};}
 }
 
 export function weekModeFor(userId,date,{storage=globalThis.localStorage}={}){
@@ -32,3 +33,17 @@ export function setWeekMode(userId,date,mode,{storage=globalThis.localStorage}={
 }
 
 export const hasMatchThisWeek=mode=>mode==='match';
+
+// Monday team training, per week. Without it, Monday becomes a solo gym day
+// (conditioning + upper body + core) that leaves Tuesday's legs fresh.
+export function mondayWithTeam(userId,date,{storage=globalThis.localStorage}={}){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return true;
+  return !read(storage,userId).noTeamWeeks.includes(weekStartOf(date));
+}
+export function setMondayWithTeam(userId,date,withTeam,{storage=globalThis.localStorage}={}){
+  const state=read(storage,userId),week=weekStartOf(date),oldest=weekStartOf(new Date(stamp(date)-120*DAY).toISOString().slice(0,10));
+  state.noTeamWeeks=state.noTeamWeeks.filter(item=>item!==week&&item>=oldest);
+  if(!withTeam)state.noTeamWeeks.push(week);
+  try{storage?.setItem(KEY(userId),JSON.stringify(state));}catch{throw new Error('No se pudo guardar en este dispositivo.');}
+  return mondayWithTeam(userId,date,{storage});
+}
