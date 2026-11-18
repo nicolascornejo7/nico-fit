@@ -5,6 +5,7 @@ import {V3CoachService} from './coach-service.js';
 import {weekModeFor,mondayWithTeam} from './week-mode.js';
 import {weekRecommendations} from './week-recommendations.js';
 import {gymDaysFor} from './offseason-program.js';
+import {extraDayPlan,daysToMatchFor} from './extra-day.js';
 
 const readinessScore=row=>row?Math.max(0,Math.min(100,Math.round(((row.sleep+row.energy+row.freshness)/15)*100-Math.max(0,row.pain-2)*3))):null;
 
@@ -21,7 +22,9 @@ export class V3TodayService{
     try{recommendation=await new V3CoachService({engine:this.engine,featureEnabled:true,now:this.now}).today(usableActive);}catch{}
     const weekMode=weekModeFor(this.repository.userId,date),withTeam=mondayWithTeam(this.repository.userId,date),mondaySolo=!withTeam&&weekMode!=='off_season';let week=null;
     try{week=weekRecommendations({mode:weekMode,date,signals:recommendation?.signals,catalog:await this.repository.listRecords('exercise_catalog')});}catch{}
-    return {date,dayIndex,readiness,football,matches,readinessScore:readinessScore(readiness),recommendation,weekMode,week,hasRoutine:gymDaysFor(weekMode,{mondaySolo}).includes(dayIndex),mondayWithTeam:withTeam,activeSession:usableActive};
+    const hasRoutine=gymDaysFor(weekMode,{mondaySolo}).includes(dayIndex);let extraDay=null;
+    if(!hasRoutine)try{extraDay=extraDayPlan({history:recommendation?.signals?.history??(await this.engine.history()).filter(Boolean),date,mode:weekMode,daysToMatch:daysToMatchFor(weekMode,date),catalog:await this.repository.listRecords('exercise_catalog')});}catch{}
+    return {date,dayIndex,readiness,football,matches,readinessScore:readinessScore(readiness),recommendation,weekMode,week,hasRoutine,extraDay,mondayWithTeam:withTeam,activeSession:usableActive};
   }
   async recover(){return this.engine.recover();}
   async startToday(){const active=await this.engine.recover();if(active)return active;const now=this.now(),dayIndex=now.getDay();const today=localDateKey(now),mode=weekModeFor(this.repository.userId,today);if(!gymDaysFor(mode,{mondaySolo:mode!=='off_season'&&!mondayWithTeam(this.repository.userId,today)}).includes(dayIndex))return null;return this.engine.createSession({date:localDateKey(now),dayIndex,useRoutine:true});}

@@ -71,10 +71,11 @@ export class V3TrainingEngine{
     await this.repository.commitLocalChanges([],{trainingState:this.state});return snapshot;
   });}
 
-  createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine',adaptTuesday=false,overrideCoach=false,expectedCoachEvidenceKey=null}={}){return this.#run(async()=>{
+  createSession({label,date,dayIndex,useRoutine=true,routineVersionId,sessionType='routine',adaptTuesday=false,overrideCoach=false,expectedCoachEvidenceKey=null,plannedExercises=null}={}){return this.#run(async()=>{
     if(!rolloutAllowsLocalTraining()||rolloutBlocksNewWork()||rolloutFlag('v3_training_enabled')===false)throw new Error('Esta versión no puede iniciar una sesión V3 nueva.');
     if(!['routine','free_workout'].includes(sessionType))throw new Error('Tipo de sesión inválido.');
     if(sessionType==='free_workout'&&(useRoutine||routineVersionId))throw new Error('La musculación libre no usa una rutina.');
+    if(plannedExercises&&(sessionType!=='free_workout'||!Array.isArray(plannedExercises)))throw new Error('Sólo una sesión libre acepta ejercicios sugeridos.');
     const now=this.now(),sessionDate=date??localDateKey(now);
     if(dayIndex!=null&&(!Number.isInteger(dayIndex)||dayIndex<0||dayIndex>6))throw new Error('Día de rutina inválido.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)||localDateKey(new Date(`${sessionDate}T12:00:00`))!==sessionDate)throw new Error('Fecha inválida.');
@@ -107,10 +108,10 @@ export class V3TrainingEngine{
     const changes=[insert('workout_sessions',id,session)],catalog=await this.#catalogRows();
     const exerciseIds=[];
     const sourceExercises=decision?effectiveTuesdayExercises(concrete.snapshot,decision,catalog):concrete?.snapshot.exercises;
-    const items=sourceExercises?sourceExercises.map(ex=>({catalog_id:ex.exercise_catalog_id,canonical_name:ex.exercise_name_snapshot,prescription:ex.prescription_snapshot})):(useRoutine?routine.exercises:[]);
+    const items=sourceExercises?sourceExercises.map(ex=>({catalog_id:ex.exercise_catalog_id,canonical_name:ex.exercise_name_snapshot,prescription:ex.prescription_snapshot})):plannedExercises?plannedExercises.map(ex=>({catalog_id:ex.catalog_id,prescription:ex.prescription})):(useRoutine?routine.exercises:[]);
     for(const [position,item] of items.entries()){
       let entry=catalog.find(ex=>(item.catalog_id?ex.id===item.catalog_id:ex.stable_key===item.stable_key)&&!ex.deleted_at);
-      if(concrete&&!entry)throw new Error('Catálogo cambiado mientras se iniciaba la sesión; revisar la versión.');
+      if((concrete||plannedExercises)&&!entry)throw new Error('Catálogo cambiado mientras se iniciaba la sesión; revisar la versión.');
       if(!entry){entry={id:await routineCatalogId(this.repository.userId,item.stable_key),...item};changes.push(insert('exercise_catalog',entry.id,{stable_key:entry.stable_key,canonical_name:entry.canonical_name,measurement_kind:entry.measurement_kind,metadata:{source:'validated-v2-plan'}}));catalog.push(entry);}
       const exerciseId=this.crypto.randomUUID();exerciseIds.push(exerciseId);
       changes.push(insert('session_exercises',exerciseId,{session_id:id,exercise_catalog_id:entry.id,position,exercise_name_snapshot:concrete?item.canonical_name:entry.canonical_name,prescription_snapshot:validatePrescription(item.prescription),notes:''}));
@@ -120,6 +121,11 @@ export class V3TrainingEngine{
   });}
 
   createFreeWorkout({label='Musculación libre',date}={}){return this.createSession({label,date,useRoutine:false,sessionType:'free_workout'});}
+  // Extra day: a free workout pre-filled with the exercises of extraDayPlan().
+  createExtraDay({plan,date}={}){
+    if(!plan?.exercises?.length)return Promise.reject(new Error('No hay un día extra sugerido para hoy.'));
+    return this.createSession({label:plan.label,date:date??plan.date,useRoutine:false,sessionType:'free_workout',plannedExercises:plan.exercises});
+  }
 
   selectSession(id){return this.#run(async()=>{
     const snapshot=await this.#editable(id),state={activeSessionId:id,currentExerciseId:snapshot.exercises[0]?.id||null,view:'exercises',drafts:{},summaryDraft:{}};

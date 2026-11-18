@@ -13,6 +13,7 @@ import {V3CoachService} from './coach-service.js';
 import {RoutineEditor} from './routine-editor.js';
 import {weekModeFor,mondayWithTeam} from './week-mode.js';
 import {OFF_SEASON_WEEK,SOLO_MONDAY_DAY,gymDaysFor} from './offseason-program.js';
+import {extraDayPlan,daysToMatchFor} from './extra-day.js';
 import {BASE_EXERCISES} from './base-exercise-catalog.js';
 import {plyoHint} from './plyometrics.js';
 import {muscleHighlights,muscleMapSvg,CUSTOM_MUSCLES,MUSCLE_NAMES} from './muscle-map.js';
@@ -154,6 +155,25 @@ export class V3TrainingUI{
           if(decision.selectedVariant!=='normal')primary.append(button('Usar rutina completa igualmente',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true,adaptTuesday:true,overrideCoach:true,expectedCoachEvidenceKey:decision.evidenceKey})),'ghost wide'));
         }catch(error){primary.append(el('p',`No se pudo evaluar el martes: ${error.message}`,'advice'));}
       }else if(hasRoutine)primary.append(button('Comenzar entrenamiento',()=>this.run(()=>this.engine.createSession({dayIndex,useRoutine:true})),'primary wide'));
+    }
+    if(!hasRoutine){
+      try{
+        const history=(await this.engine.history()).filter(Boolean),trainedToday=history.some(item=>item.session.session_date===date&&item.session.status==='completed'&&!item.session.deleted_at);
+        const plan=extraDayPlan({history,catalog:await this.engine.catalog(),date,mode,daysToMatch:daysToMatchFor(mode,date)});
+        const extra=el('section','','card v3-extra-day');shell.insertBefore(extra,primary.nextSibling);
+        extra.append(el('h3','Día extra sugerido'));
+        if(trainedToday)extra.append(el('p','✓ Ya entrenaste hoy. Lo que falta queda para tu próximo día libre.','muted'));
+        else if(!plan.available||!plan.exercises.length)extra.append(el('p',plan.reason??plan.message,'muted'));
+        else{
+          extra.append(el('p',`Armado con lo que te falta esta semana para hipertrofia · ${plan.totalSets} series`,'muted'));
+          const list=el('ul','','v3-extra-day-list');extra.append(list);
+          for(const item of plan.exercises){const rx=item.prescription;list.append(el('li',`${item.canonical_name} · ${rx.sets}×${rx.min}–${rx.max}${rx.measurement_kind==='seconds'?' s':''}${rx.target_rir!=null?` · RIR ${rx.target_rir}`:''} — ${item.muscleLabel}`));}
+          const changes=plan.changes.filter(row=>row.before<row.min);
+          if(changes.length){const why=document.createElement('details');why.className='v3-extra-day-why';why.append(el('summary','Cómo queda tu semana'));for(const row of changes)why.append(el('p',`${row.label}: ${row.before} → ${row.after} series (rango ${row.min}–${row.max})`,'muted'));extra.append(why);}
+          for(const note of plan.notes)extra.append(el('p',note,'advice'));
+          extra.append(button('Comenzar día extra',()=>this.run(()=>this.engine.createExtraDay({plan,date})),'primary wide'));
+        }
+      }catch(error){primary.append(el('p',`No se pudo armar el día extra: ${error.message}`,'advice'));}
     }
     if(this.engine.routines){
       const routines=el('section','','card v3-routines-entry');shell.append(routines);
