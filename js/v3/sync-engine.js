@@ -86,7 +86,7 @@ export class V3SyncEngine{
   async #runLocked(attemptId){
     const result={pulled:0,pushed:0,conflicts:0,failed:0,recovered:0,requeued:0,reconciled:0};
     result.recovered=await this.repository.recoverInterruptedOperations();
-    result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts});
+    result.requeued=await this.repository.requeueDueFailed({now:this.now(),maxAttempts:this.maxAttempts})+await this.repository.requeueNetworkFailures();
     if(!await rolloutAllowsRemote())return {...result,skipped:'rollout_blocked'};
     await this.#reconcileUnpushedDiscards(result);
     await this.#observe(attemptId,{phase:'pull'});if(!await this.#pull(result))return {...result,skipped:'rollout_blocked'};

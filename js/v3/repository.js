@@ -1,4 +1,5 @@
 import {ENTITY_STORES,INTERNAL_STORES,ROUTINE_STORES,openUserDatabase,requestResult,transactionDone} from './indexed-db.js';
+import {NETWORK_ERROR_PATTERN} from './sync-protocol.js';
 import {isV3LocalStorageEnabled} from './feature-flags.js';
 import {withV3SyncLock} from './sync-lock.js';
 import {summarizeOperations} from './diagnostic-model.js';
@@ -387,6 +388,25 @@ export class V3LocalRepository{
       const timestamp=nowIso();
       for(const operation of failed){
         operation.status='pending';operation.updated_at=timestamp;operation.next_attempt_at=null;
+        await requestResult(store.put(operation));
+        const entityStore=transaction.objectStore(operation.entity),record=await requestResult(entityStore.get(operation.record_id));
+        if(record){record.sync_status='pending';record.updated_at=timestamp;await requestResult(entityStore.put(record));}
+      }
+      return failed.length;
+    });
+  }
+
+  // Repair for builds before v79: a dropped connection (supabase-js status 0,
+  // "TypeError: Load failed") was stored as a permanent failure. Those are
+  // safe to resend: an insert the server already applied is confirmed by the
+  // engine's duplicate check instead of being written twice.
+  async requeueNetworkFailures(){
+    return runTransaction(this.database,[INTERNAL_STORES.operations,...ENTITY_STORES],'readwrite',async transaction=>{
+      const store=transaction.objectStore(INTERNAL_STORES.operations);
+      const failed=(await requestResult(store.index('status').getAll('failed'))).filter(operation=>operation.owner_id===this.userId&&NETWORK_ERROR_PATTERN.test(String(operation.last_error??'')));
+      const timestamp=nowIso();
+      for(const operation of failed){
+        operation.status='pending';operation.attempts=0;operation.next_attempt_at=null;operation.updated_at=timestamp;operation.last_error=`Reintento tras corte de red: ${operation.last_error}`.slice(0,500);
         await requestResult(store.put(operation));
         const entityStore=transaction.objectStore(operation.entity),record=await requestResult(entityStore.get(operation.record_id));
         if(record){record.sync_status='pending';record.updated_at=timestamp;await requestResult(entityStore.put(record));}

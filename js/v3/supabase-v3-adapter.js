@@ -4,7 +4,7 @@ const SCHEMA='nico_fit_v3';
 
 function asError(error,status){
   const value=error instanceof Error?error:new Error(error?.message||'Supabase V3 request failed.');
-  Object.assign(value,error||{});if(status&&!value.status)value.status=status;return value;
+  Object.assign(value,error||{});if(status!=null&&!value.status)value.status=status;return value;
 }
 
 function expect(result){

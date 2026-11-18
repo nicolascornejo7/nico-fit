@@ -89,11 +89,16 @@ export function unpushedDiscard(group,localRecord){
     localRecord?.deleted_at!=null&&localRecord.remote_version==null;
 }
 
+// supabase-js reports a dropped connection as an error object with status 0
+// and a message such as "TypeError: Load failed" (Safari) or "Failed to fetch".
+export const NETWORK_ERROR_PATTERN=/load failed|failed to fetch|networkerror|network request failed|fetcherror|the network connection was lost|internet connection appears to be offline|err_network|err_internet_disconnected|aborted/i;
+export const isNetworkError=error=>error?.name==='TypeError'||error?.status===0||NETWORK_ERROR_PATTERN.test(String(error?.message??error??''));
+
 export function classifySyncError(error){
   const code=String(error?.code||''),status=Number(error?.status||error?.statusCode||0);
   if(code==='PT409'||code==='55000'||status===409)return 'conflict';
   if(status===401||code==='401'||code==='PGRST301')return 'auth';
-  if(status===408||status===425||status===429||status>=500||error?.name==='TypeError'||code==='NETWORK_ERROR')return 'transient';
+  if(status===408||status===425||status===429||status>=500||code==='NETWORK_ERROR'||isNetworkError(error))return 'transient';
   return 'permanent';
 }
 

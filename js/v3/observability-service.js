@@ -1,4 +1,5 @@
 import * as flags from './feature-flags.js';
+import {NETWORK_ERROR_PATTERN} from './sync-protocol.js';
 import {safeDiagnosticError} from './diagnostic-model.js';
 import {V3ConflictService} from './conflict-service.js';
 import {withV3SyncLock} from './sync-lock.js';
@@ -18,6 +19,20 @@ async function storagePersistence(){
 function attemptView(row){return {attemptId:id(row.attemptId),startedAt:stamp(row.startedAt),finishedAt:stamp(row.finishedAt),status:statuses.has(row.status)?row.status:'unknown',phase:phases.has(row.phase)?row.phase:null,error:row.error?safeDiagnosticError(row.error,row.error.kind,phases.has(row.error.phase)?row.error.phase:null):null,result:Object.fromEntries(['pulled','pushed','conflicts','failed','recovered','requeued','reconciled','unresolvedFailed'].map(name=>[name,Number.isSafeInteger(row.result?.[name])&&row.result[name]>=0?row.result[name]:0]))};}
 export function v3FlagState(storage){return Object.fromEntries(['V3_LOCAL_STORAGE_FLAG','V3_SYNC_FLAG','V3_TRAINING_FLAG','V3_COACH_FLAG','V3_BRIDGE_FLAG','V3_BRIDGE_SYNC_FLAG','V3_CONFLICT_UI_FLAG','V3_OBSERVABILITY_FLAG','V3_AUDIT_FLAG','V3_ROUTINES_FLAG','V3_ROUTINES_SYNC_FLAG'].map(name=>{const key=flags[name];try{return [key,storage?.getItem(key)==='true'];}catch{return [key,false];}}));}
 
+// Our own migration messages (static, safe) and generic Postgres categories.
+const KNOWN_SERVER_MESSAGES=['invalid prescription','invalid target/rest/increment','invalid snapshot occurrence','catalog ownership or measurement mismatch','exercise must match complete version snapshot','routine snapshot identity mismatch','routine parent unavailable','session must preserve concrete published snapshot','published prescription is immutable; create a new routine version','historical routine reference is immutable','Remote row was not visible after mutation.'];
+export function failureReason(text){
+  const value=String(text??'');
+  if(!value)return null;
+  if(NETWORK_ERROR_PATTERN.test(value))return 'network';
+  const known=KNOWN_SERVER_MESSAGES.find(message=>value.includes(message));if(known)return known;
+  if(/violates foreign key constraint/i.test(value))return 'foreign_key';
+  if(/duplicate key value/i.test(value))return 'duplicate';
+  const check=value.match(/violates check constraint "([a-z0-9_]{1,63})"/i);if(check)return `check:${check[1]}`;
+  if(/row-level security/i.test(value))return 'row_level_security';
+  return 'unknown';
+}
+
 export class V3ObservabilityService{
   constructor({repository,engine=null,audit=null,flagStorage=globalThis.localStorage,online=()=>globalThis.navigator?.onLine!==false,locks=globalThis.navigator?.locks,now=Date.now}={}){
     if(!repository)throw new Error('Observability requires an authenticated repository.');
@@ -26,13 +41,16 @@ export class V3ObservabilityService{
     Object.assign(this,{repository,engine,audit,flagStorage,online,locks,now});this.conflicts=new V3ConflictService({repository,locks});
   }
   async snapshot(){
-    const [operational,conflicts]=await Promise.all([this.repository.operationalSnapshot({now:this.now(),maxAttempts:this.engine?.maxAttempts||5}),this.conflicts.list()]);
+    const [operational,conflicts,failedRows]=await Promise.all([this.repository.operationalSnapshot({now:this.now(),maxAttempts:this.engine?.maxAttempts||5}),this.conflicts.list(),this.repository.listOperations({status:'failed'}).catch(()=>[])]);
+    // Metadata only: entity, type, attempts and a classified, allow-listed reason;
+    // raw error text never leaves the device view (it may contain tokens).
+    const failedOperations=failedRows.slice(0,10).map(row=>({entity:row.entity,type:row.type,attempts:row.attempts??0,updatedAt:row.updated_at??null,reason:failureReason(row.last_error)}));
     const attempts=operational.attempts.map(attemptView),flagState=v3FlagState(this.flagStorage),lastAttempt=attempts[0]||null,lastSuccessful=operational.lastSuccess?attemptView(operational.lastSuccess):attempts.find(row=>row.status==='completed')||null;
     const resolutions=conflicts.flatMap(row=>row.decisions).sort((a,b)=>b.resolved_at.localeCompare(a.resolved_at)).slice(0,10).map(row=>({id:id(row.id),entity:row.entity,strategy:row.strategy,localRevision:row.local_revision,localRemoteVersion:row.local_remote_version,remoteVersion:row.remote_version,decidedAt:stamp(row.resolved_at),confirmedAt:stamp(row.confirmed_at),confirmation:row.confirmation}));
     const rollout=rolloutSnapshot(),online=!!this.online(),syncEnabled=rollout?rollout.remoteWritesAllowed:flagState[flags.V3_SYNC_FLAG],configured=!!this.engine,openConflicts=conflicts.filter(row=>row.status==='open').length;
     const errorAttempt=operational.lastError?attemptView(operational.lastError):attempts.find(row=>row.error)||null,lastError=operational.counts.failed||lastAttempt?.status==='failed'?errorAttempt?.error||(operational.counts.failed?safeDiagnosticError(null,'permanent','push'):null):null;
     const summary=rollout?.reason||(!online?'Estás offline. Tus cambios locales se conservan.':!syncEnabled?'La sincronización está pausada. Los datos siguen guardados localmente.':!configured?'No se pudo validar el motor de sincronización autorizado.':operational.lock.active?'Otra instancia puede estar sincronizando.':openConflicts?`${openConflicts} conflictos necesitan una decisión explícita.`:operational.counts.failed?operational.counts.failed===1?'1 operación fallida requiere revisión.':`${operational.counts.failed} operaciones fallidas requieren revisión.`:lastAttempt?.status==='failed'?'El último intento no terminó correctamente. Los cambios locales se conservan.':operational.counts.pending||operational.counts.syncing?`${operational.counts.pending+operational.counts.syncing} operaciones pendientes de sincronizar.`:lastSuccessful?'Sincronizado. Hay confirmación de un ciclo remoto exitoso.':'Sincronizado. No hay operaciones pendientes.');
-    return {online,summary,lastAttempt,lastSuccessfulSyncAt:lastSuccessful?.finishedAt||null,lastError,lastErrorAt:errorAttempt?.finishedAt||errorAttempt?.startedAt||null,checkpoints:Object.fromEntries(Object.entries(operational.checkpoints).map(([entity,cursor])=>[entity,{updatedAt:stamp(cursor.updatedAt),id:id(cursor.id)}])),operations:operational.counts,entities:operational.entities,queue:operational.queue,backoff:operational.backoff,lock:operational.lock,openConflicts,resolutionPending:conflicts.filter(row=>row.status==='resolution_pending').length,recentResolutions:resolutions,flags:flagState,rollout,pwa:await pwaVersionSnapshot(),storagePersistence:await storagePersistence(),actions:{syncNow:online&&syncEnabled&&configured&&!operational.lock.active,retryFailed:online&&syncEnabled&&configured&&!operational.lock.active&&operational.backoff.eligibleFailed>0},audit:await this.audit?.snapshot()||{enabled:flagState[flags.V3_AUDIT_FLAG],configured:false}};
+    return {online,summary,failedOperations,lastAttempt,lastSuccessfulSyncAt:lastSuccessful?.finishedAt||null,lastError,lastErrorAt:errorAttempt?.finishedAt||errorAttempt?.startedAt||null,checkpoints:Object.fromEntries(Object.entries(operational.checkpoints).map(([entity,cursor])=>[entity,{updatedAt:stamp(cursor.updatedAt),id:id(cursor.id)}])),operations:operational.counts,entities:operational.entities,queue:operational.queue,backoff:operational.backoff,lock:operational.lock,openConflicts,resolutionPending:conflicts.filter(row=>row.status==='resolution_pending').length,recentResolutions:resolutions,flags:flagState,rollout,pwa:await pwaVersionSnapshot(),storagePersistence:await storagePersistence(),actions:{syncNow:online&&syncEnabled&&configured&&!operational.lock.active,retryFailed:online&&syncEnabled&&configured&&!operational.lock.active&&operational.backoff.eligibleFailed>0},audit:await this.audit?.snapshot()||{enabled:flagState[flags.V3_AUDIT_FLAG],configured:false}};
   }
   async syncNow(){
     const rollout=rolloutSnapshot(),enabled=rollout?.source==='remote'?rollout.remoteWritesAllowed:flags.isV3SyncEnabled(this.flagStorage);
