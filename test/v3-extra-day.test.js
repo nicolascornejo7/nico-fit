@@ -21,13 +21,13 @@ const week=[done('2026-11-16',SOLO_MONDAY_PROGRAM[1]),done('2026-11-17',WEEKLY_P
 const muscles=plan=>new Set(plan.exercises.flatMap(item=>exerciseProfile(byKey(item.stable_key)).primary_muscles));
 const fromPlan=(date,plan)=>({session:{id:`s-${date}`,session_date:date,status:'completed'},exercises:plan.exercises.map((item,index)=>({id:`e-${date}-${index}`,exercise_catalog_id:item.catalog_id,catalog:byKey(item.stable_key),sets:Array.from({length:item.prescription.sets},(_,position)=>({id:`x-${date}-${index}-${position}`,position,is_completed:true,...(item.prescription.measurement_kind==='seconds'?{duration_seconds:30}:{reps:item.prescription.min}),rir:item.prescription.target_rir??2}))}))});
 
-test('Wednesday after a solo Monday and Tuesday legs fills the upper-body gaps and rests the legs',()=>{
+test('Wednesday rests everything trained hard on Tuesday and fills the other gaps',()=>{
   assert.equal(daysToMatchFor('match','2026-11-18'),3);
   const plan=extraDayPlan({history:week,date:'2026-11-18',mode:'match',catalog});
   assert.equal(plan.available,true);
   const trained=muscles(plan);
-  for(const muscle of ['rear_deltoids','chest'])assert.ok(trained.has(muscle),`${muscle} is the gap`);
-  for(const muscle of ['quadriceps','hamstrings','glutes'])assert.ok(!trained.has(muscle),`${muscle} trained yesterday`);
+  for(const muscle of ['rear_deltoids','triceps'])assert.ok(trained.has(muscle),`${muscle} is the gap`);
+  for(const muscle of ['chest','lats','upper_back','quadriceps','hamstrings','glutes','calves'])assert.ok(!trained.has(muscle),`${muscle} trained yesterday`);
   assert.ok(plan.totalSets<=20&&plan.exercises.length<=7);
   assert.ok(plan.exercises.every(item=>item.prescription.target_rir==null||item.prescription.target_rir>=2),'match on Saturday: RIR 2 or more');
   assert.match(plan.label,/^Día extra · .*Deltoides posterior/);
@@ -36,18 +36,21 @@ test('Wednesday after a solo Monday and Tuesday legs fills the upper-body gaps a
   // Nothing goes over its weekly max, and the targeted muscles reach their minimum.
   const after=weeklyMuscleVolume([...week,fromPlan('2026-11-18',plan)],{date:'2026-11-18'});
   for(const row of after.muscles)assert.ok(row.sets<=row.max,`${row.muscle} ${row.sets}>${row.max}`);
-  for(const muscle of ['rear_deltoids','chest','triceps'])assert.ok(after.muscles.find(row=>row.muscle===muscle).sets>=MUSCLE_TARGETS[muscle][0],muscle);
+  assert.ok(after.muscles.find(row=>row.muscle==='triceps').sets>=MUSCLE_TARGETS.triceps[0]);
+  // Face pull also loads the rested upper back, so the rest of the rear-delt work waits for Saturday.
+  assert.equal(after.muscles.find(row=>row.muscle==='rear_deltoids').sets,4);
+  assert.ok(plan.notes.some(note=>/Pecho/.test(note)&&/Descansan/.test(note)));
 });
 
-test('a Saturday without match after the extra Wednesday turns to the legs',()=>{
+test('a Saturday without match after the extra Wednesday completes the week',()=>{
   const wednesday=extraDayPlan({history:week,date:'2026-11-18',mode:'no_match',catalog});
   const history=[...week,fromPlan('2026-11-18',wednesday)];
   const saturday=extraDayPlan({history,date:'2026-11-21',mode:'no_match',catalog});
   const trained=muscles(saturday);
-  for(const muscle of ['quadriceps','hamstrings'])assert.ok(trained.has(muscle),muscle);
+  for(const muscle of ['chest','lats','quadriceps','hamstrings'])assert.ok(trained.has(muscle),muscle);
   const after=weeklyMuscleVolume([...history,fromPlan('2026-11-21',saturday)],{date:'2026-11-21'});
   for(const row of after.muscles)assert.ok(row.sets<=row.max,`${row.muscle} ${row.sets}>${row.max}`);
-  for(const muscle of LEGS)assert.ok(after.muscles.find(row=>row.muscle===muscle).sets>=MUSCLE_TARGETS[muscle][0],muscle);
+  for(const row of after.muscles)assert.ok(row.sets>=row.min,`${row.muscle} ${row.sets}<${row.min}`);
 });
 
 test('no extra day on match day, no legs two days out, and nothing when the week is complete',()=>{

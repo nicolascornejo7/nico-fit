@@ -1,6 +1,6 @@
 // Extra gym day (a day with no programmed routine): rules over the athlete's own
 // week, no AI. Muscles below their weekly hard-set range get exercises until
-// they reach the range, without training a muscle that took 4+ hard sets yesterday or
+// they reach the range, without training a muscle that took 3+ hard sets yesterday or
 // today, without legs close to a match, and without passing any muscle's max.
 import {exerciseProfile} from './exercise-recommendations.js';
 import {plyoProfile} from './plyometrics.js';
@@ -11,7 +11,7 @@ const LEGS=new Set(['quadriceps','hamstrings','glutes','calves','adductors']);
 const SKIP_ROLES=new Set(['activation','power','speed']);
 const ROLE_ORDER={main_strength:0,accessory:1,prevention:2};
 const ALIAS={front_deltoids:'deltoids',brachialis:'biceps',obliques:'core'};
-export const EXTRA_DAY_LIMITS=Object.freeze({maxSets:20,maxExercises:7,minSets:2,maxSetsPerExercise:4,maxSetsPerMuscle:6,margin:2,recentBlock:4});
+export const EXTRA_DAY_LIMITS=Object.freeze({maxSets:20,maxExercises:7,minSets:2,maxSetsPerExercise:4,maxSetsPerMuscle:6,margin:2,recentBlock:3});
 // Familiar first choices per muscle; anything else in the catalog is a fallback.
 export const EXTRA_DAY_PREFERRED=Object.freeze({
   chest:['press-banca','press-inclinado-mancuernas','cruce-poleas','aperturas-mancuernas'],
